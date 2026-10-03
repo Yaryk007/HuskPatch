@@ -286,6 +286,18 @@ HuskDualMapping husk_ios_jit_allocate(size_t bytes)
                 husk_prewarmed.size);
         return husk_prewarmed;
     }
+    /*
+     * HuskPatch: no second trap after a prewarm already went unanswered.
+     * Inside qemu_init there is even less chance StikDebug is listening, and a
+     * debugger that is attached but not answering keeps the whole process
+     * stopped on the brk, so the app freezes. Failing here lets region.c
+     * fall back to MAP_JIT, or lets qemu_init report the error.
+     */
+    if (husk_prewarm_done) {
+        fprintf(stderr, "[husk-jit] prewarm failed earlier; not trapping again\n");
+        HuskDualMapping none = { NULL, NULL, 0 };
+        return none;
+    }
     return husk_ios_jit_allocate_real(bytes);
 }
 

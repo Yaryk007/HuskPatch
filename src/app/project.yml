@@ -35,7 +35,7 @@ targets:
         buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.husk.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.huskpatch.app
         # Set your team here rather than in Xcode's UI: this file is the source of
         # truth, and `xcodegen generate` overwrites Husk.xcodeproj.
         # DEVELOPMENT_TEAM: XXXXXXXXXX

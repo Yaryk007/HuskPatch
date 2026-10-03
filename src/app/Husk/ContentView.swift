@@ -160,6 +160,15 @@ struct ContentView: View {
             return
         }
 
+        // HuskPatch: claim the JIT region now, on the first foreground pass
+        // after StikDebug attaches, while StikDebug is still running. Upstream
+        // waited for the Start button when the runtime was already downloaded.
+        // By then iOS had usually suspended StikDebug, so the `brk` behind the
+        // claim was never answered. The debugger keeps the whole process
+        // stopped on an unanswered `brk`, so the app froze. After the first
+        // call this is a no-op, and on success it also detaches the debugger.
+        JITBootstrap.prewarm()
+
         // Start on launch, when that is what was asked for.
         //
         // This deliberately did nothing for a long time, and the reason was

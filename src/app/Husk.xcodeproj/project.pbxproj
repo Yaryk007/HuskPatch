@@ -355,7 +355,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/../../build/ios-arm64/lib",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.husk.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.huskpatch.app;
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = Husk/HuskBridge.h;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -385,7 +385,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/../../build/ios-arm64/lib",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.husk.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.huskpatch.app;
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = Husk/HuskBridge.h;
 				TARGETED_DEVICE_FAMILY = 1;

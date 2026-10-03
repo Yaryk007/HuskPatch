@@ -72,7 +72,11 @@ enum JITBootstrap {
         HuskLog.log("jit", "claiming \(jitBytes / (1024 * 1024)) MiB of JIT memory now, "
                          + "before the guest download -- StikDebug does not stay attached")
         let ok = husk_ios_jit_prewarm(jitBytes)
-        if ok { prewarmed = true; lastFailure = nil }
+        if ok {
+            prewarmed = true
+            lastFailure = nil
+            detachIfDone()
+        }
         else if mapJITWorks {
             // Not a failure worth reporting: this is the ordinary shape of an
             // iOS that does not need a trap servicer. QEMU maps its own buffer
@@ -91,6 +95,57 @@ enum JITBootstrap {
                               : "JIT prewarm FAILED -- StikDebug is not servicing traps")
         return ok
     }
+
+    /// HuskPatch: whether to leave StikDebug attached after the region is held.
+    ///
+    /// Upstream never detached, although the design (docs/02-jit-substrate.md)
+    /// says it should. While a debugger is attached, every stop event (a `brk`,
+    /// a signal, a Mach exception) halts the whole process until StikDebug
+    /// answers. iOS suspends StikDebug soon after it hands the foreground back,
+    /// so the next stop freezes Husk with nothing in the log. On iOS 26 that
+    /// looks like Android hanging on its boot screen. The RX pages stay valid
+    /// after detach (AetherPS4 runs this way on TXM devices), so detaching once
+    /// the region is held removes the debugger from the picture.
+    static var keepDebuggerAttached: Bool {
+        get { UserDefaults.standard.bool(forKey: "huskpatch.keepDebuggerAttached") }
+        set { UserDefaults.standard.set(newValue, forKey: "huskpatch.keepDebuggerAttached") }
+    }
+
+    /// True once this process has told StikDebug to let go.
+    nonisolated(unsafe) static private(set) var detached = false
+
+    /// Release the debugger once the JIT region is held. It is no longer
+    /// needed for anything, and leaving it attached is what froze the app.
+    private static func detachIfDone() {
+        guard prewarmed, !detached, !keepDebuggerAttached else { return }
+        HuskLog.log("jit", "JIT region held; detaching StikDebug so a suspended "
+                         + "debugger cannot stall the process later")
+        husk_ios_jit_detach()
+        detached = true
+    }
+
+    /// Whether this device enforces TXM, so that only a trap servicer can grant
+    /// executable memory. Mirrors StikDebug's ProcessInfo+TXM rule: on iOS 26,
+    /// iPhone14,2 and newer and iPad14,5 and newer. On iOS 27, everything
+    /// except iPad8,11/12.
+    static let deviceEnforcesTXM: Bool = {
+        var sys = utsname()
+        uname(&sys)
+        let machine = withUnsafeBytes(of: &sys.machine) {
+            String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
+        }
+        let major = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        if major >= 27 { return machine != "iPad8,11" && machine != "iPad8,12" }
+        guard major == 26 else { return false }
+        let family = machine.hasPrefix("iPhone") ? "iPhone"
+                   : machine.hasPrefix("iPad") ? "iPad" : ""
+        let parts = machine.dropFirst(family.count).split(separator: ",")
+        guard parts.count == 2, let hi = Int(parts[0]), let lo = Int(parts[1]) else {
+            return false
+        }
+        let (minHi, minLo) = family == "iPhone" ? (14, 2) : family == "iPad" ? (14, 5) : (Int.max, 0)
+        return hi > minHi || (hi == minHi && lo >= minLo)
+    }()
 
     /// Why the last prewarm failed, for the UI to show.
     ///
@@ -112,7 +167,29 @@ enum JITBootstrap {
     /// without servicing traps -- which on iOS 26 it has no reason to do,
     /// because MAP_JIT works there -- Husk concluded there was no executable
     /// memory and refused to start. There was; nobody had asked.
-    static var mapJITWorks: Bool { husk_ios_jit_mapjit_works() }
+    ///
+    /// HuskPatch: not run on a TXM device. MAP_JIT memory cannot execute there,
+    /// and the probe is not harmless. With a debugger attached, its fault goes
+    /// to the debugger as a stop, not to the probe's signal guard. If
+    /// StikDebug is not answering, that stop freezes the app. Upstream ran
+    /// this from the Settings screen's body, so opening Settings could freeze
+    /// it.
+    static var mapJITWorks: Bool {
+        if let known = mapJITResult { return known }
+        let result: Bool
+        if deviceEnforcesTXM {
+            HuskLog.log("jit", "TXM device: MAP_JIT cannot execute here, not probing")
+            result = false
+        } else {
+            result = husk_ios_jit_mapjit_works()
+        }
+        mapJITResult = result
+        return result
+    }
+
+    /// The MAP_JIT answer if it has been worked out, without working it out.
+    /// For display only: views must never trigger the probe.
+    nonisolated(unsafe) static private(set) var mapJITResult: Bool?
 
     /// True only after a JIT region has been allocated AND passed the execute
     /// self-test — which happens inside `qemu_init`. It is therefore always false
