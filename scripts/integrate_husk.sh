@@ -19,8 +19,10 @@ if grep -q "alloc_code_gen_buffer_splitwx_husk_ios" "$Q/tcg/region.c"; then
     echo "[skip] tcg/region.c already patched"
 else
     echo "[patch] tcg/region.c <- husk-qemu-ios-jit.patch"
-    patch -p0 -d / --silent < "$HUSK_ROOT/patches/husk-qemu-ios-jit.patch" 2>/dev/null \
-      || patch -p1 -d "$Q" --silent < "$HUSK_ROOT/patches/husk-qemu-ios-jit.patch" 2>/dev/null \
+    # The patch's header names a file in the author's /tmp, so name the target
+    # explicitly rather than relying on -p stripping.
+    patch --batch --forward --silent "$Q/tcg/region.c" \
+          < "$HUSK_ROOT/patches/husk-qemu-ios-jit.patch" \
       || { echo "  FAILED to apply region.c patch" >&2; exit 1; }
 fi
 
