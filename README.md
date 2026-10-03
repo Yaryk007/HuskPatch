@@ -16,9 +16,9 @@ fixes Android freezing at startup on iOS 26.
 
 ## Get the IPA
 
-Open **Actions → Build IPA**, then download **HuskPatch-ipa** from the newest
+Open **Tags - 0.5.1**, then download **HuskPatch-ipa** from the newest
 green run. Each push to `main` rebuilds it, or click **Run workflow**. The IPA
-is unsigned; your sideloading tool signs it.
+is unsigned; your sideloading tool signs it. 
 
 ## Using it
 
