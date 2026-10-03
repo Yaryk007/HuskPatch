@@ -63,4 +63,4 @@ debugger attaching at runtime. See [docs/01-licensing.md](docs/01-licensing.md).
 
 ## Notice
 
-This was rebuilt via claude opus 5.5 so expect some issues
+This was rebuilt via claude opus 5.5 so expect some issues, and also updates to original husk may be pushed and i dont focus to this as much.
