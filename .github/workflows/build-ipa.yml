@@ -24,6 +24,8 @@ jobs:
       - name: Host tools
         run: |
           brew install meson ninja pkg-config xcodegen qemu bison flex gettext || true
+          # virglrenderer's meson build imports yaml from Homebrew's python3.
+          /opt/homebrew/bin/python3 -m pip install --break-system-packages --user pyyaml mako packaging
           echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
           echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
           # build_gpu_ios.sh calls meson and ninja by their Apple-silicon Homebrew path.
