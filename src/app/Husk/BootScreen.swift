@@ -19,6 +19,8 @@ struct BootScreen: View {
     @State private var began = Date()
     @State private var now = Date()
     @State private var pulse = false
+    /// When bootProgress last moved, so the bar can creep between milestones.
+    @State private var lastStep = Date()
 
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     private let rotate = Timer.publish(every: 3.4, on: .main, in: .common).autoconnect()
@@ -101,6 +103,7 @@ struct BootScreen: View {
             .padding(.bottom, 26)
         }
         .onReceive(tick) { now = $0 }
+        .onChange(of: runner.bootProgress) { _ in lastStep = Date() }
         .onReceive(rotate) { _ in
             withAnimation(.easeInOut(duration: 0.45)) { phrase += 1 }
         }
@@ -120,7 +123,7 @@ struct BootScreen: View {
             .frame(height: 5)
 
             HStack {
-                Text(runner.bootProgress > 0 ? "\(runner.bootProgress)%" : "starting")
+                Text(shown > 0 ? "\(shown)%" : "starting")
                     .font(.technical(12, weight: .medium))
                     .foregroundStyle(Theme.accent)
                 Spacer()
@@ -136,7 +139,20 @@ struct BootScreen: View {
     private var fraction: CGFloat {
         // Never zero: a bar with nothing in it reads as stuck rather than as
         // early, and the guest says nothing at all for the first few seconds.
-        max(CGFloat(runner.bootProgress) / 100, 0.03)
+        max(CGFloat(shown) / 100, 0.03)
+    }
+
+    /// HuskPatch: progress as shown. The real number only moves when a
+    /// milestone line appears, and late in a cold boot those are minutes
+    /// apart. In between, the bar gains 1% every 30 seconds. It stops one
+    /// short of the next milestone and never passes 95%, so it can never
+    /// claim more progress than the guest has made.
+    private var shown: Int {
+        let real = runner.bootProgress
+        guard real > 0, real < 100, !QemuRunner.didRestore else { return real }
+        let next = QemuRunner.bootMilestones.map { $0.2 }.first { $0 > real } ?? 100
+        let creep = Int(now.timeIntervalSince(lastStep) / 30)
+        return max(real, min(real + creep, next - 1, 95))
     }
 
     /// An estimate from this boot's own pace, not from a number someone typed
@@ -144,6 +160,14 @@ struct BootScreen: View {
     /// again near the end, where being wrong is most annoying.
     private var remaining: String? {
         let done = Double(runner.bootProgress)
+        // HuskPatch: past zygote the remaining time is mostly app compilation,
+        // and the early pace says nothing about it. The estimate kept
+        // promising "about a minute" for ten minutes, so show elapsed time.
+        if done >= 58, !QemuRunner.didRestore {
+            let mins = Int(now.timeIntervalSince(QemuRunner.bootStarted) / 60)
+            return mins < 1 ? "first boot takes 5–15 min"
+                            : "\(mins) min · first boot takes 5–15 min"
+        }
         guard done >= 8, done <= 92 else { return nil }
         let elapsed = now.timeIntervalSince(began)
         guard elapsed > 6 else { return nil }

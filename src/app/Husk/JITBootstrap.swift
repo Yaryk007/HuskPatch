@@ -125,27 +125,9 @@ enum JITBootstrap {
     }
 
     /// Whether this device enforces TXM, so that only a trap servicer can grant
-    /// executable memory. Mirrors StikDebug's ProcessInfo+TXM rule: on iOS 26,
-    /// iPhone14,2 and newer and iPad14,5 and newer. On iOS 27, everything
-    /// except iPad8,11/12.
-    static let deviceEnforcesTXM: Bool = {
-        var sys = utsname()
-        uname(&sys)
-        let machine = withUnsafeBytes(of: &sys.machine) {
-            String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
-        }
-        let major = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
-        if major >= 27 { return machine != "iPad8,11" && machine != "iPad8,12" }
-        guard major == 26 else { return false }
-        let family = machine.hasPrefix("iPhone") ? "iPhone"
-                   : machine.hasPrefix("iPad") ? "iPad" : ""
-        let parts = machine.dropFirst(family.count).split(separator: ",")
-        guard parts.count == 2, let hi = Int(parts[0]), let lo = Int(parts[1]) else {
-            return false
-        }
-        let (minHi, minLo) = family == "iPhone" ? (14, 2) : family == "iPad" ? (14, 5) : (Int.max, 0)
-        return hi > minHi || (hi == minHi && lo >= minLo)
-    }()
+    /// executable memory. Uses the same rule as the "TXM expected" line in the
+    /// log banner, so the two can never disagree.
+    static let deviceEnforcesTXM: Bool = HuskLog.expectsTXM(model: HuskLog.deviceModel)
 
     /// Why the last prewarm failed, for the UI to show.
     ///

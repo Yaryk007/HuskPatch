@@ -17,3 +17,6 @@ DerivedData/
 # stray ar(1) extraction artifact
 __.SYMDEF*
 third_party/gpu/
+
+# Device logs shared for debugging (may contain personal paths)
+fix stuff/

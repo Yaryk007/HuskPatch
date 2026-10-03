@@ -23,7 +23,7 @@
 	<key>CFBundleDisplayName</key>
 	<string>HuskPatch</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.5.0</string>
+	<string>0.5.2</string>
 	<key>CFBundleVersion</key>
 	<string>2</string>
 	<key>UILaunchScreen</key>
