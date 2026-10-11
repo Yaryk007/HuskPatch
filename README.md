@@ -1,5 +1,7 @@
 # Husk
 
+Leviidev is making husk 2.0 , get it early here.
+
 > **HuskPatch** is a fork of [Leviidev/Husk](https://github.com/Leviidev/Husk) that builds the unreleased
 > `main` branch early through GitHub Actions (**Actions → Build IPA**, artifact **Husk-ipa**). These are
 > untested pre-release builds; use [official releases](https://github.com/Leviidev/Husk/releases) for
