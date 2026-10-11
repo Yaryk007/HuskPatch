@@ -1,6 +1,6 @@
 # Husk
 
-Leviidev is making husk 2.0 , get it early here.
+Leviidev is making husk 2.0 , get it early here, the text bellow is not what it was, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed.
 
 > **HuskPatch** is a fork of [Leviidev/Husk](https://github.com/Leviidev/Husk) that builds the unreleased
 > `main` branch early through GitHub Actions (**Actions → Build IPA**, artifact **Husk-ipa**). These are
