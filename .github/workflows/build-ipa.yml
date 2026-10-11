@@ -1,0 +1,67 @@
+name: Build IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          XC="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          echo "Using $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Host tools
+        run: |
+          brew install meson ninja pkg-config xcodegen qemu bison flex gettext cmake e2fsprogs || true
+          # virglrenderer's meson build imports yaml from Homebrew's python3.
+          /opt/homebrew/bin/python3 -m pip install --break-system-packages --user pyyaml mako packaging
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
+          # build_gpu_ios.sh calls meson and ninja by their Apple-silicon Homebrew path.
+          ls /opt/homebrew/bin/meson /opt/homebrew/bin/ninja
+          # build_rppairing_ios.sh (built-in StikJIT pairing) is Rust.
+          rustup target add aarch64-apple-ios
+
+      # ANGLE, MoltenVK and the dependency stack take most of the build time
+      # and only change when the build scripts or pins do, so they are cached.
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            third_party/sources
+            third_party/gpu
+            build/ios-arm64/sysroot
+            build/ios-arm64/lib/MoltenVK.xcframework
+          key: deps-v2-${{ runner.os }}-${{ hashFiles('scripts/sources.sh', 'scripts/build_ios.sh', 'scripts/build_angle_ios.sh', 'scripts/build_gpu_ios.sh', 'scripts/build_moltenvk_ios.sh', 'patches/**') }}
+
+      - name: Build
+        run: ./scripts/ci_build.sh "$PWD/build/Husk.ipa"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Husk-ipa
+          path: |
+            build/Husk.ipa
+            build/Husk.tipa
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            build/logs
+            /tmp/husk_ipa/build.log
+          if-no-files-found: ignore
