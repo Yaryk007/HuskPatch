@@ -1,6 +1,6 @@
 # HuskPatch
 
-Leviidev is making husk 2.0 , get it early here
+Leviidev is making husk 2.0 , get it early here.
 A fork of [Husk](https://github.com/Leviidev/Husk) (Android apps on iOS) that
 fixes Android freezing at startup on iOS 26.
 
