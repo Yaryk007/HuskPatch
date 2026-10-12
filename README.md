@@ -2,11 +2,16 @@
 
 Leviidev is making husk 2.0 , get it early here.
 
-> **HuskPatch** is a fork of [Leviidev/Husk](https://github.com/Leviidev/Husk) that builds the unreleased
-> `main` branch early through GitHub Actions (**Actions → Build IPA**, artifact **Husk-ipa**). These are
-> untested pre-release builds; use [official releases](https://github.com/Leviidev/Husk/releases) for
-> anything stable. HuskPatch's own iOS 26 JIT fixes are now part of Husk. The old HuskPatch 0.5.2 is
-> kept on the [`huskpatch-0.5.2`](https://github.com/Yaryk007/HuskPatch/tree/huskpatch-0.5.2) branch.
+> **HuskPatch** is a fork of [Leviidev/Husk](https://github.com/Leviidev/Husk) 2.0 with a few additions:
+>
+> - **Fix: starting an app right after JIT turns on.** The JIT region was claimed by whichever caller came first,
+>   and a game launched in that second got "no region" and failed or crashed. Callers now wait for the claim.
+> - **Android 16 Style** (Settings › Appearance): Material 3 Expressive colours from your accent colour, large
+>   rounded cards, pill buttons and Android switches.
+>
+> Builds: **Actions → Build IPA**, artifact **Husk-ipa**. These are untested; use
+> [official releases](https://github.com/Leviidev/Husk/releases) for anything stable. The old HuskPatch 0.5.2
+> is on the [`huskpatch-0.5.2`](https://github.com/Yaryk007/HuskPatch/tree/huskpatch-0.5.2) branch.
 
 <p align="center">
   <a href="https://trendshift.io/repositories/233057?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-233057" target="_blank" rel="noopener noreferrer">

@@ -191,7 +191,7 @@ struct PictureView: View {
 
     var body: some View {
         ZStack {
-            Color(uiColor: .secondarySystemBackground)
+            Theme.card
             if let image {
                 Image(uiImage: image).resizable().aspectRatio(contentMode: fill ? .fill : .fit).transition(.opacity)
             }

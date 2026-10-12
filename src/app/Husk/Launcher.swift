@@ -217,7 +217,7 @@ private struct Tile<Content: View>: View {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous))
     }
 }
 
@@ -282,7 +282,7 @@ private struct LeadTile: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
         }
-        .background(Color(uiColor: .secondarySystemBackground))
+        .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
@@ -446,7 +446,7 @@ private struct WelcomeCard: View {
             .buttonStyle(PrimaryButtonStyle())
         }
         .padding(20)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }
 
@@ -470,7 +470,7 @@ private struct ShelfHeader: View {
 /// under a dark fade so text on it reads. Android icons are all most apps carry, and this is what makes them big.
 struct IconBackdrop: View {
     let path: String?
-    var fallback: Color = Color(uiColor: .secondarySystemBackground)
+    var fallback: Color = Theme.card
 
     var body: some View {
         ZStack {
@@ -494,7 +494,7 @@ struct IconBackdrop: View {
 struct ItemBackdrop: View {
     let item: LibraryItem
     var pixels: Int = 1200
-    var fallback: Color = Color(uiColor: .secondarySystemBackground)
+    var fallback: Color = Theme.card
     @ObservedObject private var showcase = ShowcaseStore.shared
 
     var body: some View {
@@ -727,7 +727,7 @@ struct BusyStrip: View {
             Spacer(minLength: 0)
         }
         .padding(14)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 

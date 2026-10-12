@@ -529,6 +529,12 @@ tl_dual_mapping *tl_find_stikdebug_prewarmed(void)
     bool (*prewarm_fn)(size_t) = (bool (*)(size_t))dlsym(RTLD_DEFAULT, "husk_ios_jit_prewarm");
     if (prewarm_fn) {
         prewarm_fn(256 * 1024 * 1024);
+        /* HuskPatch: the claim (ours, or one already running on another thread, which prewarm now waits for) is done:
+         * ask for the region again rather than falling through to the offset guesses below. */
+        if (get_fn) {
+            tl_dual_mapping *m = get_fn();
+            if (is_valid_dual_mapping(m)) return m;
+        }
     }
 
     void *fn = dlsym(RTLD_DEFAULT, "husk_ios_jit_prewarm");

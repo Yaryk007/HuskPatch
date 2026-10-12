@@ -57,7 +57,7 @@ private struct BigButton: View {
                 .frame(height: 50)
                 .foregroundStyle(prominent ? Color.white : Color.accentColor)
                 .background(prominent ? Color.accentColor : Color.accentColor.opacity(0.14),
-                            in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                            in: Theme.buttonShape(15))
         }
         .buttonStyle(CardButtonStyle())
     }

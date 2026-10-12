@@ -13,20 +13,25 @@ import UIKit
 /// The one thing that is not the system's is the chrome over the guest's picture (`huskPanel`,
 /// `GuestControl`), which is drawn flat and always dark: it floats over a picture of another phone.
 enum Theme {
-    /// The page behind grouped content.
-    static let bgUI = UIColor.systemGroupedBackground
-    static let bg = Color(uiColor: bgUI)
-    /// Cards, rows, anything holding content.
-    static let surface = Color(uiColor: .secondarySystemGroupedBackground)
-    /// One step further up: wells, chips, the things that sit on a card.
-    static let surfaceHigh = Color(uiColor: .tertiarySystemFill)
-    /// The edge that separates a surface from the page.
-    static let hairlineUI = UIColor.separator
-    static let hairline = Color(uiColor: hairlineUI)
+    // HuskPatch: these are computed rather than constant so the Android 16 style (Material3) can swap in
+    // its tonal palette. With the style off they are exactly the system colours they always were.
 
-    static let textUI = UIColor.label
-    static let text = Color(uiColor: textUI)
-    static let textDim = Color(uiColor: .secondaryLabel)
+    /// The page behind grouped content.
+    static var bgUI: UIColor { Material3.isOn ? Material3.surface : .systemGroupedBackground }
+    static var bg: Color { Color(uiColor: bgUI) }
+    /// Cards, rows, anything holding content.
+    static var surface: Color { Color(uiColor: Material3.isOn ? Material3.surfaceContainer : .secondarySystemGroupedBackground) }
+    /// One step further up: wells, chips, the things that sit on a card.
+    static var surfaceHigh: Color { Color(uiColor: Material3.isOn ? Material3.surfaceContainerHigh : .tertiarySystemFill) }
+    /// A tile or card on a plain (not grouped) page.
+    static var card: Color { Color(uiColor: Material3.isOn ? Material3.surfaceContainer : .secondarySystemBackground) }
+    /// The edge that separates a surface from the page.
+    static var hairlineUI: UIColor { Material3.isOn ? Material3.outlineVariant : .separator }
+    static var hairline: Color { Color(uiColor: hairlineUI) }
+
+    static var textUI: UIColor { Material3.isOn ? Material3.onSurface : .label }
+    static var text: Color { Color(uiColor: textUI) }
+    static var textDim: Color { Color(uiColor: Material3.isOn ? Material3.onSurfaceVariant : .secondaryLabel) }
 
     /// The user's accent: what is pressed, selected or switched on.
     static var accent: Color { AppTheme.shared.accentColor }
@@ -78,8 +83,10 @@ enum Theme {
         }
     }
 
-    static let cardCorner: CGFloat = 14
-    static let rowCorner: CGFloat = 12
+    static var cardCorner: CGFloat { Material3.isOn ? Material3.cardCorner : 14 }
+    static var rowCorner: CGFloat { Material3.isOn ? Material3.rowCorner : 12 }
+    /// A home-screen tile's corner.
+    static var tileCorner: CGFloat { Material3.isOn ? Material3.cardCorner : 22 }
 
     static var backdrop: some View { bg.ignoresSafeArea() }
 }
@@ -131,10 +138,12 @@ struct PrimaryButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 15)
             .background(enabled ? Theme.accent : Theme.surfaceHigh,
-                        in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                        in: Theme.buttonShape(15))
             .opacity(configuration.isPressed ? 0.85 : 1)
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? (Material3.isOn ? 0.96 : 0.985) : 1)
+            // Material 3 Expressive presses with a spring, not an ease.
+            .animation(Material3.isOn ? .spring(response: 0.25, dampingFraction: 0.55) : .easeOut(duration: 0.12),
+                       value: configuration.isPressed)
     }
 }
 

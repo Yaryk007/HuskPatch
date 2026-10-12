@@ -130,8 +130,17 @@ struct SettingsTab: View {
 
 /// A Form, as the system draws one.
 private struct HuskForm: ViewModifier {
+    @AppStorage(Material3.key) private var material = false
+
     func body(content: Content) -> some View {
-        content.navigationBarTitleDisplayMode(.inline)
+        if material {
+            // Android 16 style: the page on Material's tinted surface rather than the system's grey.
+            content.navigationBarTitleDisplayMode(.inline)
+                .scrollContentBackground(.hidden)
+                .background(Theme.bg.ignoresSafeArea())
+        } else {
+            content.navigationBarTitleDisplayMode(.inline)
+        }
     }
 }
 
@@ -695,6 +704,7 @@ struct AppearanceSettings: View {
     @State private var appIcon = HuskAppIcon.current
     @AppStorage(Theme.Appearance.key) private var appearance = Theme.Appearance.system
     @AppStorage(Holiday.key) private var holiday = true
+    @AppStorage(Material3.key) private var material3 = false
     @ObservedObject private var theme = AppTheme.shared
     @Environment(\.colorScheme) private var scheme
     @State private var custom: Color = AppTheme.shared.accentColor
@@ -717,6 +727,16 @@ struct AppearanceSettings: View {
             } footer: {
                 Text("System follows the phone: light by day, dark by night. The guest's own "
                    + "screen stays dark either way — it is a picture of another phone.")
+            }
+
+            Section {
+                Toggle("Android 16 Style", isOn: $material3)
+            } header: {
+                Text("Style")
+            } footer: {
+                Text("Draws Husk like Android 16's Material 3 Expressive: colours derived from your accent, "
+                   + "large rounded cards, pill buttons and Android's switches. The tab and navigation bars "
+                   + "change the next time Husk opens.")
             }
 
             Section {

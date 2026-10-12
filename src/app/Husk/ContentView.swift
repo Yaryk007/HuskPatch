@@ -120,6 +120,8 @@ struct ContentView: View {
 
         }
         .tint(theme.accentColor)
+        // HuskPatch: the Android 16 style's switches and type, when it is on.
+        .modifier(Material3Root())
         // The user's appearance: the system's, unless they pinned one. Set on the
         // window rather than with .preferredColorScheme — see Theme.apply.
         .onAppear { Theme.apply(appearance) }

@@ -59,6 +59,8 @@ struct HuskApp: App {
         // to lose the first line of.
         HuskLog.start()
         HuskLog.logFootprint("app-launch")
+        // HuskPatch: the Android 16 style's tab and navigation bars, before the first bar is built.
+        Material3.applyBars()
         // Before anything asks a debugger for anything: was this process already marked as debugged (a jailbreak that allows JIT in apps)?
         JITBootstrap.noteLaunchState()
         HuskLog.log("jit", "debugged at launch: \(JITBootstrap.debuggedAtLaunch); TrollStore install: \(JITBootstrap.isInstalledWithTrollStore); jailbreak: \(JITBootstrap.isJailbroken); can grant its own JIT: \(JITBootstrap.canGrantOwnJIT)")
