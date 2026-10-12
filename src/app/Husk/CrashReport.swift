@@ -165,6 +165,14 @@ struct CrashReportSheet: View {
     let report: CrashReport.Report
     @Environment(\.dismiss) private var dismiss
     @State private var file: URL?
+    @State private var reporting: CompatSubject?
+
+    /// The game, for a report to the compatibility list.
+    private var subject: CompatSubject? {
+        guard let app = TranslationLayerStore.shared.apps.first(where: { $0.id == report.appID }), let pkg = app.packageName else { return nil }
+        return CompatSubject(package: pkg, name: app.label, isGame: LibraryItem.game(app).isGame, iconPath: app.iconPath,
+                             crash: "\(report.cause.title). \(report.cause.detail)")
+    }
 
     var body: some View {
         NavigationStack {
@@ -199,6 +207,13 @@ struct CrashReportSheet: View {
                         }
                         .buttonStyle(.borderedProminent)
                     }
+                    if let subject {
+                        Button { reporting = subject } label: {
+                            Label("Report to the Compatibility List", systemImage: "list.bullet.clipboard")
+                                .frame(maxWidth: .infinity).padding(.vertical, 6)
+                        }
+                        .buttonStyle(.bordered)
+                    }
                     Text("The report holds the full log of that run and which device and build it was on. Nothing is sent anywhere unless you share it.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -209,5 +224,6 @@ struct CrashReportSheet: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
         .task { file = CrashReport.writeReport(report) }
+        .sheet(item: $reporting) { CompatReportSheet(subject: $0) }
     }
 }

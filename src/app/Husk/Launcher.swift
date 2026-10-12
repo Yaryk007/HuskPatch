@@ -43,7 +43,7 @@ enum LibraryItem: Identifiable, Hashable {
     /// Games on the translation layer (a Flutter app is an app unless it calls itself a game), and what Android itself files as a game.
     var isGame: Bool {
         switch self {
-        case .game(let g): return (g.report?.nativeEngine != .flutter && g.report?.webKind == nil) || g.isGameCategory
+        case .game(let g): return (g.report?.nativeEngine != .flutter && g.report?.engine != "Flutter" && g.report?.webKind == nil) || g.isGameCategory
         case .app(let p): return p.category == "Game"
         case .android: return false
         }
@@ -136,6 +136,7 @@ struct HomeView: View {
     @ObservedObject private var jit = JITCoordinator.shared
     @ObservedObject private var incoming = IncomingFiles.shared
     @Environment(\.colorScheme) private var scheme
+    @AppStorage(Holiday.key) private var holiday = true
 
     /// Everything, most recent first.
     private var all: [LibraryItem] { Launcher.byRecent(Launcher.items(store: store, host: host)) }
@@ -153,6 +154,7 @@ struct HomeView: View {
                         }
                         Text("Husk")
                             .font(.system(size: 28, weight: .heavy, design: .rounded))
+                        if holiday { ChristmasTree(size: 30).padding(.leading, 2) }
                         Spacer()
                         HeaderButton(systemImage: "plus") { router.addSomething() }
                             .accessibilityLabel("Add a Game or App")
@@ -670,7 +672,7 @@ struct LauncherTile: View {
     var body: some View {
         VStack(spacing: 7) {
             Group {
-                if let item { ItemIcon(item: item, size: size) } else { AppIcon(path: iconPath, size: size) }
+                Group { if let item { ItemIcon(item: item, size: size) } else { AppIcon(path: iconPath, size: size) } }.snowCap(height: 7)
             }
             .shadow(color: .black.opacity(0.14), radius: 6, y: 3)
             .overlay(alignment: .bottom) {
