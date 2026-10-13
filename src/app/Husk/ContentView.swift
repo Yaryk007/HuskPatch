@@ -27,6 +27,7 @@ struct ContentView: View {
     @State private var booting = false
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(Theme.Appearance.key) private var appearance = Theme.Appearance.system
+    @AppStorage(Material3.key) private var material3 = false
     @ObservedObject private var theme = AppTheme.shared
     @ObservedObject private var incoming = IncomingFiles.shared
     @ObservedObject private var showcase = ShowcaseStore.shared
@@ -48,26 +49,36 @@ struct ContentView: View {
             // with the tabs is the arrangement that survives that. Showing
             // Android is then a matter of hiding what is over it, which is also
             // why it appears instantly rather than reloading.
-            TabView(selection: $router.tab) {
-                HomeView()
-                    .tabItem { Label("Home", systemImage: "house.fill") }
-                    .tag(HuskTab.home)
+            Group {
+                if material3 {
+                    // HuskPatch: Android 16 style -- Material's own navigation bar instead of UIKit's
+                    // (Liquid Glass on iOS 26), which cannot be restyled into one.
+                    Material3Tabs(selection: $router.tab,
+                                  home: HomeView(), library: LibraryScreen(), store: StoreView(),
+                                  help: FAQTab(), settings: SettingsTab())
+                } else {
+                    TabView(selection: $router.tab) {
+                        HomeView()
+                            .tabItem { Label("Home", systemImage: "house.fill") }
+                            .tag(HuskTab.home)
 
-                LibraryScreen()
-                    .tabItem { Label("Library", systemImage: "square.grid.2x2.fill") }
-                    .tag(HuskTab.library)
+                        LibraryScreen()
+                            .tabItem { Label("Library", systemImage: "square.grid.2x2.fill") }
+                            .tag(HuskTab.library)
 
-                StoreView()
-                    .tabItem { Label("Store", systemImage: "cart.fill") }
-                    .tag(HuskTab.store)
+                        StoreView()
+                            .tabItem { Label("Store", systemImage: "cart.fill") }
+                            .tag(HuskTab.store)
 
-                FAQTab()
-                    .tabItem { Label("FAQ", systemImage: "questionmark.circle.fill") }
-                    .tag(HuskTab.help)
+                        FAQTab()
+                            .tabItem { Label("FAQ", systemImage: "questionmark.circle.fill") }
+                            .tag(HuskTab.help)
 
-                SettingsTab()
-                    .tabItem { Label("Settings", systemImage: "gearshape.fill") }
-                    .tag(HuskTab.settings)
+                        SettingsTab()
+                            .tabItem { Label("Settings", systemImage: "gearshape.fill") }
+                            .tag(HuskTab.settings)
+                    }
+                }
             }
             .opacity(showGuestScreen && started && runner.isRunning ? 0 : 1)
 

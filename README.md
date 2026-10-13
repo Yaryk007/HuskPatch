@@ -2,16 +2,16 @@
 
 The text bellow is not what huskpatch was used to be, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed, thank you guys for the support, i might still make updates but i will focus on my other projects more.
 
-> **HuskPatch** is a fork of [Leviidev/Husk](https://github.com/Leviidev/Husk) 2.0 with a few additions:
+> **HuskPatch** is the official [Husk](https://github.com/Leviidev/Husk) 2.0 release with one addition:
 >
-> - **Fix: starting an app right after JIT turns on.** The JIT region was claimed by whichever caller came first,
->   and a game launched in that second got "no region" and failed or crashed. Callers now wait for the claim.
-> - **Android 16 Style** (Settings › Appearance): Material 3 Expressive colours from your accent colour, large
->   rounded cards, pill buttons and Android switches.
+> - **Android 16 Style** (Settings › Appearance): Material 3 Expressive colours from your accent colour,
+>   Android's navigation bar (Home, Library, Store, FAQ, Settings) in place of the Liquid Glass tab bar,
+>   large rounded cards, pill buttons and Android switches.
 >
-> Builds: **Actions → Build IPA**, artifact **Husk-ipa**. These are untested; use
-> [official releases](https://github.com/Leviidev/Husk/releases) for anything stable. The old HuskPatch 0.5.2
-> is on the [`huskpatch-0.5.2`](https://github.com/Yaryk007/HuskPatch/tree/huskpatch-0.5.2) branch.
+> Builds: **Actions → Build IPA**, artifact **Husk-ipa**. The Java runtime in them is taken from the official 2.0
+> release. These builds are untested; use [official releases](https://github.com/Leviidev/Husk/releases) for anything
+> stable. The old HuskPatch 0.5.2 is on the
+> [`huskpatch-0.5.2`](https://github.com/Yaryk007/HuskPatch/tree/huskpatch-0.5.2) branch.
 
 <p align="center">
   <a href="https://trendshift.io/repositories/233057?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-233057" target="_blank" rel="noopener noreferrer">

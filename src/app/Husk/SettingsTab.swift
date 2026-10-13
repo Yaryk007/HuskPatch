@@ -706,8 +706,8 @@ struct AppearanceSettings: View {
                 Text("Style")
             } footer: {
                 Text("Draws Husk like Android 16's Material 3 Expressive: colours derived from your accent, "
-                   + "large rounded cards, pill buttons and Android's switches. The tab and navigation bars "
-                   + "change the next time Husk opens.")
+                   + "large rounded cards, pill buttons, Android's switches and its navigation bar in place of "
+                   + "the tab bar. The bars at the top of each page change the next time Husk opens.")
             }
 
             Section {

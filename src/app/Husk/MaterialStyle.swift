@@ -79,26 +79,10 @@ enum Material3 {
 
     // MARK: bars
 
-    /// The tab and navigation bars are UIKit's, and read their appearance when they are built, so this runs at launch.
-    /// Turning the style on or off takes full effect the next time Husk opens.
+    /// The navigation bars at the top of each page are UIKit's, and read their appearance when they are built, so this
+    /// runs at launch. (The tab bar is replaced outright: see Material3NavigationBar.)
     static func applyBars() {
         guard isOn else { return }
-        let tab = UITabBarAppearance()
-        tab.configureWithOpaqueBackground()
-        tab.backgroundColor = surfaceContainer
-        tab.shadowColor = .clear
-        // Android's navigation bar marks the selected destination with a pill behind its icon.
-        tab.selectionIndicatorImage = pill(width: 64, height: 32, color: secondaryContainer)
-        for item in [tab.stackedLayoutAppearance, tab.inlineLayoutAppearance, tab.compactInlineLayoutAppearance] {
-            item.normal.iconColor = onSurfaceVariant
-            item.normal.titleTextAttributes = [.foregroundColor: onSurfaceVariant]
-            item.selected.iconColor = onSurface
-            item.selected.titleTextAttributes = [.foregroundColor: onSurface,
-                                                 .font: UIFont.systemFont(ofSize: 10, weight: .bold)]
-        }
-        UITabBar.appearance().standardAppearance = tab
-        UITabBar.appearance().scrollEdgeAppearance = tab
-
         let nav = UINavigationBarAppearance()
         nav.configureWithOpaqueBackground()
         nav.backgroundColor = surface
@@ -108,15 +92,6 @@ enum Material3 {
         UINavigationBar.appearance().standardAppearance = nav
         UINavigationBar.appearance().scrollEdgeAppearance = nav
         UINavigationBar.appearance().compactAppearance = nav
-    }
-
-    private static func pill(width: CGFloat, height: CGFloat, color: UIColor) -> UIImage {
-        let size = CGSize(width: width, height: height)
-        let image = UIGraphicsImageRenderer(size: size).image { _ in
-            color.setFill()
-            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: height / 2).fill()
-        }
-        return image.resizableImage(withCapInsets: UIEdgeInsets(top: 0, left: height / 2, bottom: 0, right: height / 2))
     }
 }
 
@@ -173,5 +148,92 @@ extension Theme {
     /// The shape of a filled button: a pill in the Android 16 style, Husk's rounded rectangle otherwise.
     static func buttonShape(_ corner: CGFloat = 15) -> AnyShape {
         Material3.isOn ? AnyShape(Capsule()) : AnyShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+    }
+}
+
+// MARK: - navigation bar
+
+/// Android's navigation bar, as Material 3 Expressive draws it: a surface-container band along the bottom,
+/// each destination an outlined icon over its label, and the selected one filled, with a pill behind it that
+/// springs open when it is chosen.
+struct Material3NavigationBar: View {
+    @Binding var selection: HuskTab
+
+    private static let items: [(tab: HuskTab, title: String, icon: String)] = [
+        (.home, "Home", "house"),
+        (.library, "Library", "square.grid.2x2"),
+        (.store, "Store", "cart"),
+        (.help, "FAQ", "questionmark.circle"),
+        (.settings, "Settings", "gearshape"),
+    ]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Self.items, id: \.tab) { item in
+                destination(item.tab, item.title, item.icon)
+            }
+        }
+        .padding(.top, 12)
+        .padding(.bottom, 4)
+        .frame(maxWidth: .infinity)
+        .background(Color(uiColor: Material3.surfaceContainer).ignoresSafeArea(edges: .bottom))
+    }
+
+    private func destination(_ tab: HuskTab, _ title: String, _ icon: String) -> some View {
+        let selected = selection == tab
+        return Button {
+            if selection != tab {
+                UISelectionFeedbackGenerator().selectionChanged()
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.62)) { selection = tab }
+            }
+        } label: {
+            VStack(spacing: 4) {
+                ZStack {
+                    Capsule()
+                        .fill(Color(uiColor: Material3.secondaryContainer))
+                        .frame(width: selected ? 64 : 24, height: 32)
+                        .opacity(selected ? 1 : 0)
+                    Image(systemName: selected ? icon + ".fill" : icon)
+                        .font(.system(size: 20, weight: selected ? .semibold : .regular))
+                        .foregroundStyle(Color(uiColor: selected ? Material3.onSurface : Material3.onSurfaceVariant))
+                }
+                .frame(height: 32)
+                Text(title)
+                    .font(.system(size: 12, weight: selected ? .bold : .medium, design: .rounded))
+                    .foregroundStyle(Color(uiColor: selected ? Material3.onSurface : Material3.onSurfaceVariant))
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// The tabs without UIKit's tab bar, for the Android 16 style: every tab stays built (each keeps where it was, as it
+/// does in a TabView) and only the chosen one is shown, above Material3NavigationBar.
+struct Material3Tabs<Home: View, Library: View, Store: View, Help: View, Settings: View>: View {
+    @Binding var selection: HuskTab
+    let home: Home, library: Library, store: Store, help: Help, settings: Settings
+
+    var body: some View {
+        ZStack {
+            page(.home, home)
+            page(.library, library)
+            page(.store, store)
+            page(.help, help)
+            page(.settings, settings)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Material3NavigationBar(selection: $selection)
+        }
+    }
+
+    private func page<V: View>(_ tab: HuskTab, _ view: V) -> some View {
+        view
+            .opacity(selection == tab ? 1 : 0)
+            .allowsHitTesting(selection == tab)
+            .accessibilityHidden(selection != tab)
     }
 }

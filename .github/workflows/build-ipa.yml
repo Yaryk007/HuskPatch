@@ -45,8 +45,31 @@ jobs:
             build/ios-arm64/lib/MoltenVK.xcframework
           key: deps-v2-${{ runner.os }}-${{ hashFiles('scripts/sources.sh', 'scripts/build_ios.sh', 'scripts/build_angle_ios.sh', 'scripts/build_gpu_ios.sh', 'scripts/build_moltenvk_ios.sh', 'patches/**') }}
 
+      # Husk's Java runtime (java-runtime) and the Android system files Flutter apps read (android-system) are built
+      # by Leviidev from the LineageOS image on his own Mac, so they cannot be built here. Without them Java apps do not
+      # start. This takes both from the official release the code matches.
+      - name: Java runtime and Android system files from the official release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HUSK_RUNTIME_TAG: "2.0"
+        run: |
+          gh release download "$HUSK_RUNTIME_TAG" -R Leviidev/Husk -p Husk.ipa -D "$RUNNER_TEMP"
+          mkdir -p build "$RUNNER_TEMP/official"
+          unzip -q "$RUNNER_TEMP/Husk.ipa" "Payload/Husk.app/java-runtime/*" "Payload/Husk.app/android-system/*" -d "$RUNNER_TEMP/official"
+          rm -rf build/java-runtime build/android-system
+          cp -R "$RUNNER_TEMP/official/Payload/Husk.app/java-runtime" build/java-runtime
+          cp -R "$RUNNER_TEMP/official/Payload/Husk.app/android-system" build/android-system
+          test -f build/java-runtime/husk-framework.dex
+          du -sh build/java-runtime build/android-system
+
       - name: Build
         run: ./scripts/ci_build.sh "$PWD/build/Husk.ipa"
+
+      - name: Check the IPA carries the Java runtime
+        run: |
+          n=$(unzip -l build/Husk.ipa | grep -c "Payload/Husk.app/java-runtime/") || true
+          echo "java-runtime files in the IPA: $n"
+          test "$n" -gt 10
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
