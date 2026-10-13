@@ -171,6 +171,18 @@ final class TLUnityUIView: UIView, UIKeyInput {
         if newSuperview == nil { webHost?.removeFromSuperview() }
     }
 
+    /// HuskPatch: the screen area an Android app's window keeps its content out of, in points.
+    ///
+    /// Husk used to hand apps the whole of iOS's safe area, and their windows filled what they were kept out of with
+    /// the theme's background or bar colours: a grey band over the game by the notch and along the far edge in
+    /// landscape, and grey strips top and bottom in portrait. Landscape now gets the whole screen, as an Android game in
+    /// immersive mode does. Portrait keeps only the status bar strip, where AndroidStatusBar is drawn.
+    var appInsets: UIEdgeInsets {
+        guard !windowed, let window else { return .zero }
+        if bounds.width > bounds.height { return .zero }
+        return UIEdgeInsets(top: window.safeAreaInsets.top, left: 0, bottom: 0, right: 0)
+    }
+
     @objc private func edgeSwiped(_ g: UIScreenEdgePanGestureRecognizer) {
         if g.state == .ended, g.translation(in: self).x > 60 { if engine == .java { husk_java_back() } else { husk_flutter_back() } }
     }
@@ -181,7 +193,7 @@ final class TLUnityUIView: UIView, UIKeyInput {
         let mine = convert(bounds, to: window)
         let covered = hiding ? 0 : max(0, mine.maxY - window.convert(end, from: nil).minY)
         if engine == .java {
-            let k = contentScaleFactor, inset = windowed ? UIEdgeInsets.zero : window.safeAreaInsets
+            let k = contentScaleFactor, inset = appInsets
             husk_java_set_insets(Int32(inset.left * k), Int32(inset.top * k), Int32(inset.right * k), Int32(inset.bottom * k), Int32((covered * k).rounded()))
             if hiding, isFirstResponder == false { husk_java_keyboard_closed() }
             return
@@ -304,9 +316,9 @@ final class TLUnityUIView: UIView, UIKeyInput {
             // Husk's Dalvik runtime: libcore, ICU and Husk's Java framework, carried in the app.
             husk_java_set_runtime((Bundle.main.resourcePath ?? "") + "/java-runtime", Float(contentScaleFactor))
             husk_java_set_night_mode(traitCollection.userInterfaceStyle == .dark ? 1 : 0)
-            // The notch and the home indicator, in surface pixels: the app's window keeps its content out of them.
-            if let inset = windowed ? UIEdgeInsets.zero : window?.safeAreaInsets {
-                let k = contentScaleFactor
+            // The status bar strip in portrait, in surface pixels: the app's window keeps its content out of it (appInsets).
+            do {
+                let inset = appInsets, k = contentScaleFactor
                 husk_java_set_insets(Int32(inset.left * k), Int32(inset.top * k), Int32(inset.right * k), Int32(inset.bottom * k), 0)
             }
             attachWebHost(fresh: true)
@@ -315,8 +327,8 @@ final class TLUnityUIView: UIView, UIKeyInput {
         case .flutter:
             // The screen's scale is the app's device pixel ratio, and the notch and home indicator its padding, in surface pixels.
             husk_flutter_set_pixel_ratio(Float(contentScaleFactor))
-            if let inset = windowed ? UIEdgeInsets.zero : window?.safeAreaInsets {
-                let k = contentScaleFactor
+            do {
+                let inset = appInsets, k = contentScaleFactor
                 husk_flutter_set_insets(Int32(inset.top * k), Int32(inset.right * k), Int32(inset.bottom * k), Int32(inset.left * k))
             }
             started = husk_flutter_launch(apk, dataDir, layerPtr, Int32(width), Int32(height), angle, ca)
@@ -672,6 +684,7 @@ struct TLCocosAttemptView: View {
     @State private var stoppedWhy: AppDiagnosis?
     @AppStorage("husk.tl.unity.showLog") private var showLogSetting = false
     @AppStorage(TranslationLayer.devInfoKey) private var devInfo = false
+    @AppStorage(Material3.key) private var material3 = false
     @State private var stats = "starting"
     @ObservedObject private var pads = HuskGamepads.shared
     @StateObject private var virtualPad = VirtualPad()
@@ -754,6 +767,10 @@ struct TLCocosAttemptView: View {
                     }
                     .ignoresSafeArea()
                 }
+            }
+            // HuskPatch: Android's status bar in the strip a Java or Flutter app is kept out of in portrait.
+            if portrait, engine == .java || engine == .flutter {
+                AndroidStatusBar(material: material3)
             }
             if !uiHidden {
                 VStack(spacing: 0) {

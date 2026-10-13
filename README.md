@@ -2,16 +2,22 @@
 
 The text bellow is not what huskpatch was used to be, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed, thank you guys for the support, i might still make updates but i will focus on my other projects more.
 
-> **HuskPatch** is the official [Husk](https://github.com/Leviidev/Husk) 2.0 release with one addition:
+> **HuskPatch 2.1.1** is the official [Husk](https://github.com/Leviidev/Husk) 2.0 release with these additions:
 >
-> - **Android 16 Style** (Settings › Appearance): Material 3 Expressive colours from your accent colour,
->   Android's navigation bar (Home, Library, Store, FAQ, Settings) in place of the Liquid Glass tab bar,
->   large rounded cards, pill buttons and Android switches.
+> - **Android 16 Style** (Settings › Appearance): Material 3 Expressive colours from your accent, Android's navigation
+>   bar and search bar, Material's back button, segmented buttons and switches, regular-weight titles, large rounded
+>   cards and pill buttons. No Liquid Glass: HuskPatch opts out of it everywhere.
+> - **Material You in Apps** (same place): apps on the translation layer get Android's dynamic colours, made from your
+>   accent, so Material 3 apps draw in them.
+> - **Android status bar** over apps in portrait (time, battery, connection): Android 16's when the style is on, the
+>   classic one when it is off.
+> - **No grey borders:** apps get the whole screen in landscape, and only the status bar strip in portrait.
+> - HuskPatch's own icon and name, and its green as the default accent.
 >
-> Builds: **Actions → Build IPA**, artifact **Husk-ipa**. The Java runtime in them is taken from the official 2.0
-> release. These builds are untested; use [official releases](https://github.com/Leviidev/Husk/releases) for anything
-> stable. The old HuskPatch 0.5.2 is on the
-> [`huskpatch-0.5.2`](https://github.com/Yaryk007/HuskPatch/tree/huskpatch-0.5.2) branch.
+> Builds: **Actions → Build IPA**, artifact **Husk-ipa**. Android's Java libraries in them come from the official 2.0
+> release; Husk's Java framework is built from this repo. Untested builds: use
+> [official releases](https://github.com/Leviidev/Husk/releases) for anything stable. The old HuskPatch 0.5.2 is on
+> the [`huskpatch-0.5.2`](https://github.com/Yaryk007/HuskPatch/tree/huskpatch-0.5.2) branch.
 
 <p align="center">
   <a href="https://trendshift.io/repositories/233057?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-233057" target="_blank" rel="noopener noreferrer">

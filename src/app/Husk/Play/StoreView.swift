@@ -26,7 +26,7 @@ struct StoreView: View {
             .background(Theme.backdrop)
             .navigationTitle("Store")
             .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $searchText, prompt: "Search Google Play")
+            .huskSearchable(text: $searchText, prompt: "Search Google Play")
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if manager.isSignedIn {

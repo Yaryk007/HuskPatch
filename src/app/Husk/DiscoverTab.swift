@@ -31,7 +31,7 @@ struct DiscoverView: View {
         .background(Theme.backdrop)
         .navigationTitle("Discover")
         .navigationBarTitleDisplayMode(.large)
-        .searchable(text: $searchText, prompt: "Search \(totalAppCount) apps")
+        .huskSearchable(text: $searchText, prompt: "Search \(totalAppCount) apps")
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button { Task { await manager.fetchSources() } } label: {

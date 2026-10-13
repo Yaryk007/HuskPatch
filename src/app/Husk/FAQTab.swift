@@ -31,7 +31,7 @@ struct FAQTab: View {
                 }
             }
             .navigationTitle("FAQ")
-            .searchable(text: $query, prompt: "Search problems")
+            .huskSearchable(text: $query, prompt: "Search problems")
         }
     }
 }

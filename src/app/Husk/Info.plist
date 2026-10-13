@@ -10,8 +10,12 @@
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<!-- HuskPatch: no Liquid Glass. iOS 26 otherwise draws the back button, search and bars as glass, which no
+	     setting can restyle into Material 3 (MaterialStyle.swift). -->
+	<key>UIDesignRequiresCompatibility</key>
+	<true/>
 	<key>CFBundleDisplayName</key>
-	<string>Husk</string>
+	<string>HuskPatch</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -41,7 +45,7 @@
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>2.0.0</string>
+	<string>2.1.1</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

@@ -152,7 +152,7 @@ struct HomeView: View {
                                 .frame(width: 34, height: 34)
                                 .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                         }
-                        Text("Husk")
+                        Text("HuskPatch")
                             .font(.system(size: 28, weight: .heavy, design: .rounded))
                         if holiday { ChristmasTree(size: 30).padding(.leading, 2) }
                         Spacer()

@@ -62,6 +62,19 @@ jobs:
           test -f build/java-runtime/husk-framework.dex
           du -sh build/java-runtime build/android-system
 
+      # Husk's own Java framework (husk-framework.dex) is source in this repo, so it is built here rather than taken from
+      # the release: HuskPatch changes it (Material You colours, husk/DynamicColors.java).
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build Husk's Java framework
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/r8.jar" https://dl.google.com/android/maven2/com/android/tools/r8/8.5.35/r8-8.5.35.jar
+          HUSK_JDK="$JAVA_HOME" HUSK_D8="$RUNNER_TEMP/r8.jar" ./src/java-framework/build.sh "$PWD/build/java-runtime/husk-framework.dex"
+          ls -la build/java-runtime/husk-framework.dex
+
       - name: Build
         run: ./scripts/ci_build.sh "$PWD/build/Husk.ipa"
 

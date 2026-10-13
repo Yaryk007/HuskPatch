@@ -28,9 +28,9 @@ enum Material3 {
         return (h, s)
     }
 
-    /// A colour of the seed's hue at a given saturation and lightness (HSL, both 0...1).
-    private static func tone(_ saturation: CGFloat, _ lightness: CGFloat) -> UIColor {
-        let h = seed.h, s = saturation, l = lightness
+    /// A colour of the seed's hue (turned by `hueShift`, in turns) at a given saturation and lightness (HSL, all 0...1).
+    private static func tone(_ saturation: CGFloat, _ lightness: CGFloat, hueShift: CGFloat = 0) -> UIColor {
+        let h = (seed.h + hueShift).truncatingRemainder(dividingBy: 1), s = saturation, l = lightness
         let c = (1 - abs(2 * l - 1)) * s
         let hp = h * 6
         let x = c * (1 - abs(hp.truncatingRemainder(dividingBy: 2) - 1))
@@ -70,6 +70,42 @@ enum Material3 {
     static var outline: UIColor { role(sat: 0.08, light: 0.50, dark: 0.60) }
     static var outlineVariant: UIColor { role(sat: 0.08, light: 0.80, dark: 0.30) }
 
+    // MARK: Material You for apps on the translation layer
+
+    /// Whether apps on the translation layer get this palette as Android's dynamic colours (Material You).
+    static let appsKey = "huskpatch.material3.apps"
+
+    /// The 65 framework colours Android 12+ makes from the wallpaper, in android.R.color id order: system_neutral1,
+    /// system_neutral2, system_accent1, system_accent2, system_accent3, each shade 0, 10, 50, 100 ... 900, 1000.
+    /// A shade's lightness is Material's tone: shade 0 is white, 1000 black.
+    static func dynamicColors() -> [UInt32] {
+        let shades: [CGFloat] = [0, 10, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+        let s = min(max(seed.s, 0.35), 0.85)
+        // (saturation, hue shift) of each palette, as Material derives them from the seed
+        let palettes: [(CGFloat, CGFloat)] = [(s * 0.08, 0), (s * 0.16, 0), (s, 0), (s * 0.33, 0), (s * 0.5, 1.0 / 6)]
+        var out: [UInt32] = []
+        for (sat, shift) in palettes {
+            for shade in shades {
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                tone(sat, 1 - shade / 1000, hueShift: shift).getRed(&r, green: &g, blue: &b, alpha: &a)
+                let byte = { (v: CGFloat) in UInt32((min(max(v, 0), 1) * 255).rounded()) }
+                out.append(0xFF00_0000 | byte(r) << 16 | byte(g) << 8 | byte(b))
+            }
+        }
+        return out
+    }
+
+    /// Hand the palette to the Java runtime (husk/DynamicColors.java reads HUSK_DYNAMIC_COLORS), or take it back.
+    /// An app reads it once as it starts, and one app runs per launch of Husk, so a change applies from the next app.
+    static func exportDynamicColors() {
+        if UserDefaults.standard.bool(forKey: appsKey) {
+            let value = dynamicColors().map { String(format: "%08X", $0) }.joined(separator: ",")
+            setenv("HUSK_DYNAMIC_COLORS", value, 1)
+        } else {
+            unsetenv("HUSK_DYNAMIC_COLORS")
+        }
+    }
+
     // MARK: shape
 
     /// Material 3 Expressive's "extra large" corner, for cards and tiles.
@@ -87,11 +123,59 @@ enum Material3 {
         nav.configureWithOpaqueBackground()
         nav.backgroundColor = surface
         nav.shadowColor = .clear
-        nav.titleTextAttributes = [.foregroundColor: onSurface]
-        nav.largeTitleTextAttributes = [.foregroundColor: onSurface]
+        // Material's top app bar titles are regular weight, not bold: titleLarge (22) and headlineMedium (28) for the large one.
+        nav.titleTextAttributes = [.foregroundColor: onSurface, .font: rounded(22, .regular)]
+        nav.largeTitleTextAttributes = [.foregroundColor: onSurface, .font: rounded(32, .regular)]
+        // Material 3 Expressive's back button: an arrow in a tonal circle, with no "Back" text beside it.
+        let back = backButtonImage()
+        nav.setBackIndicatorImage(back, transitionMaskImage: back.withRenderingMode(.alwaysTemplate))
+        let hidden: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.clear, .font: UIFont.systemFont(ofSize: 0.1)]
+        nav.backButtonAppearance.normal.titleTextAttributes = hidden
+        nav.backButtonAppearance.highlighted.titleTextAttributes = hidden
         UINavigationBar.appearance().standardAppearance = nav
         UINavigationBar.appearance().scrollEdgeAppearance = nav
         UINavigationBar.appearance().compactAppearance = nav
+        UINavigationBar.appearance().tintColor = primary
+
+        // Segmented buttons: the chosen segment on secondary container, the rest on the surface, in the rounded face.
+        let seg = UISegmentedControl.appearance()
+        seg.selectedSegmentTintColor = secondaryContainer
+        seg.backgroundColor = surfaceContainer
+        seg.setTitleTextAttributes([.foregroundColor: onSurfaceVariant, .font: rounded(14, .medium)], for: .normal)
+        seg.setTitleTextAttributes([.foregroundColor: onSurface, .font: rounded(14, .semibold)], for: .selected)
+        UISlider.appearance().minimumTrackTintColor = primary
+    }
+
+    private static func rounded(_ size: CGFloat, _ weight: UIFont.Weight) -> UIFont {
+        let base = UIFont.systemFont(ofSize: size, weight: weight)
+        return base.fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: size) } ?? base
+    }
+
+    /// The back button: a 40-point secondary-container circle with Material's arrow_back in it, in light and dark.
+    private static func backButtonImage() -> UIImage {
+        func draw(_ style: UIUserInterfaceStyle) -> UIImage {
+            let traits = UITraitCollection(userInterfaceStyle: style)
+            let fill = secondaryContainer.resolvedColor(with: traits)
+            let ink = onSurface.resolvedColor(with: traits)
+            let size = CGSize(width: 48, height: 40)
+            let arrow = UIImage(systemName: "arrow.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold))?
+                .withTintColor(ink, renderingMode: .alwaysOriginal)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = UIScreen.main.scale
+            return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                fill.setFill()
+                UIBezierPath(ovalIn: CGRect(x: 4, y: 0, width: 40, height: 40)).fill()
+                if let arrow {
+                    arrow.draw(in: CGRect(x: 4 + (40 - arrow.size.width) / 2, y: (40 - arrow.size.height) / 2,
+                                          width: arrow.size.width, height: arrow.size.height))
+                }
+            }
+        }
+        let light = draw(.light), dark = draw(.dark)
+        let asset = UIImageAsset()
+        asset.register(light, with: UITraitCollection(userInterfaceStyle: .light))
+        asset.register(dark, with: UITraitCollection(userInterfaceStyle: .dark))
+        return asset.image(with: UITraitCollection.current).withRenderingMode(.alwaysOriginal)
     }
 }
 
@@ -235,5 +319,75 @@ struct Material3Tabs<Home: View, Library: View, Store: View, Help: View, Setting
             .opacity(selection == tab ? 1 : 0)
             .allowsHitTesting(selection == tab)
             .accessibilityHidden(selection != tab)
+    }
+}
+
+// MARK: - search bar
+
+/// Material 3's search bar: a full-width, 56-point pill on a surface container, a magnifier at the start and a clear
+/// button at the end, as the Play Store draws its own.
+struct Material3SearchBar: View {
+    @Binding var text: String
+    let prompt: String
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+            TextField(prompt, text: $text)
+                .font(.system(size: 16, design: .rounded))
+                .foregroundStyle(Color(uiColor: Material3.onSurface))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .focused($focused)
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear")
+            }
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 56)
+        .background(Color(uiColor: Material3.surfaceContainerHigh), in: Capsule())
+        .contentShape(Capsule())
+        .onTapGesture { focused = true }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+}
+
+/// A screen's search: Material's bar under the title in the Android 16 style, iOS's `.searchable` otherwise. On iOS 26
+/// `.searchable` places its field beside the system tab bar, which the Android 16 style replaces -- so there it had
+/// nowhere to appear.
+struct HuskSearch: ViewModifier {
+    @Binding var text: String
+    let prompt: String
+    @AppStorage(Material3.key) private var material = false
+
+    func body(content: Content) -> some View {
+        if material {
+            content.safeAreaInset(edge: .top, spacing: 0) {
+                Material3SearchBar(text: $text, prompt: prompt)
+                    .background(Color(uiColor: Material3.surface))
+            }
+        } else {
+            content.searchable(text: $text, prompt: prompt)
+        }
+    }
+}
+
+extension View {
+    func huskSearchable(text: Binding<String>, prompt: String) -> some View {
+        modifier(HuskSearch(text: text, prompt: prompt))
     }
 }

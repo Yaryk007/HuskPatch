@@ -87,6 +87,7 @@ public class Resources {
     /** The entry's value, references followed (when resolveRefs), into out; false when there is none. */
     public boolean huskValue(int id, TypedValue out, boolean resolveRefs) {
         for (int depth = 0; depth < 20; depth++) {
+            if (husk.DynamicColors.apply(id, out)) return true;  /* HuskPatch: Material You palette */
             ResTable t = table(id);
             ResTable.Entry e = t.find(id, mCfg);
             if (e == null) return false;

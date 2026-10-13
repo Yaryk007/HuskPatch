@@ -109,6 +109,7 @@ private struct HuskForm: ViewModifier {
             content.navigationBarTitleDisplayMode(.inline)
                 .scrollContentBackground(.hidden)
                 .background(Theme.bg.ignoresSafeArea())
+                .environment(\.defaultMinListRowHeight, 56)
         } else {
             content.navigationBarTitleDisplayMode(.inline)
         }
@@ -676,6 +677,7 @@ struct AppearanceSettings: View {
     @AppStorage(Theme.Appearance.key) private var appearance = Theme.Appearance.system
     @AppStorage(Holiday.key) private var holiday = true
     @AppStorage(Material3.key) private var material3 = false
+    @AppStorage(Material3.appsKey) private var materialApps = false
     @ObservedObject private var theme = AppTheme.shared
     @Environment(\.colorScheme) private var scheme
     @State private var custom: Color = AppTheme.shared.accentColor
@@ -702,12 +704,16 @@ struct AppearanceSettings: View {
 
             Section {
                 Toggle("Android 16 Style", isOn: $material3)
+                Toggle("Material You in Apps", isOn: $materialApps)
+                    .onChange(of: materialApps) { _ in Material3.exportDynamicColors() }
             } header: {
                 Text("Style")
             } footer: {
                 Text("Draws Husk like Android 16's Material 3 Expressive: colours derived from your accent, "
                    + "large rounded cards, pill buttons, Android's switches and its navigation bar in place of "
-                   + "the tab bar. The bars at the top of each page change the next time Husk opens.")
+                   + "the tab bar. The bars at the top of each page change the next time Husk opens.\n\n"
+                   + "Material You in Apps gives apps on the translation layer Android 12+'s dynamic colours, made "
+                   + "from your accent, so Material 3 apps draw in them. It applies from the next app you start.")
             }
 
             Section {
@@ -727,6 +733,7 @@ struct AppearanceSettings: View {
 
                 ColorPicker("Custom Colour", selection: $custom, supportsOpacity: false)
                     .onChange(of: custom) { theme.accentColor = $0 }
+                    .onChange(of: theme.accentColor.themeHex) { _ in Material3.exportDynamicColors() }
             } header: {
                 Text("Accent Colour")
             } footer: {
