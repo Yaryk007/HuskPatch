@@ -25,7 +25,6 @@
 		0FA2BBF68B30B5630789922B /* husk-tl-json.c in Sources */ = {isa = PBXBuildFile; fileRef = 242DD6EEB7DA97455CD76826 /* husk-tl-json.c */; };
 		12F633F698047D7DED62A51D /* husk-tl-gameactivity.c in Sources */ = {isa = PBXBuildFile; fileRef = CFAB9C41A483CA08C1037AAC /* husk-tl-gameactivity.c */; };
 		13E70642DCB1EB118EB6B9CF /* husk-tl-egl.c in Sources */ = {isa = PBXBuildFile; fileRef = 6990DECA802D2C4493C28A4A /* husk-tl-egl.c */; };
-		13EEBA67589844DCF50836CF /* Compatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BDB1E8EEE64E1BBF7D72E2B /* Compatibility.swift */; };
 		14F4718B87230D502748C4D3 /* StoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 685DEBAD91D2650A85E7BA19 /* StoreView.swift */; };
 		161096C4354197AC83569ECB /* HuskAppIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5236C5746D2CDE06C5D438BB /* HuskAppIcon.swift */; };
 		1624D7BE5D25504F10E6D705 /* Shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = A523DB1FEA5BC026771035C7 /* Shaders.metal */; };
@@ -293,7 +292,6 @@
 		3B4754DCDA6CFFE02F854C6A /* husk-tl-dvm-graphics.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "husk-tl-dvm-graphics.c"; sourceTree = "<group>"; };
 		3B72237F810FCE0EE433FA3D /* husk-tl-nativeactivity.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "husk-tl-nativeactivity.c"; sourceTree = "<group>"; };
 		3B9FC5A63D4CAA7FBDA016EB /* fishhook.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fishhook.h; sourceTree = "<group>"; };
-		3BDB1E8EEE64E1BBF7D72E2B /* Compatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Compatibility.swift; sourceTree = "<group>"; };
 		3F25C8D085028063DE39D3F2 /* husk-tl-jni-audiotrack.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "husk-tl-jni-audiotrack.c"; sourceTree = "<group>"; };
 		3F5C62F392C6EE9D6F1B9407 /* AppClip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppClip.swift; sourceTree = "<group>"; };
 		40BF573E8CED9B238E762BA6 /* FilesTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilesTab.swift; sourceTree = "<group>"; };
@@ -502,7 +500,6 @@
 				28D3E1CEE343707BE986FA6E /* Assets.xcassets */,
 				6F40192B3EDAD27D2CBFFC2F /* BootScreen.swift */,
 				E37298010F80517A3057579E /* BundleUnpacker.swift */,
-				3BDB1E8EEE64E1BBF7D72E2B /* Compatibility.swift */,
 				6CAD18BA88F03D63EF1F5DF2 /* ContentView.swift */,
 				BD3B1227581E9D6E7C9DCC3E /* CrashReport.swift */,
 				48DA17A30AE793049F358717 /* DiscoverTab.swift */,
@@ -1024,7 +1021,6 @@
 				6CA4A4E301BCB015E19AF7A8 /* AppWindows.swift in Sources */,
 				853E83FF7FF5B9A7FDE5E638 /* BootScreen.swift in Sources */,
 				7FA5D73DC2780CACC7399534 /* BundleUnpacker.swift in Sources */,
-				13EEBA67589844DCF50836CF /* Compatibility.swift in Sources */,
 				4E1329C07A116B3BE1FDFA7A /* ContentView.swift in Sources */,
 				BE7E302D6F02165C04588DA1 /* CrashReport.swift in Sources */,
 				EBDBC46EF4E65E1DA2342F6B /* DiscoverTab.swift in Sources */,

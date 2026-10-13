@@ -5,7 +5,6 @@ import SwiftUI
 /// Lets users sign in with their Google account, browse/search Play Store, view app details,
 /// and download/install apps (triggering the IncomingFiles chooser for translation layer or Android).
 struct StoreView: View {
-    @ObservedObject private var compat = CompatibilityStore.shared
     @ObservedObject private var manager = PlayStoreManager.shared
     @State private var searchText = ""
     @State private var debouncedSearchText = ""
@@ -254,8 +253,6 @@ struct StoreView: View {
                             .foregroundStyle(Theme.textDim)
                             .lineLimit(1)
 
-                        if let status = compat.entry(app.id)?.status { CompatBadge(status: status) }
-
                         if app.rating > 0 {
                             HStack(spacing: 3) {
                                 Image(systemName: "star.fill")
@@ -317,7 +314,6 @@ struct StoreView: View {
 struct PlayAppDetailSheet: View {
     let app: PlayAPI.PlayApp
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var compat = CompatibilityStore.shared
     @ObservedObject private var manager = PlayStoreManager.shared
 
     var body: some View {
@@ -346,8 +342,6 @@ struct PlayAppDetailSheet: View {
                                 .font(.subheadline)
                                 .foregroundStyle(Theme.textDim)
                                 .lineLimit(1)
-
-                            if let status = compat.entry(app.id)?.status { CompatBadge(status: status) }
 
                             Spacer(minLength: 4)
 

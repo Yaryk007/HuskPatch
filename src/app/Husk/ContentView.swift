@@ -160,7 +160,6 @@ struct ContentView: View {
             Text("You have \(AppUpdates.current). The new version's IPA is on its release page.")
         }
         .task { await updates.check() }
-        .task { await CompatibilityStore.shared.refresh() }
         .sheet(isPresented: $router.showFiles) { FilesTab() }
         .sheet(isPresented: $router.showDownloads) { DownloadsTab() }
         // Pictures for the apps here: read the index on launch and whenever the set of apps changes.

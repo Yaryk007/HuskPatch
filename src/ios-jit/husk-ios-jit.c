@@ -19,7 +19,6 @@
 #include <mach/vm_map.h>        /* vm_remap/vm_protect: mach_vm.h is absent from the iOS SDK */
 #include <os/log.h>
 #include <os/proc.h>
-#include <pthread.h>
 #include <setjmp.h>
 #include <signal.h>
 #include <stdatomic.h>
@@ -447,40 +446,22 @@ static HuskDualMapping husk_ios_jit_allocate_real(size_t bytes);
 static HuskDualMapping husk_prewarmed;
 static bool husk_prewarm_done;
 
-/*
- * HuskPatch: one claim at a time, and later callers wait for it.
- *
- * When JIT turns on, the UI (ContentView) and a game started straight away
- * (the translation layer, on its own thread) both call prewarm. The claim
- * takes about a second of debugger round trips. Without this lock, the
- * second caller found husk_prewarm_done already set, got "no region" while
- * the first was still mid-claim, and the game refused to start or crashed.
- * Waiting a moment before pressing Play hid the race.
- */
-static pthread_mutex_t husk_prewarm_lock = PTHREAD_MUTEX_INITIALIZER;
-
 HUSK_EXPORT bool husk_ios_jit_prewarm(size_t bytes)
 {
-    pthread_mutex_lock(&husk_prewarm_lock);
-    if (!husk_prewarm_done) {
-        husk_prewarmed = husk_ios_jit_allocate_real(bytes);
-        husk_prewarm_done = true;
-        fprintf(stderr, "[husk-jit] prewarm %s: %zu bytes\n",
-                husk_prewarmed.rw_addr ? "OK" : "FAILED", bytes);
+    if (husk_prewarm_done) {
+        return husk_prewarmed.rw_addr != NULL;
     }
-    bool ok = husk_prewarmed.rw_addr != NULL;
-    pthread_mutex_unlock(&husk_prewarm_lock);
-    return ok;
+    husk_prewarm_done = true;
+    husk_prewarmed = husk_ios_jit_allocate_real(bytes);
+    fprintf(stderr, "[husk-jit] prewarm %s: %zu bytes\n",
+            husk_prewarmed.rw_addr ? "OK" : "FAILED", bytes);
+    return husk_prewarmed.rw_addr != NULL;
 }
 
-/* The held region, for the native runtime (translation-layer/husk-tl-load.c looks this up by name).
- * Waits for a claim already in progress instead of answering "none" in the middle of it. */
+/* The held region, for the native runtime (translation-layer/husk-tl-load.c looks this up by name). */
 HUSK_EXPORT HuskDualMapping *husk_ios_jit_get_mapping(void)
 {
-    pthread_mutex_lock(&husk_prewarm_lock);
-    HuskDualMapping *m = husk_prewarmed.rw_addr ? &husk_prewarmed : NULL;
-    pthread_mutex_unlock(&husk_prewarm_lock);
-    return m;
+    return husk_prewarmed.rw_addr ? &husk_prewarmed : NULL;
 }
 
 HuskDualMapping husk_ios_jit_allocate(size_t bytes)
@@ -490,9 +471,6 @@ HuskDualMapping husk_ios_jit_allocate(size_t bytes)
      * exactly tb-size, which is what prewarm was given, so this is the normal
      * path -- the fallback below only runs if prewarm never happened.
      */
-    /* Wait out a claim in progress (see husk_prewarm_lock). */
-    pthread_mutex_lock(&husk_prewarm_lock);
-    pthread_mutex_unlock(&husk_prewarm_lock);
     if (husk_prewarmed.rw_addr && husk_prewarmed.size >= bytes) {
         fprintf(stderr, "[husk-jit] using the prewarmed region (%zu bytes)\n",
                 husk_prewarmed.size);
