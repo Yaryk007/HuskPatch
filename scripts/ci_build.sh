@@ -51,6 +51,14 @@ fi
 step "on-device pairing (Rust)"
 ./scripts/build_rppairing_ios.sh
 
+if [ ! -f build/ios-arm64/lib/libhuskps4.dylib ]; then
+    # The PS4 layer (scripts/build_ps4_ios.sh) needs husk-fex, which is not published. Without it the app
+    # still builds: PS4Store.moduleURL is nil and the PS4 pages say the layer is not in this build.
+    step "no libhuskps4.dylib: building without the PS4 layer"
+    sed -i '' '/framework: ..\/..\/build\/ios-arm64\/lib\/libhuskps4.dylib/,/link: false/d' src/app/project.yml
+    export HUSK_NO_PS4=1
+fi
+
 step "app + IPA"
 mkdir -p "$(dirname "$OUT")"
 ./scripts/package_ipa.sh "$OUT"

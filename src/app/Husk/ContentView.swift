@@ -329,6 +329,11 @@ struct ContentView: View {
             HuskLog.log("jit", "no dual mapping, but MAP_JIT executes -- letting "
                              + "QEMU map its own buffer")
         }
+        // A PS4 game started in this run holds the same JIT region QEMU would take.
+        if let console = husk_console_loaded_game() {
+            HuskLog.log("jit", "refusing to start QEMU: \(String(cString: console)) is loaded in this run; close Husk first")
+            return
+        }
         started = true
         router.androidStarted = true
         QemuRunner.shared.start()

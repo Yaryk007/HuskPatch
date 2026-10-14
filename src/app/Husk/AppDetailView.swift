@@ -9,6 +9,7 @@ enum LibraryRoute: Hashable {
     case gameSettings(String)
     case gameReport(String)
     case androidSystem
+    case ps4(String)              // a PS4 game, by title ID
 }
 
 /// Where the tabs and their stacks are steered from.
@@ -49,7 +50,7 @@ enum LibraryRoute: Hashable {
         UserDefaults.standard.removeObject(forKey: Self.switchKey)
         HuskLog.log("ui", "opening \(id), which Husk was closed to switch to")
         tab = .library
-        library = [.game(id)]
+        library = id.hasPrefix("ps4:") ? [.ps4(String(id.dropFirst(4)))] : [.game(id)]
         autoPlay = id
     }
 

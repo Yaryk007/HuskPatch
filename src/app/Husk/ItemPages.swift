@@ -340,6 +340,91 @@ struct GamePage: View {
     }
 }
 
+// MARK: - a PS4 game
+
+/// A PS4 game from Documents/PS4 Games: Play, and what it is. Run by the PS4 layer (libhuskps4.dylib) on Husk's JIT.
+struct PS4GamePage: View {
+    let game: PS4Game
+    @ObservedObject private var jit = JITCoordinator.shared
+    @State private var playing = false
+    @State private var confirmQuit = false
+
+    private var item: LibraryItem { .ps4(game) }
+
+    /// Another game already loaded in this run of Husk (an Android game's engine, or another PS4 game).
+    private var blockedBy: String? {
+        if Router.shared.androidStarted { return "Android" }   // QEMU holds the JIT region the PS4 layer needs
+        guard let loaded = husk_native_loaded_apk().map({ String(cString: $0) }), loaded != game.libraryID else { return nil }
+        if loaded.hasPrefix("ps4:") { return PS4Store.shared.game(String(loaded.dropFirst(4)))?.title ?? "Another game" }
+        return TranslationLayerStore.shared.apps.first { $0.apks.first == loaded }?.label ?? "Another game"
+    }
+
+    private var subtitle: String {
+        if let used = item.usedText { return used }
+        return "PlayStation 4" + (game.version.map { " · v\($0)" } ?? "")
+    }
+
+    var body: some View {
+        List {
+            PageHero(item: item, subtitle: subtitle) { primary }
+                .heroRow()
+            if !PS4Store.available {
+                Section {
+                    Text(PS4Store.moduleURL == nil
+                         ? "This build of Husk does not include the PS4 layer."
+                         : "PS4 games need iOS 17.4 or later.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Section("About") {
+                LabeledContent("Runs With", value: "Husk's PS4 layer")
+                LabeledContent("Title ID", value: game.titleID)
+                if let v = game.version { LabeledContent("Version", value: v) }
+                LabeledContent("Last Played", value: game.lastPlayed.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Never")
+                LabeledContent("Folder", value: "PS4 Games/" + game.folder.lastPathComponent)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle(game.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .fullScreenCover(isPresented: $playing) { PS4PlayView(game: game) }
+        .confirmationDialog("Close Husk?", isPresented: $confirmQuit, titleVisibility: .visible) {
+            Button("Close Husk") {
+                Router.shared.switchTo(game.libraryID)
+                CrashReport.gameEnded()
+                HuskLog.flushNow()
+                exit(0)
+            }
+        } message: {
+            Text("\(blockedBy ?? "The other game") is still loaded and only one game can run per session. Husk closes; open it again and \(game.title) starts by itself.")
+        }
+        .id(jit.attachGeneration)
+        .onAppear {
+            guard Router.shared.autoPlay == game.libraryID, Launcher.jitOn, blockedBy == nil, PS4Store.available else { return }
+            Router.shared.autoPlay = nil
+            playing = true
+        }
+    }
+
+    @ViewBuilder
+    private var primary: some View {
+        if !PS4Store.available {
+            BigButton(title: "Can't Play Here", systemImage: "xmark.octagon", prominent: false) { }.disabled(true)
+        } else if blockedBy != nil {
+            BigButton(title: "Close Husk to Play", systemImage: "xmark.circle", prominent: false) { confirmQuit = true }
+        } else if !Launcher.jitOn {
+            if jit.busy {
+                HStack(spacing: 10) { ProgressView(); Text(jit.status ?? "Turning on JIT…").foregroundStyle(.secondary) }
+                    .frame(maxWidth: .infinity).frame(height: 50)
+            } else {
+                BigButton(title: "Turn On JIT to Play", systemImage: "bolt.fill", action: turnOnJIT)
+            }
+        } else {
+            BigButton(title: "Play", systemImage: "play.fill") { playing = true }
+        }
+    }
+}
+
 // MARK: - an app inside Android
 
 /// An app installed in Android: Open (starting Android first when it is not running), what it is, and its files.

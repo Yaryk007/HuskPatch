@@ -132,7 +132,9 @@ fi
 # @rpath/libANGLE-shared.dylib". Everything else in this validation passed. A
 # check that covers one of two required libraries is a check that reports
 # success on a bundle that cannot launch.
-for lib in libqemu-aarch64-softmmu.dylib libANGLE-shared.dylib; do
+REQUIRED_LIBS="libqemu-aarch64-softmmu.dylib libANGLE-shared.dylib"
+[ "${HUSK_NO_PS4:-0}" = 1 ] || REQUIRED_LIBS="$REQUIRED_LIBS libhuskps4.dylib"   # ci_build.sh drops the PS4 layer when it is not built
+for lib in $REQUIRED_LIBS; do
     if [ ! -f "$APP/Frameworks/$lib" ]; then
         echo "  MISSING  Frameworks/$lib" >&2
         rc=1

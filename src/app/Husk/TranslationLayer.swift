@@ -197,6 +197,7 @@ final class TranslationLayerStore: ObservableObject {
             $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending
         }
         rescanStale()
+        PS4Store.shared.reload()   // the PS4 games, which Files may have changed too
     }
 
     /// The apps read again from disk, and nothing else started: after work that only changed what is on disk.

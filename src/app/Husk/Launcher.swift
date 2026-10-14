@@ -12,10 +12,12 @@ enum LibraryItem: Identifiable, Hashable {
     case game(TLApp)
     case app(AndroidHost.Package)
     case android
+    case ps4(PS4Game)
 
     var id: String {
         switch self {
         case .game(let g): return "tl:" + g.id
+        case .ps4(let g): return g.libraryID
         case .app(let p): return "android:" + p.name
         case .android: return "android-system"
         }
@@ -29,6 +31,7 @@ enum LibraryItem: Identifiable, Hashable {
         case .game(let g): return g.label
         case .app(let p): return p.label
         case .android: return "Android"
+        case .ps4(let g): return g.title
         }
     }
 
@@ -37,6 +40,7 @@ enum LibraryItem: Identifiable, Hashable {
         case .game(let g): return g.iconPath
         case .app(let p): return p.iconPath
         case .android: return nil
+        case .ps4(let g): return g.iconPath
         }
     }
 
@@ -46,6 +50,7 @@ enum LibraryItem: Identifiable, Hashable {
         case .game(let g): return (g.report?.nativeEngine != .flutter && g.report?.engine != "Flutter" && g.report?.webKind == nil) || g.isGameCategory
         case .app(let p): return p.category == "Game"
         case .android: return false
+        case .ps4: return true
         }
     }
 
@@ -54,11 +59,15 @@ enum LibraryItem: Identifiable, Hashable {
         case .game(let g): return g.packageName
         case .app(let p): return p.name
         case .android: return nil
+        case .ps4: return nil
         }
     }
 
     /// A gameplay picture, for apps that have been run on an iPhone (fetched from GitHub; see ShowcaseStore).
-    @MainActor var artworkPath: String? { ShowcaseStore.shared.pictures(for: packageName).first }
+    @MainActor var artworkPath: String? {
+        if case .ps4(let g) = self { return g.artPath }   // the game's own hero picture (pic1)
+        return ShowcaseStore.shared.pictures(for: packageName).first
+    }
 
     var runsInAndroid: Bool {
         if case .app = self { return true }
@@ -68,6 +77,7 @@ enum LibraryItem: Identifiable, Hashable {
     var lastUsed: Date? {
         switch self {
         case .game(let g): return g.lastPlayed
+        case .ps4(let g): return g.lastPlayed
         case .app(let p): return p.lastUsed
         case .android: return UserDefaults.standard.object(forKey: "husk.android.lastOpened") as? Date
         }
@@ -78,6 +88,7 @@ enum LibraryItem: Identifiable, Hashable {
         case .game(let g): return .game(g.id)
         case .app(let p): return .android(p)
         case .android: return .androidSystem
+        case .ps4(let g): return .ps4(g.titleID)
         }
     }
 
@@ -108,7 +119,7 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
 @MainActor
 enum Launcher {
     static func items(store: TranslationLayerStore, host: AndroidHost) -> [LibraryItem] {
-        store.apps.map(LibraryItem.game) + host.packages.map(LibraryItem.app)
+        store.apps.map(LibraryItem.game) + PS4Store.shared.games.map(LibraryItem.ps4) + host.packages.map(LibraryItem.app)
     }
 
     /// Most recently used first; never-used ones after, by name.
@@ -648,6 +659,7 @@ struct LibraryScreen: View {
             if AndroidHost.shared.isReady { return "Running" }
             return guest.state == .ready ? nil : "Not installed"
         case .app: return nil
+        case .ps4: return PS4Store.available ? nil : "Needs iOS 17.4"
         }
     }
 }
@@ -813,6 +825,8 @@ struct LibraryRouteView: View {
             AndroidAppPage(app: pkg)
         case .androidSystem:
             AndroidSystemPage()
+        case .ps4(let id):
+            if let game = PS4Store.shared.game(id) { PS4GamePage(game: game) } else { GoneView() }
         }
     }
 }

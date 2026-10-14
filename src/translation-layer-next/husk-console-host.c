@@ -1,0 +1,207 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+#include "husk-console-host.h"
+
+#include <dlfcn.h>
+#include <fcntl.h>
+#include <pthread.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#include <mach/mach.h>
+#if !TARGET_OS_OSX
+#include <os/proc.h>
+#endif
+#endif
+
+#include "husk-jit-arena.h"
+#include "husk-tl-gamepad.h"
+
+void tl_log_line(const char *fmt, ...);
+/* The Android side's gate (husk-tl-unity-app.c). */
+const char *husk_native_loaded_apk(void);
+
+static const HuskConsoleModuleV1 *g_module;
+static HuskHostV1 g_host;
+static int g_log_fd = -1;
+static pthread_mutex_t g_log_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct timespec g_t0;
+static char g_game_id[128];
+static pthread_t g_pad_thread;
+
+/* ---- the host table ---- */
+
+static void *host_jit_alloc(size_t bytes, void **rx_out) { return husk_jit_arena_alloc(bytes, rx_out); }
+static int host_jit_free(void *rw, size_t bytes) { return husk_jit_arena_free(rw, bytes) ? 1 : 0; }
+
+static uint64_t host_available_memory(void)
+{
+#if defined(__APPLE__) && !TARGET_OS_OSX
+    return (uint64_t)os_proc_available_memory();
+#else
+    /* HUSK_MEM_LIMIT_MB: a phone's figure, to see whether a game fits there */
+    const char *limit = getenv("HUSK_MEM_LIMIT_MB");
+    return limit ? (uint64_t)atoll(limit) << 20 : (uint64_t)8 << 30;
+#endif
+}
+
+static uint64_t host_footprint(void)
+{
+#if defined(__APPLE__)
+    task_vm_info_data_t info;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info, &count) == KERN_SUCCESS) return info.phys_footprint;
+#endif
+    return 0;
+}
+
+static void host_log_line(const char *line)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    char buf[2048];
+    int n = snprintf(buf, sizeof(buf), "[%8.3f] %s\n", (t.tv_sec - g_t0.tv_sec) + (t.tv_nsec - g_t0.tv_nsec) / 1e9, line);
+    if (n < 0) return;
+    if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1, buf[n - 1] = '\n';
+    pthread_mutex_lock(&g_log_lock);
+    if (g_log_fd >= 0) { ssize_t w = write(g_log_fd, buf, (size_t)n); (void)w; }
+    else { fwrite(buf, 1, (size_t)n, stderr); }
+    pthread_mutex_unlock(&g_log_lock);
+    tl_log_line("%s", line);   /* the app's log panel and diagnosis read this one */
+}
+
+/* ---- pads ----
+ * Husk's controllers (slots 0-2) and the on-screen pad (slot 3) report through tl_pad_update, as for an Android game. Merged
+ * here into one PS4 pad: buttons OR'd, the stick and trigger furthest from rest taken. */
+static const uint32_t k_orbis_bit[TL_PAD_BUTTONS] = {
+    [TL_PAD_A] = 0x4000, [TL_PAD_B] = 0x2000, [TL_PAD_X] = 0x8000, [TL_PAD_Y] = 0x1000,       /* cross circle square triangle */
+    [TL_PAD_L1] = 0x400, [TL_PAD_R1] = 0x800, [TL_PAD_THUMBL] = 0x2, [TL_PAD_THUMBR] = 0x4,
+    [TL_PAD_START] = 0x8, [TL_PAD_SELECT] = 0x100000, [TL_PAD_MODE] = 0,                       /* options, touchpad click */
+    [TL_PAD_DPAD_UP] = 0x10, [TL_PAD_DPAD_DOWN] = 0x40, [TL_PAD_DPAD_LEFT] = 0x80, [TL_PAD_DPAD_RIGHT] = 0x20,
+};
+
+static float further(float a, float b) { return (a < 0 ? -a : a) >= (b < 0 ? -b : b) ? a : b; }
+static uint8_t stick(float v) { v = v < -1 ? -1 : v > 1 ? 1 : v; return (uint8_t)((v + 1.0f) * 127.5f + 0.5f); }   /* y down, as the PS4 */
+static uint8_t trigger(float v) { v = v < 0 ? 0 : v > 1 ? 1 : v; return (uint8_t)(v * 255.0f + 0.5f); }
+
+static void *pad_loop(void *arg)
+{
+    (void)arg;
+    HuskPadV1 last;
+    memset(&last, 0xff, sizeof(last));
+    for (;;) {
+        tl_pad_state m = {0}, s;
+        uint32_t buttons = 0;
+        for (int slot = 0; slot < TL_PADS; slot++) {
+            if (!tl_pad_read(slot, &s)) continue;
+            buttons |= s.buttons;
+            m.lx = further(m.lx, s.lx); m.ly = further(m.ly, s.ly); m.rx = further(m.rx, s.rx); m.ry = further(m.ry, s.ry);
+            if (s.lt > m.lt) m.lt = s.lt;
+            if (s.rt > m.rt) m.rt = s.rt;
+        }
+        HuskPadV1 pad;
+        memset(&pad, 0, sizeof(pad));
+        for (int b = 0; b < TL_PAD_BUTTONS; b++) if (buttons & (1u << b)) pad.buttons |= k_orbis_bit[b];
+        pad.left_x = stick(m.lx); pad.left_y = stick(m.ly); pad.right_x = stick(m.rx); pad.right_y = stick(m.ry);
+        pad.l2 = trigger(m.lt); pad.r2 = trigger(m.rt);
+        if (memcmp(&pad, &last, sizeof(pad)) != 0 && g_module && g_module->state() == HUSK_CONSOLE_RUNNING) {
+            g_module->set_pad(&pad);
+            last = pad;
+        }
+        int state = g_module ? g_module->state() : HUSK_CONSOLE_IDLE;
+        if (state == HUSK_CONSOLE_STOPPED || state == HUSK_CONSOLE_FAILED) break;
+        usleep(8000);
+    }
+    return NULL;
+}
+
+static void host_log(const char *fmt, ...)
+{
+    char line[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof(line), fmt, ap);
+    va_end(ap);
+    host_log_line(line);
+    tl_log_line("%s", line);
+}
+
+/* ---- launching ---- */
+
+bool husk_console_launch(const husk_console_launch_args *a, char *err, size_t errlen)
+{
+    if (g_module) { snprintf(err, errlen, "a console game is already running in this process"); return false; }
+    if (!a || !a->module_path || !a->game || !a->user_dir || !a->metal_layer || a->width_px <= 0 || a->height_px <= 0) {
+        snprintf(err, errlen, "missing launch arguments");
+        return false;
+    }
+    /* One game per process: an Android game's engine holds the same JIT region. */
+    if (husk_native_loaded_apk()) {
+        snprintf(err, errlen, "another game is already loaded in this session; close Husk and open it again");
+        return false;
+    }
+    clock_gettime(CLOCK_MONOTONIC, &g_t0);
+    if (a->log_path) g_log_fd = open(a->log_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+
+    void *lib = dlopen(a->module_path, RTLD_NOW | RTLD_LOCAL);
+    if (!lib) { snprintf(err, errlen, "could not load %s: %s", a->module_path, dlerror()); return false; }
+    husk_console_module_v1_fn entry = (husk_console_module_v1_fn)dlsym(lib, "husk_console_module_v1");
+    const HuskConsoleModuleV1 *m = entry ? entry() : NULL;
+    if (!m || m->version != HUSK_CONSOLE_ABI_VERSION || m->struct_size < sizeof(HuskConsoleModuleV1)) {
+        snprintf(err, errlen, "%s is not a console module this Husk understands", a->module_path);
+        return false;
+    }
+
+    /* The module's executable memory: Husk's region, capped at what the module declares. */
+    if (!husk_jit_arena_open(a->region_bytes ? a->region_bytes : (size_t)192 << 20, m->jit_ceiling_bytes, err, errlen)) return false;
+    if (husk_jit_arena_ceiling_bytes() < m->jit_ceiling_bytes) {
+        snprintf(err, errlen, "the JIT region is %zu MiB; %s needs %zu MiB", husk_jit_arena_held_bytes() >> 20, m->platform,
+                 m->jit_ceiling_bytes >> 20);
+        return false;
+    }
+
+    memset(&g_host, 0, sizeof(g_host));
+    g_host.struct_size = sizeof(g_host);
+    g_host.version = HUSK_CONSOLE_ABI_VERSION;
+    g_host.jit_alloc = host_jit_alloc;
+    g_host.jit_free = host_jit_free;
+    g_host.jit_delta = husk_jit_arena_delta();
+    g_host.jit_rw_base = (uintptr_t)husk_jit_arena_rw_base();
+    g_host.jit_size = husk_jit_arena_held_bytes();
+    g_host.available_memory = host_available_memory;
+    g_host.footprint = host_footprint;
+    g_host.log_line = host_log_line;
+    g_host.vulkan_library_path = a->vulkan_path;
+
+    host_log("console: %s module, JIT region %zu MiB (ceiling %zu MiB), %zu MiB available", m->platform,
+             husk_jit_arena_held_bytes() >> 20, husk_jit_arena_ceiling_bytes() >> 20, (size_t)(host_available_memory() >> 20));
+    if (m->init(&g_host, a->user_dir) != 0) { snprintf(err, errlen, "the %s module did not start (see the log)", m->platform); return false; }
+    if (m->launch(a->game, a->game_args, a->metal_layer, a->width_px, a->height_px, a->scale) != 0) {
+        snprintf(err, errlen, "the %s module could not launch %s", m->platform, a->game);
+        return false;
+    }
+    snprintf(g_game_id, sizeof(g_game_id), "%s", a->game_id ? a->game_id : a->game);
+    g_module = m;
+    pthread_create(&g_pad_thread, NULL, pad_loop, NULL);
+    pthread_detach(g_pad_thread);
+    return true;
+}
+
+const char *husk_console_loaded_game(void) { return g_module ? g_game_id : NULL; }
+
+int husk_console_state(void) { return g_module ? g_module->state() : HUSK_CONSOLE_IDLE; }
+uint64_t husk_console_frames(void) { return g_module ? g_module->frames() : 0; }
+void husk_console_set_paused(bool paused) { if (g_module) g_module->set_paused(paused ? 1 : 0); }
+void husk_console_set_pad(const HuskPadV1 *pad) { if (g_module) g_module->set_pad(pad); }
+void husk_console_resize(int width_px, int height_px) { if (g_module) g_module->resize(width_px, height_px); }
+void husk_console_stop(void) { if (g_module) g_module->stop(); }
+
+bool husk_console_take_pending_restart(char *path, int path_size, char *args, int args_size)
+{
+    return g_module && g_module->take_pending_restart(path, path_size, args, args_size) != 0;
+}
