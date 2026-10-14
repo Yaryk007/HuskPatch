@@ -47,7 +47,7 @@ final class TLUnityUIView: UIView, UIKeyInput {
     private let dataDir: String
     let engine: TLNativeEngine
     /// A portrait game is told its size when the screen is taller than wide, as a landscape one is when it is wider.
-    private let portrait: Bool
+    let portrait: Bool
     private(set) var launched = false
     /// The size, in points, the game was told it has as it started. Every engine but Flutter keeps it for good, so a window
     /// that is resized later scales the picture instead (TLWindowHost).

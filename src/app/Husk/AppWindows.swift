@@ -58,16 +58,19 @@ struct AppWindowLayer: View {
     @ObservedObject private var windows = AppWindows.shared
 
     var body: some View {
+        // HuskPatch: the layer spans the whole screen, so a maximised window can fill it; a window that is not maximised
+        // and the dock keep to the safe area themselves.
         GeometryReader { geo in
             if let app = windows.app {
                 if windows.minimized {
-                    WindowDock(app: app, container: geo.size)
+                    WindowDock(app: app, container: geo.size, safe: geo.safeAreaInsets)
                 } else {
-                    AppWindow(app: app, container: geo.size)
+                    AppWindow(app: app, container: geo.size, safe: geo.safeAreaInsets)
                         .transition(.scale(scale: 0.2).combined(with: .opacity))
                 }
             }
         }
+        .ignoresSafeArea(.container)
     }
 }
 
@@ -76,8 +79,13 @@ struct AppWindowLayer: View {
 private struct AppWindow: View {
     let app: TLApp
     let container: CGSize
+    /// The notch, the home indicator and the rounded corners: a window that is not maximised stays inside them.
+    let safe: EdgeInsets
     @ObservedObject private var windows = AppWindows.shared
     @StateObject private var model = TLUnityModel()
+    /// HuskPatch: maximised, the title bar floats over the app and hides itself; a tap on the handle at the top brings it back.
+    @State private var barShown = true
+    @State private var barHideToken = 0
     @State private var stoppedWhy: AppDiagnosis?
     /// The frame as a drag or a resize began.
     @State private var startFrame: CGRect?
@@ -90,7 +98,9 @@ private struct AppWindow: View {
 
     /// A first place for the window: the app's own shape, as large as fits comfortably, in the middle of the screen.
     private var initialFrame: CGRect {
-        let aspect: CGFloat = portrait ? 19.5 / 9 : 9 / 16
+        // The screen's own shape, which a fixed-size game is started at (TLWindowHost.fullScreenSize).
+        let long = max(container.width, container.height), short = max(1, min(container.width, container.height))
+        let aspect: CGFloat = portrait ? long / short : short / long
         var w = portrait ? min(container.width * 0.82, 380) : container.width - 24
         var h = w * aspect + Self.bar
         let maxH = container.height * (portrait ? 0.78 : 0.7)
@@ -141,9 +151,9 @@ private struct AppWindow: View {
     private func clamp(_ f: CGRect) -> CGRect {
         var f = f
         f.size.width = min(max(f.width, Self.minSize.width), container.width)
-        f.size.height = min(max(f.height, Self.minSize.height), container.height)
+        f.size.height = min(max(f.height, Self.minSize.height), container.height - safe.top - safe.bottom)
         f.origin.x = min(max(f.minX, -f.width + 90), container.width - 90)
-        f.origin.y = min(max(f.minY, 0), container.height - Self.bar)
+        f.origin.y = min(max(f.minY, safe.top), container.height - safe.bottom - Self.bar)
         return f
     }
 
@@ -156,9 +166,10 @@ private struct AppWindow: View {
     var body: some View {
         let f = frame
         VStack(spacing: 0) {
-            titleBar
+            if !windows.maximized { titleBar }
             content
         }
+        .overlay(alignment: .top) { if windows.maximized { maximizedBar } }
         .frame(width: f.width, height: f.height)
         .background(Color.black)
         .clipShape(RoundedRectangle(cornerRadius: windows.maximized ? 0 : 12, style: .continuous))
@@ -224,6 +235,37 @@ private struct AppWindow: View {
                         .allowsHitTesting(false)
                     }
                 }
+        }
+    }
+
+    /// Maximised: the title bar over the top of the app, below the notch, gone a few seconds after it was last shown; while it
+    /// is hidden, a small handle in its place shows it again.
+    @ViewBuilder private var maximizedBar: some View {
+        Group {
+            if barShown {
+                titleBar
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .shadow(color: .black.opacity(0.3), radius: 8, y: 3)
+                    .padding(.horizontal, max(safe.leading, safe.trailing, 12))
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            } else {
+                Capsule().fill(.white.opacity(0.55)).frame(width: 44, height: 5)
+                    .frame(width: 120, height: 26)
+                    .contentShape(Rectangle())
+                    .onTapGesture { showBar() }
+                    .accessibilityLabel("Show window controls")
+            }
+        }
+        .padding(.top, safe.top > 0 ? safe.top : 6)
+        .onAppear { showBar() }
+    }
+
+    private func showBar() {
+        withAnimation(.snappy(duration: 0.2)) { barShown = true }
+        barHideToken += 1
+        let token = barHideToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            if token == barHideToken, windows.maximized { withAnimation(.easeOut(duration: 0.3)) { barShown = false } }
         }
     }
 
@@ -312,14 +354,15 @@ private struct AppWindow: View {
 private struct WindowDock: View {
     let app: TLApp
     let container: CGSize
+    let safe: EdgeInsets
     @ObservedObject private var windows = AppWindows.shared
     @State private var drag: CGSize = .zero
 
     private let size: CGFloat = 56
 
     var body: some View {
-        let x = windows.dockLeft ? size / 2 + 8 : container.width - size / 2 - 8
-        let y = min(max(windows.dockY * container.height, size), container.height - size)
+        let x = windows.dockLeft ? safe.leading + size / 2 + 8 : container.width - safe.trailing - size / 2 - 8
+        let y = min(max(windows.dockY * container.height, safe.top + size), container.height - safe.bottom - size)
         ItemIcon(item: .game(app), size: size - 12)
             .padding(6)
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -382,10 +425,19 @@ final class TLWindowHost: UIView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    /// HuskPatch: the size a fixed-size game is started at in a window -- the whole screen, turned the game's way -- so it is
+    /// scaled down to fit the window and fills the screen exactly when the window is maximised, instead of being started at the
+    /// window's size and left with black borders around it.
+    private var fullScreenSize: CGSize? {
+        guard game.launchedSize == nil, let screen = window?.bounds.size else { return nil }
+        let long = max(screen.width, screen.height), short = min(screen.width, screen.height)
+        return game.portrait ? CGSize(width: short, height: long) : CGSize(width: long, height: short)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         guard game.superview === self, bounds.width > 0, bounds.height > 0 else { return }
-        if let size = game.launchedSize, !game.engine.relayoutsWhenResized, size.width > 0, size.height > 0 {
+        if let size = game.launchedSize ?? fullScreenSize, !game.engine.relayoutsWhenResized, size.width > 0, size.height > 0 {
             let k = min(bounds.width / size.width, bounds.height / size.height)
             game.transform = .identity
             game.bounds = CGRect(origin: .zero, size: size)

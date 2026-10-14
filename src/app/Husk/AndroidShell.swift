@@ -485,8 +485,10 @@ private struct AndroidAppContainer: View {
     var body: some View {
         switch app {
         case .item(.game(let g)):
+            // Edge to edge: under the status bar and, in landscape, past the notch and the rounded corners, as an Android game
+            // in immersive mode draws. Only the navigation buttons below keep their strip.
             TLAttemptView(app: g)
-                .ignoresSafeArea(edges: .top)
+                .ignoresSafeArea(.container, edges: [.top, .horizontal])
         default:
             Group {
                 switch app {
@@ -499,8 +501,7 @@ private struct AndroidAppContainer: View {
                     }
                 }
             }
-            .background(Theme.bg)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Theme.bg.ignoresSafeArea(.container, edges: [.top, .horizontal]))
         }
     }
 }

@@ -2,7 +2,7 @@
 
 The text bellow is not what huskpatch was used to be, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed, thank you guys for the support, i might still make updates but i will focus on my other projects more.
 
-> **HuskPatch 2.2.1** is the official [Husk](https://github.com/Leviidev/Husk) 2.0 release with these additions:
+> **HuskPatch 2.3.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (2.0 plus build 113) with these additions:
 >
 > - **Android OS mode** (Settings › Appearance › Android OS): HuskPatch's interface replaced by Android 16's -- a lock
 >   screen you swipe up, a home screen with your games and apps, an app drawer with the whole library, Settings and
@@ -12,9 +12,13 @@ The text bellow is not what huskpatch was used to be, it was a fork of husk to f
 >   Material's back button, segmented buttons and switches, large rounded cards and pill buttons. No Liquid Glass.
 > - **Material You in Apps**: apps on the translation layer get Android's dynamic colours, made from your accent.
 > - **Resizable windows** (Multitasking): Android apps and Flutter apps lay out again at the window's new size; games
->   keep their shape as you resize or pinch, so there are no black bars and nothing is stretched.
+>   keep their shape as you resize or pinch, so there are no black bars and nothing is stretched. Maximise fills the
+>   whole screen -- no rounded corners, no title bar (tap the handle at the top for it) -- and games start at
+>   full-screen resolution, so a maximised game has no black borders.
 > - **Android status bar** over apps in portrait, and **no grey borders** around apps.
 > - HuskPatch's own icon and name; Husk's original icon is still there as **Automatic Legacy**, with the others.
+>
+> Upstream's PS4 games (libhuskps4) are not in these builds: the PS4 layer needs Leviidev's unpublished FEXCore fork.
 >
 > Builds: **Actions → Build IPA**, artifact **Husk-ipa**. Android's Java libraries in them come from the official 2.0
 > release; Husk's Java framework is built from this repo. Untested builds: use
