@@ -519,6 +519,7 @@ void husk_java_set_insets(int left, int top, int right, int bottom, int keyboard
     g_java_insets[0] = left; g_java_insets[1] = top; g_java_insets[2] = right; g_java_insets[3] = bottom;
     if (java_running()) tl_javaapp_set_insets(left, top, right, bottom, keyboard);
 }
+void husk_java_resize(int width, int height) { if (java_running()) tl_javaapp_resize(width, height); }
 void husk_java_set_night_mode(int night) { g_java_night = night != 0; }
 void husk_java_insert_text(const char *utf8) { if (java_running()) tl_javaapp_text(utf8); }
 void husk_java_delete_backward(void) { if (java_running()) tl_javaapp_text_delete(); }

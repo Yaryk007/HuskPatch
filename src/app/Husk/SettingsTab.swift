@@ -678,6 +678,7 @@ struct AppearanceSettings: View {
     @AppStorage(Holiday.key) private var holiday = true
     @AppStorage(Material3.key) private var material3 = false
     @AppStorage(Material3.appsKey) private var materialApps = false
+    @AppStorage(AndroidOS.key) private var androidOS = false
     @ObservedObject private var theme = AppTheme.shared
     @Environment(\.colorScheme) private var scheme
     @State private var custom: Color = AppTheme.shared.accentColor
@@ -700,6 +701,21 @@ struct AppearanceSettings: View {
             } footer: {
                 Text("System follows the phone: light by day, dark by night. The guest's own "
                    + "screen stays dark either way — it is a picture of another phone.")
+            }
+
+            Section {
+                Toggle("Android OS", isOn: Binding(get: { androidOS }, set: { on in
+                    AndroidOS.set(on)
+                    androidOS = on
+                    if on { material3 = true; materialApps = true }
+                }))
+            } header: {
+                Text("Android")
+            } footer: {
+                Text("Replaces HuskPatch's interface with Android 16's: a lock screen, a home screen with your games and "
+                   + "apps, an app drawer with the whole library, Settings and Play Store as apps, and Android's back, "
+                   + "home and recents buttons. Turns on the Android 16 style and Material You in apps with it. Turn it "
+                   + "off here, in the Settings app.")
             }
 
             Section {

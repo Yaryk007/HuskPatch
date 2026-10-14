@@ -49,6 +49,8 @@ void tl_javaapp_text_action(void);
 void tl_javaapp_keyboard_closed(void);
 /* The screen's insets changed (rotation), or the keyboard now covers ime_bottom pixels of it. */
 void tl_javaapp_set_insets(int left, int top, int right, int bottom, int ime_bottom);
+/* HuskPatch: the window is now w x h pixels; the app lays out again at that size. */
+void tl_javaapp_resize(int w, int h);
 unsigned long tl_javaapp_frames(void);
 bool tl_javaapp_ended(void);
 

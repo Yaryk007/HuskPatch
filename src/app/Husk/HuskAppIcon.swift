@@ -16,6 +16,8 @@ enum HuskAppIcon: String, CaseIterable, Identifiable {
     /// artwork with the system setting -- no picker involved, and nothing this
     /// code has to observe.
     case automatic    = "AppIcon"
+    /// HuskPatch: Husk's original icon, with its own light, dark and tinted versions.
+    case legacy       = "AppIconLegacy"
     case clearLight   = "AppIconClearLight"
     case clearDark    = "AppIconClearDark"
     case tintedLight  = "AppIconTintedLight"
@@ -26,6 +28,7 @@ enum HuskAppIcon: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .automatic:   return "Automatic"
+        case .legacy:      return "Automatic Legacy"
         case .clearLight:  return "Clear Light"
         case .clearDark:   return "Clear Dark"
         case .tintedLight: return "Tinted Light"
@@ -34,7 +37,7 @@ enum HuskAppIcon: String, CaseIterable, Identifiable {
     }
 
     var detail: String {
-        self == .automatic
+        self == .automatic || self == .legacy
             ? "Follows the system: light, dark and tinted."
             : "Always this look."
     }
@@ -55,6 +58,7 @@ enum HuskAppIcon: String, CaseIterable, Identifiable {
     func preview(dark: Bool = false) -> UIImage? {
         switch self {
         case .automatic:   return UIImage(named: dark ? "icon-dark" : "icon-default")
+        case .legacy:      return UIImage(named: dark ? "icon-legacy-dark" : "icon-legacy")
         case .clearLight:  return UIImage(named: "icon-clearlight")
         case .clearDark:   return UIImage(named: "icon-cleardark")
         case .tintedLight: return UIImage(named: "icon-tintedlight")

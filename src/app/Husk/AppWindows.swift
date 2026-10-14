@@ -103,6 +103,40 @@ private struct AppWindow: View {
         return clamp(windows.frame ?? initialFrame)
     }
 
+    /// HuskPatch: whether the app in this window lays itself out again at any size (Java, Flutter, web apps). Other
+    /// engines draw at the size they started at, so their window keeps that shape instead of growing black bars.
+    private var relayouts: Bool { app.report?.webKind != nil || app.screenEngine.relayoutsWhenResized }
+
+    /// A new frame for the window: free for an app that relays out; for a fixed-size game, its content area kept at the
+    /// shape the game was started at, following whichever side changed more.
+    private func keepingShape(_ f: CGRect) -> CGRect {
+        guard !relayouts, let apk = app.apks.first, let size = TLUnityScreen.launchedSize(apk: apk),
+              size.width > 0, size.height > 0 else { return f }
+        let aspect = size.height / size.width
+        var out = f
+        let base = startFrame ?? frame
+        let dw = abs(f.width - base.width), dh = abs(f.height - base.height)
+        if dw >= dh { out.size.height = f.width * aspect + Self.bar }
+        else { out.size.width = (f.height - Self.bar) / aspect }
+        return out
+    }
+
+    /// Pinch on the title bar: the window grows or shrinks about its centre, keeping its shape.
+    private var pinchGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { k in
+                let start = startFrame ?? frame
+                if startFrame == nil { startFrame = start }
+                var f = start
+                f.size.width = start.width * k
+                f.size.height = (start.height - Self.bar) * k + Self.bar
+                f.origin.x = start.midX - f.width / 2
+                f.origin.y = start.midY - f.height / 2
+                windows.frame = clamp(f)
+            }
+            .onEnded { _ in startFrame = nil }
+    }
+
     /// Keep the title bar on the screen, so the window can always be reached.
     private func clamp(_ f: CGRect) -> CGRect {
         var f = f
@@ -218,6 +252,7 @@ private struct AppWindow: View {
         .background(Theme.card)
         .contentShape(Rectangle())
         .gesture(windows.maximized ? nil : moveGesture)
+        .simultaneousGesture(windows.maximized ? nil : pinchGesture)
         .onTapGesture(count: 2) { windows.toggleMaximized() }
     }
 
@@ -262,7 +297,7 @@ private struct AppWindow: View {
                         var f = start
                         f.size.width = start.width + v.translation.width
                         f.size.height = start.height + v.translation.height
-                        windows.frame = clamp(f)
+                        windows.frame = clamp(keepingShape(f))
                     }
                     .onEnded { _ in startFrame = nil }
             )
@@ -350,7 +385,7 @@ final class TLWindowHost: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         guard game.superview === self, bounds.width > 0, bounds.height > 0 else { return }
-        if let size = game.launchedSize, game.engine != .flutter, size.width > 0, size.height > 0 {
+        if let size = game.launchedSize, !game.engine.relayoutsWhenResized, size.width > 0, size.height > 0 {
             let k = min(bounds.width / size.width, bounds.height / size.height)
             game.transform = .identity
             game.bounds = CGRect(origin: .zero, size: size)
@@ -361,7 +396,7 @@ final class TLWindowHost: UIView {
             game.frame = bounds
             // The game starts in its own layout pass; once it has, a fixed-size engine needs placing as above.
             DispatchQueue.main.async { [weak self] in
-                if self?.game.launchedSize != nil, self?.game.engine != .flutter { self?.setNeedsLayout() }
+                if self?.game.launchedSize != nil, self?.game.engine.relayoutsWhenResized == false { self?.setNeedsLayout() }
             }
         }
     }

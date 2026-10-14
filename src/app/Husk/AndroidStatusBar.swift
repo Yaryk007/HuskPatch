@@ -12,7 +12,14 @@ import UIKit
 /// strength, so the bars are drawn full whenever cellular is the connection.
 struct AndroidStatusBar: View {
     let material: Bool
+    /// Over a wallpaper (Android OS mode's home and lock screens): no bar of its own, icons in the wallpaper's ink.
+    var transparent = false
     @StateObject private var status = DeviceStatus()
+    @Environment(\.colorScheme) private var scheme
+
+    private var ink: Color {
+        transparent ? Color(uiColor: Material3.onPrimaryContainer) : Color(uiColor: Material3.onSurface)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -23,11 +30,11 @@ struct AndroidStatusBar: View {
                 }
                 .frame(height: max(height, 24))
                 .frame(maxWidth: .infinity)
-                .background(material ? Color(uiColor: Material3.surface) : Color.black)
+                .background(transparent ? Color.clear : material ? Color(uiColor: Material3.surface) : Color.black)
             }
             .ignoresSafeArea(edges: .top)
         }
-        .environment(\.colorScheme, .dark)
+        .environment(\.colorScheme, transparent ? scheme : .dark)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -37,7 +44,7 @@ struct AndroidStatusBar: View {
     /// The clock on the left, the connection and a horizontal battery with its level written in it on the right,
     /// in Google Sans's place the rounded face, with the bar's items kept clear of the notch at the sides.
     private func expressive(_ now: Date) -> some View {
-        let fg = Color(uiColor: Material3.onSurface)
+        let fg = ink
         return HStack(spacing: 6) {
             Text(time(now))
                 .font(.system(size: 15, weight: .semibold, design: .rounded))

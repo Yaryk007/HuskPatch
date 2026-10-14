@@ -7,6 +7,10 @@ import AVFoundation
 /// The engines the native runtime drives. Both draw into a CAMetalLayer through ANGLE, and both are one game per
 /// process: an engine cannot be unloaded once it has started.
 enum TLNativeEngine {
+    /// HuskPatch: whether the app lays itself out again when its window changes size (Android views and Flutter do);
+    /// the other engines draw at the size they started at.
+    var relayoutsWhenResized: Bool { self == .java || self == .flutter }
+
     case unity     // Subway Surfers and other Unity games: portrait, driven by UnityPlayer's own thread
     case cocos     // Geometry Dash and other cocos2d-x games: landscape, driven by a GL thread of our own
     case minecraft // Minecraft and other GameActivity games: landscape, multi-touch, the game runs its own threads
@@ -228,6 +232,8 @@ final class TLUnityUIView: UIView, UIKeyInput {
         // Flutter lays itself out again at any size, as an Android view does when its window changes: a window being resized, the
         // screen turning.
         if engine == .flutter, launched { husk_flutter_resize(Int32(w), Int32(h)) }
+        // HuskPatch: Java apps relayout at the new size too (a resized window), rather than being scaled.
+        if engine == .java, launched { husk_java_resize(Int32(w), Int32(h)) }
         // A landscape game is told its size once, when it starts, so it must not start while the screen is still
         // turning: wait for a surface that is wider than it is tall.
         // Unity games too: Fruit Ninja is a landscape one. If the screen has not turned after two seconds it is not going to,
@@ -592,6 +598,9 @@ struct TLUnityScreen: UIViewRepresentable {
     /// One view per game for the life of the process. The engine's GPU surface belongs to this view's layer and an
     /// engine cannot be started twice, so coming back to the game must show the same layer, not a new one.
     private static var shared: [String: TLUnityUIView] = [:]
+
+    /// HuskPatch: the size a game was started at, once it has started (nil before), for windows that keep its shape.
+    static func launchedSize(apk: String) -> CGSize? { shared[apk]?.launchedSize }
 
     /// The game's one view, made the first time it is asked for.
     static func view(apk: String, extraApks: [String], dataDir: String, engine: TLNativeEngine, portrait: Bool, scale: CGFloat) -> TLUnityUIView {

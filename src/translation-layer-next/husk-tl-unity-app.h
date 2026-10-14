@@ -77,6 +77,7 @@ void husk_java_set_host(void (*keyboard)(int show, int input_type, int ime_optio
                         char *(*get_clipboard)(void), void (*share)(const char *utf8), void (*orientation)(int android_orientation));
 /* The notch / home indicator areas and the keyboard's height, in surface pixels; before the launch and whenever they change. */
 void husk_java_set_insets(int left, int top, int right, int bottom, int keyboard);
+void husk_java_resize(int width, int height);                          /* HuskPatch: the view's new size in pixels, after the launch */
 /* The phone is in dark mode (before the launch): the app's configuration says night. */
 void husk_java_set_night_mode(int night);
 void husk_java_insert_text(const char *utf8);

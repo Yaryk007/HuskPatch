@@ -136,6 +136,9 @@ public final class ViewRoot implements ViewParent {
     public static void setInsets(int l, int t, int r, int b) { sInsets = new int[] { l, t, r, b }; for (ViewRoot v : sRoots) v.requestApplyInsets(); }
     public static void setImeHeight(int h) { if (h != sImeBottom) { sImeBottom = h; for (ViewRoot v : sRoots) v.requestApplyInsets(); } }
     public static int imeHeight() { return sImeBottom; }
+    /** HuskPatch: the screen (the app's window over Husk) changed size: every window lays out again at the new size, which
+     *  performLayout reads from Native.screenWidth/Height. */
+    public static void screenResized() { for (ViewRoot v : sRoots) { v.requestApplyInsets(); v.mView.requestLayout(); v.mView.invalidate(); } }
     public static int[] screenInsetsHusk() { return sInsets; }
     public static WindowInsets screenInsets() { return WindowInsets.huskOf(sInsets[0], sInsets[1], sInsets[2], sInsets[3], sImeBottom, cutout()); }
     public static DisplayCutout cutout() { return sInsets[1] > 0 ? new DisplayCutout(new Rect(0, sInsets[1], 0, 0), null) : null; }

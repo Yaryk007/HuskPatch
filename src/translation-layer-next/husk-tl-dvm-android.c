@@ -1157,3 +1157,16 @@ void tl_javaapp_set_paused(bool p)
 }
 unsigned long tl_javaapp_frames(void) { return atomic_load(&A.frames); }
 bool tl_javaapp_ended(void) { return atomic_load(&A.ended); }
+
+/* HuskPatch: the app's window changed size (a resizable window over Husk). The view system reads the screen's size from
+ * A.cfg on every layout, so it relays out at the new size, as an Android window does when it is resized; the frame
+ * buffers follow whatever size is drawn (G_present). Phase 10 tells the Java side to lay out again. */
+void tl_javaapp_resize(int w, int h)
+{
+    if (w <= 0 || h <= 0 || (w == A.cfg.width && h == A.cfg.height)) return;
+    pthread_mutex_lock(&E2.lk);
+    A.cfg.width = w; A.cfg.height = h;
+    E2.w = w; E2.h = h;
+    pthread_mutex_unlock(&E2.lk);
+    tl_javaapp_touch(10, 0, 0, 0);
+}

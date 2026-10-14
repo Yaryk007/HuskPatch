@@ -28,6 +28,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(Theme.Appearance.key) private var appearance = Theme.Appearance.system
     @AppStorage(Material3.key) private var material3 = false
+    @AppStorage(AndroidOS.key) private var androidOS = false
     @ObservedObject private var theme = AppTheme.shared
     @ObservedObject private var incoming = IncomingFiles.shared
     @ObservedObject private var showcase = ShowcaseStore.shared
@@ -50,7 +51,10 @@ struct ContentView: View {
             // Android is then a matter of hiding what is over it, which is also
             // why it appears instantly rather than reloading.
             Group {
-                if material3 {
+                if androidOS {
+                    // HuskPatch: Android OS mode -- the interface replaced by Android's (AndroidShell.swift).
+                    AndroidShellView()
+                } else if material3 {
                     // HuskPatch: Android 16 style -- Material's own navigation bar instead of UIKit's
                     // (Liquid Glass on iOS 26), which cannot be restyled into one.
                     Material3Tabs(selection: $router.tab,

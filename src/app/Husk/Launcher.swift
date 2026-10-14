@@ -797,7 +797,7 @@ extension View {
     }
 }
 
-private struct LibraryRouteView: View {
+struct LibraryRouteView: View {
     let route: LibraryRoute
     @ObservedObject private var store = TranslationLayerStore.shared
 
