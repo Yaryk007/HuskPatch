@@ -713,7 +713,8 @@ struct TLCocosAttemptView: View {
         self.app = app
         let loaded = TLAppSettings.load(app.id)
         _settings = State(initialValue: loaded)
-        _uiHidden = State(initialValue: loaded.cleanView)
+        // HuskPatch: in Android OS mode an app is just an app: no bar with its name, fps and ms over it until three fingers ask.
+        _uiHidden = State(initialValue: loaded.cleanView || AndroidOS.isOn)
     }
 
     private var engine: TLNativeEngine { app.screenEngine }
@@ -837,8 +838,13 @@ struct TLCocosAttemptView: View {
             UIApplication.shared.isIdleTimerDisabled = false
             HuskOrientation.set(HuskOrientation.standard)
         }
-        .onReceive(NotificationCenter.default.publisher(for: TLUnityUIView.appClosedItself)) { _ in dismiss() }
-        .overlay { if let d = stoppedWhy { AppStoppedOverlay(app: app, diagnosis: d) { dismiss() } } }
+        .onReceive(NotificationCenter.default.publisher(for: TLUnityUIView.appClosedItself)) { _ in close() }
+        .overlay { if let d = stoppedWhy { AppStoppedOverlay(app: app, diagnosis: d) { close() } } }
+    }
+
+    /// Leave the app: back to Android OS mode's launcher when it was opened from there, otherwise off the screen it covers.
+    private func close() {
+        if AndroidShellState.shared.open != nil { AndroidShellState.shared.home() } else { dismiss() }
     }
 
     /// While the pad is being edited: what to do with the control picked, in a small panel in the middle of the screen.
@@ -877,7 +883,7 @@ struct TLCocosAttemptView: View {
 
     private var bar: some View {
         HStack(spacing: 12) {
-            Button { dismiss() } label: {
+            Button { close() } label: {
                 Label("Close", systemImage: "xmark").font(.system(size: 13, weight: .semibold))
             }
             .tint(.white)

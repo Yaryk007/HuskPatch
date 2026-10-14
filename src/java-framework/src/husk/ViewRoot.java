@@ -138,7 +138,20 @@ public final class ViewRoot implements ViewParent {
     public static int imeHeight() { return sImeBottom; }
     /** HuskPatch: the screen (the app's window over Husk) changed size: every window lays out again at the new size, which
      *  performLayout reads from Native.screenWidth/Height. */
-    public static void screenResized() { for (ViewRoot v : sRoots) { v.requestApplyInsets(); v.mView.requestLayout(); v.mView.invalidate(); } }
+    public static void screenResized() {
+        int sw = screenW(), sh = screenH();
+        for (ViewRoot v : sRoots) {
+            // what apps size themselves from: the display metrics and the configuration's screen size and orientation
+            android.content.res.Resources res = v.mView.getContext().getResources();
+            android.util.DisplayMetrics dm = res.getDisplayMetrics();
+            dm.widthPixels = sw; dm.heightPixels = sh;
+            android.content.res.Configuration c = res.getConfiguration();
+            float d = dm.density > 0 ? dm.density : 1f;
+            c.screenWidthDp = (int) (sw / d); c.screenHeightDp = (int) (sh / d);
+            c.orientation = sw > sh ? android.content.res.Configuration.ORIENTATION_LANDSCAPE : android.content.res.Configuration.ORIENTATION_PORTRAIT;
+            v.requestApplyInsets(); v.mView.requestLayout(); v.mView.invalidate();
+        }
+    }
     public static int[] screenInsetsHusk() { return sInsets; }
     public static WindowInsets screenInsets() { return WindowInsets.huskOf(sInsets[0], sInsets[1], sInsets[2], sInsets[3], sImeBottom, cutout()); }
     public static DisplayCutout cutout() { return sInsets[1] > 0 ? new DisplayCutout(new Rect(0, sInsets[1], 0, 0), null) : null; }

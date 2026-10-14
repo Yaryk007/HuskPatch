@@ -62,14 +62,19 @@ final class AndroidShellState: ObservableObject {
     @Published var drawer = false
     @Published var recents = false
     @Published private(set) var recentApps: [ShellApp] = []
+    /// Why an app could not be opened, shown as an alert.
+    @Published var notice: String?
+
+    /// The game or app on the translation layer that is open now, if one is.
+    var openGame: TLApp? {
+        if case .item(.game(let g))? = open { return g }
+        return nil
+    }
 
     func launch(_ app: ShellApp) {
+        if case .item(.game(let g)) = app, !canRun(g) { return }
         recentApps.removeAll { $0 == app }
         recentApps.insert(app, at: 0)
-        if case .item(let item) = app, case .game(let g) = item {
-            // A game starts as soon as its page is up (GamePage), as when it is played from Home.
-            Router.shared.autoPlay = g.id
-        }
         withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
             drawer = false
             recents = false
@@ -77,11 +82,40 @@ final class AndroidShellState: ObservableObject {
         }
     }
 
+    /// Whether an app on the translation layer can be opened now: JIT is on, and no other app's engine is loaded.
+    private func canRun(_ g: TLApp) -> Bool {
+        if g.report?.webKind != nil { return true }
+        guard Launcher.jitOn else {
+            JITCoordinator.shared.enable()
+            notice = "\(g.label) needs JIT. HuskPatch is turning it on: open the app again once JIT is on."
+            return false
+        }
+        if let loaded = husk_native_loaded_apk().map({ String(cString: $0) }), loaded != g.apks.first {
+            let other = Launcher.items(store: TranslationLayerStore.shared, host: AndroidHost.shared)
+                .first { if case .game(let o) = $0 { return o.apks.first == loaded }; return false }?.title
+                ?? (loaded as NSString).lastPathComponent
+            notice = "HuskPatch can't run more than one Android app at a time. \(other) is already running, and an app "
+                   + "can't be unloaded once it has started. Close HuskPatch completely and open it again to run \(g.label)."
+            return false
+        }
+        return true
+    }
+
     func home() {
         withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { open = nil; drawer = false; recents = false }
     }
 
+    /// Android's back: into the app first, when it has a back of its own (an Android app's activities, a Flutter or web
+    /// app's pages); it closes itself when there is nothing left to go back to (appClosedItself). Otherwise home.
     func back() {
+        if !recents, !drawer, let g = openGame {
+            if g.report?.webKind != nil, let web = WebAppRuntime.runtime(for: g) { web.back(); return }
+            switch g.screenEngine {
+            case .java: husk_java_back(); return
+            case .flutter: husk_flutter_back(); return
+            default: break
+            }
+        }
         withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
             if recents { recents = false } else if drawer { drawer = false } else { open = nil }
         }
@@ -143,11 +177,13 @@ struct AndroidShellView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                AndroidNavigationButtons(solid: shell.open != nil)
+                AndroidNavigationButtons(solid: shell.open != nil, overApp: shell.openGame != nil)
             }
 
             // Android's status bar over everything but the lock screen, which draws its own.
-            AndroidStatusBar(material: true, transparent: shell.open == nil)
+            if shell.openGame == nil {
+                AndroidStatusBar(material: true, transparent: shell.open == nil)
+            }
 
             if shell.locked {
                 AndroidLockScreen()
@@ -156,6 +192,14 @@ struct AndroidShellView: View {
             }
         }
         .statusBarHidden(true)
+        .alert("Can't open this app", isPresented: Binding(get: { shell.notice != nil }, set: { if !$0 { shell.notice = nil } })) {
+            Button("OK", role: .cancel) { shell.notice = nil }
+        } message: {
+            Text(shell.notice ?? "")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: TLUnityUIView.appClosedItself)) { _ in
+            if shell.openGame != nil { shell.home() }
+        }
         .onChange(of: scenePhase) { phase in
             // A phone locks when it is put away: so does this, when HuskPatch goes to the background.
             if phase == .background { shell.locked = true }
@@ -431,25 +475,33 @@ private struct UnevenRoundedRectangleCompat: Shape {
 
 // MARK: - an open app
 
-/// An app, full screen between the status bar and the navigation buttons. Settings and Play Store are the same screens
-/// as Husk's tabs; an item from the library opens its page, and a game starts from there.
+/// An app, open. Settings and Play Store are the same screens as Husk's tabs, between the status bar and the buttons. A
+/// game or app on the translation layer runs straight away, full screen over the status bar, with the buttons kept under
+/// it: leaving it (back, home, or the app closing) returns to the launcher, and the app waits, paused, to be opened again.
+/// Apps in Emulation open their page, since Android has to be started for them.
 private struct AndroidAppContainer: View {
     let app: ShellApp
 
     var body: some View {
-        Group {
-            switch app {
-            case .settings: SettingsTab()
-            case .playStore: StoreView()
-            case .item(let item):
-                NavigationStack {
-                    LibraryRouteView(route: item.route)
-                        .libraryDestinations()
+        switch app {
+        case .item(.game(let g)):
+            TLAttemptView(app: g)
+                .ignoresSafeArea(edges: .top)
+        default:
+            Group {
+                switch app {
+                case .settings: SettingsTab()
+                case .playStore: StoreView()
+                case .item(let item):
+                    NavigationStack {
+                        LibraryRouteView(route: item.route)
+                            .libraryDestinations()
+                    }
                 }
             }
+            .background(Theme.bg)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
-        .background(Theme.bg)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -517,6 +569,8 @@ private struct RecentCard: View {
 /// Android's three buttons: back, home, recents.
 private struct AndroidNavigationButtons: View {
     let solid: Bool
+    /// Over an app running full screen: white on black, as Android draws them there.
+    var overApp = false
     @ObservedObject private var shell = AndroidShellState.shared
 
     var body: some View {
@@ -531,10 +585,10 @@ private struct AndroidNavigationButtons: View {
                 RoundedRectangle(cornerRadius: 3).stroke(lineWidth: 2.4).frame(width: 16, height: 16)
             }
         }
-        .foregroundStyle(solid ? Color(uiColor: Material3.onSurface) : Color(uiColor: Material3.onPrimaryContainer))
+        .foregroundStyle(overApp ? Color.white : solid ? Color(uiColor: Material3.onSurface) : Color(uiColor: Material3.onPrimaryContainer))
         .frame(height: 48)
         .padding(.horizontal, 36)
-        .background((solid ? Color(uiColor: Material3.surfaceContainer) : Color.clear).ignoresSafeArea(edges: .bottom))
+        .background((overApp ? Color.black : solid ? Color(uiColor: Material3.surfaceContainer) : Color.clear).ignoresSafeArea(edges: .bottom))
     }
 
     private func button<L: View>(_ name: String, _ action: @escaping () -> Void, @ViewBuilder label: () -> L) -> some View {

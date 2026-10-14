@@ -907,6 +907,7 @@ static void *gl_main(void *arg)
 
     jobj *gl10 = NULL;
     jvalue p1[1];
+    int gl_w = 0, gl_h = 0;   /* HuskPatch: the size the app's renderer was last told (onSurfaceChanged) */
     int64_t next = now_ns();
     while (!atomic_load(&A.ended)) {
         if (atomic_load(&A.paused)) { usleep(20000); next = now_ns(); continue; }
@@ -937,8 +938,20 @@ static void *gl_main(void *arg)
                 jvalue p3[3] = { L(gl10), I(A.cfg.width), I(A.cfg.height) };
                 tl_jni_call(A.gl_renderer, "onSurfaceChanged", "(Ljavax/microedition/khronos/opengles/GL10;II)V", p3);
                 if (tl_jni_pending()) log_pending("onSurfaceChanged");
+                gl_w = A.cfg.width; gl_h = A.cfg.height;
                 p1[0] = L(gl10);
             }
+        }
+        /* HuskPatch: the window was resized (tl_javaapp_resize): tell the renderer, as GLSurfaceView does when its surface
+         * changes, so it draws at the new size instead of the old one. */
+        if (app && (A.cfg.width != gl_w || A.cfg.height != gl_h)) {
+            gl_w = A.cfg.width; gl_h = A.cfg.height;
+            makeCurrent(dpy, surf, surf, app);
+            jvalue p3[3] = { L(gl10), I(gl_w), I(gl_h) };
+            tl_jni_call(A.gl_renderer, "onSurfaceChanged", "(Ljavax/microedition/khronos/opengles/GL10;II)V", p3);
+            if (tl_jni_pending()) log_pending("onSurfaceChanged (resized)");
+            tl_log_line("javaapp: resized to %dx%d", gl_w, gl_h);
+            atomic_store(&A.render_requested, true);
         }
         const uint8_t *px; int fw, fh; bool any;
         bool fresh = tl_ui_frame_take(&px, &fw, &fh, &any);
