@@ -167,6 +167,9 @@ public final class AppRunner {
             });
             return;
         }
+        /* HuskPatch: files -- the iPhone's picker for "open a file", Files for a created document, its viewer and share sheet for
+           a file the app opens or shares (husk.Documents) */
+        if (Documents.start(from instanceof Activity ? (Activity) from : top(), i, request)) return;
         android.net.Uri u = i.getData();
         String action = i.getAction();
         if (u != null && (Intent.ACTION_VIEW.equals(action) || Intent.ACTION_SENDTO.equals(action) || action == null || "android.intent.action.DIAL".equals(action))) {
@@ -250,7 +253,7 @@ public final class AppRunner {
     }
 
     // ---- input from Husk
-    /** events: [n, then n x (phase, id, xbits, ybits)] -- phase 0 down, 1 move, 2 up, 3 cancel; 4 key (id = code, x = down); 5 back; 6 host pause (id 1) / resume (0); 7 text waiting; 8 insets changed; 9 web view events waiting; 10 screen resized, 11 permissions answered (id = request, x = granted mask, raw) (HuskPatch) */
+    /** events: [n, then n x (phase, id, xbits, ybits)] -- phase 0 down, 1 move, 2 up, 3 cancel; 4 key (id = code, x = down); 5 back; 6 host pause (id 1) / resume (0); 7 text waiting; 8 insets changed; 9 web view events waiting; 10 screen resized, 11 permissions answered (id = request, x = granted mask, raw), 12 a file picker closed (id = pick, x = 1 picked, raw) (HuskPatch) */
     private static void deliver(int[] ev) {
         int n = ev[0];
         for (int k = 0; k < n; k++) {
@@ -264,6 +267,7 @@ public final class AppRunner {
                 if (phase == 9) { Web.deliver(); continue; }
                 if (phase == 10) { ViewRoot.screenResized(); continue; }
                 if (phase == 11) { Permissions.deliver(id, ev[3 + 4 * k]); continue; }
+                if (phase == 12) { Documents.deliver(id, ev[3 + 4 * k] != 0); continue; }
                 if (phase == 4) {
                     long t = SystemClock.uptimeMillis();
                     KeyEvent ke = new KeyEvent(t, t, ev[3 + 4 * k] != 0 ? KeyEvent.ACTION_DOWN : KeyEvent.ACTION_UP, id, 0);

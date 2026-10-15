@@ -44,5 +44,9 @@ public final class Native {
     /** HuskPatch: Android's runtime permissions (husk.Permissions): what the user chose, and a request answered as input phase 11. */
     public static native int permissionState(String perm);
     public static native void requestPermissions(int id, String[] perms);
+    /** HuskPatch: the iPhone's file picker (husk.Documents): copies into dest, answered as input phase 12, then collected; and a file handed to the iPhone (0 save to Files, 1 view, 2 share). */
+    public static native void pickDocuments(int id, String mimes, int flags, String dest);
+    public static native String documentResult(int id);
+    public static native boolean exportDocument(String path, int mode);
     public static native long uptimeNanos();
 }

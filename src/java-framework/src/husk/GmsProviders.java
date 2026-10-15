@@ -10,6 +10,7 @@ public final class GmsProviders {
     private GmsProviders() {}
     public static ContentProvider forAuthority(String a) {
         if ("com.google.android.gms.auth.accounts".equals(a)) return Accounts.INSTANCE;
+        if (Documents.AUTHORITY.equals(a)) return Documents.Provider.INSTANCE;   // HuskPatch: files picked on the iPhone
         return null;
     }
     static final class Accounts extends ContentProvider {

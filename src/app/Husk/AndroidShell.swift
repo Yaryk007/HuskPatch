@@ -79,8 +79,20 @@ final class AndroidShellState: ObservableObject {
     /// Where Settings and the Play Store are, so Android's back goes back a page in them before it leaves them.
     @Published var settingsPath = NavigationPath()
     @Published var storePath = NavigationPath()
-    /// Why an app could not be opened, shown as an alert.
+    /// Why an app could not be opened, shown as Android's dialog.
     @Published var notice: String?
+    /// The notification shade, pulled down from the status bar; expanded: all of Quick Settings.
+    @Published var shade = false
+    @Published var shadeExpanded = false
+
+    func openShade(expanded: Bool = false) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { shade = true; shadeExpanded = expanded }
+    }
+
+    func closeShade() {
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) { shade = false; shadeExpanded = false }
+    }
 
     /// The game or app on the translation layer that is open now, if one is.
     var openGame: TLApp? {
@@ -125,12 +137,13 @@ final class AndroidShellState: ObservableObject {
     }
 
     func home() {
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { open = nil; drawer = false; recents = false }
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { open = nil; drawer = false; recents = false; shade = false; shadeExpanded = false }
     }
 
     /// Android's back: into the app first, when it has a back of its own (an Android app's activities, a Flutter or web
     /// app's pages); it closes itself when there is nothing left to go back to (appClosedItself). Otherwise home.
     func back() {
+        if shade { closeShade(); return }
         if !recents, !drawer, open == .settings, !settingsPath.isEmpty { settingsPath.removeLast(); return }
         if !recents, !drawer, open == .playStore, !storePath.isEmpty { storePath.removeLast(); return }
         if !recents, !drawer, let g = openGame {
@@ -215,9 +228,23 @@ struct AndroidShellView: View {
                 AndroidEdgeBack()
             }
 
-            // Android's status bar over everything but the lock screen, which draws its own.
+            // Android's status bar over everything but the lock screen, which draws its own; pulled down, the shade.
             if shell.openGame == nil {
                 AndroidStatusBar(material: true, transparent: shell.open == nil)
+                AndroidShadePull()
+            }
+
+            if shell.shade {
+                AndroidShade()
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(5)
+            }
+
+            if let notice = shell.notice {
+                AndroidAlertDialog(icon: "exclamationmark.triangle", title: "Can't open this app", message: notice) {
+                    withAnimation(.snappy) { shell.notice = nil }
+                }
+                .zIndex(8)
             }
 
             if shell.locked {
@@ -227,11 +254,7 @@ struct AndroidShellView: View {
             }
         }
         .statusBarHidden(true)
-        .alert("Can't open this app", isPresented: Binding(get: { shell.notice != nil }, set: { if !$0 { shell.notice = nil } })) {
-            Button("OK", role: .cancel) { shell.notice = nil }
-        } message: {
-            Text(shell.notice ?? "")
-        }
+        .animation(.snappy, value: shell.notice)
         .onReceive(NotificationCenter.default.publisher(for: TLUnityUIView.appClosedItself)) { _ in
             if shell.openGame != nil { shell.home() }
         }
@@ -327,19 +350,24 @@ private struct AndroidHomeScreen: View {
                 AndroidAppIconButton(app: .playStore, showsLabel: false)
                 AndroidAppIconButton(app: .item(.android), showsLabel: false)
                 AndroidAppIconButton(app: .settings, showsLabel: false)
+                AndroidDrawerButton()
             }
-            .padding(.horizontal, 28)
+            .padding(.horizontal, 22)
 
+            // The Pixel's search bar: the G, then the voice and Lens buttons on the right.
             Button { withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { shell.drawer = true } } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 18, weight: .semibold))
-                    Text("Search apps").font(.system(size: 16, design: .rounded))
+                HStack(spacing: 14) {
+                    GoogleG().frame(width: 22, height: 22)
+                    Text("Search").font(.system(size: 17, design: .rounded))
                     Spacer()
-                    Image(systemName: "chevron.up").font(.system(size: 14, weight: .bold))
+                    Image(systemName: "mic.fill").font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: Material3.primary))
+                    Image(systemName: "camera.viewfinder").font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: Material3.primary))
                 }
                 .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
-                .padding(.horizontal, 20)
-                .frame(height: 52)
+                .padding(.horizontal, 18)
+                .frame(height: 56)
                 .background(Color(uiColor: Material3.surfaceContainerHigh), in: Capsule())
             }
             .buttonStyle(.plain)
@@ -351,20 +379,26 @@ private struct AndroidHomeScreen: View {
         // Swiping up anywhere on the home screen opens the drawer, as on Android.
         .gesture(DragGesture(minimumDistance: 30).onEnded { v in
             if v.translation.height < -80 { withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { shell.drawer = true } }
+            else if v.translation.height > 80 { shell.openShade() }
         })
     }
 }
 
 /// The date at the top of the home screen.
 private struct AtAGlance: View {
+    @StateObject private var status = DeviceStatus()
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             VStack(alignment: .leading, spacing: 2) {
                 Text(context.date.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
                     .font(.system(size: 26, weight: .regular, design: .rounded))
-                Text("HuskPatch")
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .opacity(0.8)
+                HStack(spacing: 6) {
+                    Image(systemName: status.charging ? "battery.100.bolt" : "battery.75")
+                    Text(status.charging ? "Charging · \(Int((status.level * 100).rounded()))%" : "\(Int((status.level * 100).rounded()))% battery")
+                }
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .opacity(0.85)
             }
             .foregroundStyle(Color(uiColor: Material3.onPrimaryContainer))
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -794,5 +828,80 @@ private struct AndroidLockScreen: View {
         var h = c.hour ?? 0
         if twelve { h = h % 12 == 0 ? 12 : h % 12 }
         return (String(format: "%02d", h), String(format: "%02d", c.minute ?? 0))
+    }
+}
+
+// MARK: - shade pull, dock extras
+
+/// The status bar's strip, pulled down: the notification shade (pulled far: all of Quick Settings).
+private struct AndroidShadePull: View {
+    @ObservedObject private var shell = AndroidShellState.shared
+
+    var body: some View {
+        VStack {
+            Color.clear
+                .frame(height: 34)
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 10, coordinateSpace: .global).onEnded { v in
+                    if v.translation.height > 40 { shell.openShade(expanded: v.translation.height > 260) }
+                })
+                .ignoresSafeArea(edges: .top)
+            Spacer()
+        }
+        .allowsHitTesting(!shell.shade && !shell.locked)
+    }
+}
+
+/// The dock's last place: the app drawer, as a dotted-grid icon.
+private struct AndroidDrawerButton: View {
+    @ObservedObject private var shell = AndroidShellState.shared
+
+    var body: some View {
+        Button { withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { shell.drawer = true } } label: {
+            Image(systemName: "circle.grid.3x3.fill")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(Color(uiColor: Material3.onPrimaryContainer))
+                .frame(width: 58, height: 58)
+                .background(Color(uiColor: Material3.secondaryContainer), in: Circle())
+                .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
+        }
+        .buttonStyle(AndroidPressStyle())
+        .frame(maxWidth: .infinity)
+        .accessibilityLabel("All apps")
+    }
+}
+
+/// Google's G, in its four colours.
+private struct GoogleG: View {
+    var body: some View {
+        GeometryReader { g in
+            let s = min(g.size.width, g.size.height), lw = s * 0.2
+            ZStack {
+                arc(-40, 45).stroke(Color(red: 0.26, green: 0.52, blue: 0.96), style: StrokeStyle(lineWidth: lw))
+                arc(45, 135).stroke(Color(red: 0.20, green: 0.66, blue: 0.33), style: StrokeStyle(lineWidth: lw))
+                arc(135, 210).stroke(Color(red: 0.98, green: 0.74, blue: 0.02), style: StrokeStyle(lineWidth: lw))
+                arc(210, 320).stroke(Color(red: 0.92, green: 0.26, blue: 0.21), style: StrokeStyle(lineWidth: lw))
+                Rectangle().fill(Color(red: 0.26, green: 0.52, blue: 0.96))
+                    .frame(width: s * 0.46, height: lw)
+                    .offset(x: s * 0.2)
+            }
+            .padding(lw / 2)
+            .frame(width: s, height: s)
+        }
+    }
+
+    private func arc(_ from: Double, _ to: Double) -> some Shape {
+        ArcShape(from: .degrees(from), to: .degrees(to))
+    }
+}
+
+private struct ArcShape: Shape {
+    let from: Angle
+    let to: Angle
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.addArc(center: CGPoint(x: r.midX, y: r.midY), radius: min(r.width, r.height) / 2, startAngle: from, endAngle: to, clockwise: false)
+        return p
     }
 }

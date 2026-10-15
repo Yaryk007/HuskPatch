@@ -81,6 +81,8 @@ struct HuskApp: App {
 
         // HuskPatch: Android's permission dialogs for apps on the translation layer (and the iPhone's, where iOS asks too).
         AndroidPermissions.install()
+        // HuskPatch: "open a file" in those apps shows the iPhone's pickers, and the picks are copied into the app's storage.
+        AndroidDocuments.install()
 
         // Game controllers, for the games the native runtime runs.
         Task { @MainActor in HuskGamepads.shared.start() }

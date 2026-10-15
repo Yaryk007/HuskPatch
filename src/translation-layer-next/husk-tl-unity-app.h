@@ -175,6 +175,16 @@ bool husk_unity_package_name(const char *apk, char *out, unsigned long out_len);
 enum { HUSK_PERM_GRANTED = 0, HUSK_PERM_DENIED = 1, HUSK_PERM_DENIED_FOREVER = 2, HUSK_PERM_UNSET = 3 };
 void husk_perm_set_host(int (*check)(const char *perm), void (*request)(int id, const char *perms));
 void husk_perm_result(int id, unsigned granted);
+/*
+ * HuskPatch: files to and from the iPhone (husk-tl-docs.c). `pick` shows the iPhone's picker (the Photos picker for
+ * flags & 4, media only; a folder for flags & 2; several files for flags & 1) for `mimes`, Android MIME types one per
+ * line ("" for anything), copies what was picked into `dest_dir`, and answers with husk_docs_result: the copies' paths,
+ * one per line, or NULL when cancelled. `export_file` hands one of the app's files to the iPhone: mode 0 saves it to Files,
+ * 1 opens it in a viewer, 2 shows the share sheet.
+ */
+void husk_docs_set_host(void (*pick)(int id, const char *mimes, int flags, const char *dest_dir),
+                        void (*export_file)(const char *path, int mode));
+void husk_docs_result(int id, const char *paths);
 /* The permissions an APK's manifest asks for, one per line into `out`; returns how many. */
 int husk_apk_permissions(const char *apk, char *out, unsigned long cap);
 

@@ -24,6 +24,7 @@
 #include "husk-tl-egl.h"
 #include "husk-tl-internal.h"
 #include "husk-tl-ld.h"
+#include "husk-tl-docs.h"
 #include "husk-tl-perm.h"
 
 void tl_nwindow_configure(int w, int h, void *layer);
@@ -296,6 +297,50 @@ NAT(N_requestPermissions)
     tl_perm_request(perms, n, perm_answered, (void *)(intptr_t)a[0].i);
     return true;
 }
+/* HuskPatch: the iPhone's file picker for the app's "open a file" activities (husk/Documents.java). The copies' paths wait
+ * here until the app collects them, and the app hears of the answer through the input queue, as phase 12 (x = 1: picked). */
+static struct { int id; char *paths; } g_docs[16];
+static pthread_mutex_t g_docs_lock = PTHREAD_MUTEX_INITIALIZER;
+static void docs_answered(void *ctx, const char *paths)
+{
+    int id = (int)(intptr_t)ctx;
+    char *copy = paths ? strdup(paths) : NULL;
+    pthread_mutex_lock(&g_docs_lock);
+    int slot = 0;
+    for (int i = 0; i < 16; i++) if (!g_docs[i].id) { slot = i; break; }
+    free(g_docs[slot].paths);
+    g_docs[slot].id = id; g_docs[slot].paths = copy;
+    pthread_mutex_unlock(&g_docs_lock);
+    pthread_mutex_lock(&A.q_lock);
+    if (A.qn + 4 <= 4096) { A.q[A.qn++] = 12; A.q[A.qn++] = id; A.q[A.qn++] = copy ? 1 : 0; A.q[A.qn++] = 0; }
+    pthread_mutex_unlock(&A.q_lock);
+}
+NAT(N_pickDocuments)
+{
+    (void)self; (void)ret;
+    const char *mimes = a[1].l ? tl_jni_string(a[1].l) : NULL, *dest = a[3].l ? tl_jni_string(a[3].l) : NULL;
+    tl_docs_pick(mimes ? mimes : "", a[2].i, dest, docs_answered, (void *)(intptr_t)a[0].i);
+    return true;
+}
+NAT(N_documentResult)
+{
+    (void)self;
+    char *paths = NULL;
+    pthread_mutex_lock(&g_docs_lock);
+    for (int i = 0; i < 16; i++) if (g_docs[i].id == a[0].i) { paths = g_docs[i].paths; g_docs[i].id = 0; g_docs[i].paths = NULL; break; }
+    pthread_mutex_unlock(&g_docs_lock);
+    *ret = L(paths ? jstr(paths) : NULL);
+    free(paths);
+    return true;
+}
+NAT(N_exportDocument)
+{
+    (void)self;
+    const char *path = a[0].l ? tl_jni_string(a[0].l) : NULL;
+    jvalue v; v.j = 0; v.z = path && tl_docs_export(path, a[1].i);
+    *ret = v;
+    return true;
+}
 NAT(N_uptimeNanos) { (void)self; (void)a; struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); *ret = J((int64_t)t.tv_sec * 1000000000ll + t.tv_nsec); return true; }
 NAT(N_pollInput)
 {
@@ -491,6 +536,9 @@ static const struct { const char *name, *sig; dvm_native_fn fn; } k_native[] = {
     { "exit", "()V", N_exit },
     { "permissionState", "(Ljava/lang/String;)I", N_permissionState },
     { "requestPermissions", "(I[Ljava/lang/String;)V", N_requestPermissions },
+    { "pickDocuments", "(ILjava/lang/String;ILjava/lang/String;)V", N_pickDocuments },
+    { "documentResult", "(I)Ljava/lang/String;", N_documentResult },
+    { "exportDocument", "(Ljava/lang/String;I)Z", N_exportDocument },
     { "uptimeNanos", "()J", N_uptimeNanos },
     { "readApkFile", "(ILjava/lang/String;)[B", N_readApkFile },
     { "splitPaths", "()[Ljava/lang/String;", N_splitPaths },

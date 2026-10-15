@@ -2,13 +2,18 @@
 
 The text bellow is not what huskpatch was used to be, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed, thank you guys for the support, i might still make updates but i will focus on my other projects more.
 
-> **HuskPatch 2.4.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (2.0 plus build 119) with these additions:
+> **HuskPatch 2.5.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (2.0 plus build 119) with these additions:
 >
 > - **Android OS mode** (Settings › Appearance › Android OS): HuskPatch's interface replaced by Android 16's -- a lock
 >   screen you swipe up, a home screen with your games and apps, an app drawer with the whole library, recents, and
 >   Android's navigation: **3-button or gesture navigation** (Settings › System › Navigation mode; swipe up for home,
 >   up and hold for recents, in from either edge for back). Games and apps open straight into the app, full screen.
 >   Turns on the two options below with it.
+>   - **Notification shade and Quick Settings**: pull down from the status bar (or anywhere on the home screen) for
+>     the clock, notifications (your downloads) and tiles that work -- Internet, Flashlight, Dark theme, JIT,
+>     Navigation mode, Battery Saver, Screen lock, Recent apps -- and a brightness slider; pull further for all of them.
+>   - Pixel touches: a search bar with the G, voice and Lens buttons, an all-apps button in the dock, the battery
+>     under the date, and Android's dialogs instead of iOS alerts.
 >   - **Play Store app** laid out like Google Play: Games, Apps, Search and You tabs, chips for For you / Top charts /
 >     Categories, carousels, and an app page with Install, screenshots and About.
 >   - **Settings app** laid out like Android 16's: Network & internet, Connected devices, Apps (each app's permissions
@@ -17,6 +22,12 @@ The text bellow is not what huskpatch was used to be, it was a fork of husk to f
 >   iOS guards the same thing (camera, microphone, location, photos, contacts, calendar, notifications, Bluetooth),
 >   allowing it goes on to the iPhone's own prompt; if it is Android's alone (phone, SMS, display over other apps...),
 >   only Android asks. Change them later in Settings › Apps.
+> - **Files from the iPhone**: when an app on the translation layer opens a file (Android's file chooser,
+>   `ACTION_GET_CONTENT` / `ACTION_OPEN_DOCUMENT`, the photo picker, Flutter's file_picker), the iPhone's Files picker
+>   appears (the Photos picker for photos and videos, a folder picker for `ACTION_OPEN_DOCUMENT_TREE`). What you pick is
+>   copied into the app's own storage (Download, Pictures or Movies on its sdcard) and handed to the app as a document,
+>   with its name and size. The other way: a document the app creates is saved to Files, and a file it opens or shares
+>   goes to Quick Look or the share sheet.
 > - **Apps can close themselves**: finishing the last screen, `System.exit`, `killProcess` or moving to the back closes
 >   the app (back to the launcher in Android OS mode) instead of leaving a black screen or quitting HuskPatch.
 > - **Android 16 Style**: Material 3 Expressive colours from your accent, Android's navigation and search bars,

@@ -190,6 +190,29 @@ static void reply_json(int id, const char *json) { reply(id, json, strlen(json))
 static void (*g_close)(void);
 void tl_flutter_set_close_handler(void (*fn)(void)) { g_close = fn; }
 
+/* HuskPatch: replies made later on another thread (file_picker's, when the iPhone's picker closes), sent from the platform
+ * thread: queued here, and the platform thread's looper woken (on_post, kind 6). */
+typedef struct deferred { int id; uint8_t *msg; size_t n; struct deferred *next; } deferred;
+static deferred *g_deferred;
+static pthread_mutex_t g_deferred_lock = PTHREAD_MUTEX_INITIALIZER;
+static void deferred_answer(int id, uint8_t *msg, size_t n)
+{
+    deferred *e = calloc(1, sizeof(*e));
+    if (!e) { free(msg); return; }
+    e->id = id; e->msg = msg; e->n = n;
+    pthread_mutex_lock(&g_deferred_lock);
+    deferred **t = &g_deferred; while (*t) t = &(*t)->next; *t = e;
+    pthread_mutex_unlock(&g_deferred_lock);
+    post_event(6, 0);
+}
+static void deferred_send(void)
+{
+    pthread_mutex_lock(&g_deferred_lock);
+    deferred *l = g_deferred; g_deferred = NULL;
+    pthread_mutex_unlock(&g_deferred_lock);
+    while (l) { deferred *n = l->next; if (l->id) reply(l->id, l->msg, l->msg ? l->n : 0); free(l->msg); free(l); l = n; }
+}
+
 /* A message from Dart on a channel: answered here, or with an empty reply. */
 static void on_message(const char *channel, const uint8_t *d, size_t len, int id)
 {
@@ -225,6 +248,8 @@ static void on_message(const char *channel, const uint8_t *d, size_t len, int id
         reply(id, r, rl); free(r); sv_free(none);
         return;
     }
+    /* HuskPatch: file_picker answers once the iPhone's picker closes, on this thread (deferred_answered) */
+    if (tl_flutter_filepicker(channel, d, len, id, deferred_answer)) return;
     {
         bool handled = false; size_t rl = 0;
         uint8_t *r = tl_flutter_plugin_message(channel, d, len, &rl, &handled);
@@ -568,6 +593,7 @@ static int on_post(int fd, int events, void *data)
         else if (e.kind == 3) resize_surface();
         else if (e.kind == 4) tl_flutter_text_drain(send_string);
         else if (e.kind == 5) send_string("flutter/navigation", "{\"method\":\"popRoute\",\"args\":null}");
+        else if (e.kind == 6) deferred_send();
     }
     return 1;
 }

@@ -9,6 +9,7 @@
  *   device_info_plus        an Android phone, described the way Build does it
  *   url_launcher            links opened by the host
  *   connectivity_plus       online over Wi-Fi
+ *   file_picker             the iPhone's file picker; the picks are copied into the app's storage (HuskPatch)
  *
  * A Pigeon call's arguments are a list, and its reply is a list: [result] on success, [code, message, details] on failure.
  */
@@ -25,6 +26,7 @@
 #include <unistd.h>
 
 #include "husk-tl-bionic.h"
+#include "husk-tl-docs.h"
 #include "husk-tl-flutter-codec.h"
 
 static char g_data[512], g_pkg[128], g_label[128] = "", g_version[32] = "1.0", g_build[16] = "1";
@@ -279,6 +281,109 @@ static void open_url(const char *url)
 {
     tl_log_line("flutter: the app opens %s", url ? url : "(nothing)");
     if (g_open_url && url) g_open_url(url);
+}
+
+/* ------------------------------------------------------------- file_picker (HuskPatch) */
+
+/* miguelruivo.flutter.plugins.filepicker: pickFiles(type, allowedExtensions, allowMultipleSelection, withData) answered
+ * later, when the iPhone's picker closes: a list of {name, path, size, bytes, identifier}, or null when cancelled; getDirectoryPath
+ * a folder's path; saveFile writes the bytes and saves them to Files. */
+typedef struct { int reply; bool folder, with_data; void (*answer)(int, uint8_t *, size_t); } fp_pick;
+
+static sv *file_map(const char *path, bool with_data)
+{
+    struct stat st;
+    long long size = stat(path, &st) == 0 ? (long long)st.st_size : 0;
+    const char *name = strrchr(path, '/');
+    sv *m = sv_map(5);
+    sv_map_set(m, 0, sv_string("name"), sv_string(name ? name + 1 : path));
+    sv_map_set(m, 1, sv_string("path"), sv_string(path));
+    sv_map_set(m, 2, sv_string("size"), sv_int(size));
+    sv *bytes = sv_null();
+    if (with_data && size >= 0 && size < (256ll << 20)) {
+        FILE *f = fopen(path, "rb");
+        uint8_t *b = f ? malloc((size_t)size ? (size_t)size : 1) : NULL;
+        if (b && fread(b, 1, (size_t)size, f) == (size_t)size) { bytes->type = SV_BYTES; bytes->subtype = 8; bytes->bytes = b; bytes->nbytes = (size_t)size; }
+        else free(b);
+        if (f) fclose(f);
+    }
+    sv_map_set(m, 3, sv_string("bytes"), bytes);
+    char uri[1200]; snprintf(uri, sizeof(uri), "file://%s", path);
+    sv_map_set(m, 4, sv_string("identifier"), sv_string(uri));
+    return m;
+}
+
+static void fp_done(void *ctx, const char *paths)
+{
+    fp_pick *p = ctx;
+    sv *r;
+    if (!paths) r = sv_null();
+    else if (p->folder) { char first[1024]; snprintf(first, sizeof(first), "%s", paths); char *nl = strchr(first, '\n'); if (nl) *nl = 0; r = sv_string(first); }
+    else {
+        size_t n = 1; for (const char *c = paths; *c; c++) n += *c == '\n';
+        r = sv_list(n);
+        size_t i = 0;
+        for (const char *c = paths; *c && i < n; ) {
+            const char *e = strchr(c, '\n'); size_t l = e ? (size_t)(e - c) : strlen(c);
+            char one[1024]; snprintf(one, sizeof(one), "%.*s", (int)(l < sizeof(one) ? l : sizeof(one) - 1), c);
+            if (one[0]) sv_set(r, i++, file_map(one, p->with_data));
+            c += l + (e ? 1 : 0);
+        }
+        r->n = i;
+    }
+    size_t len = 0;
+    uint8_t *b = sv_encode_success(r, &len);
+    sv_free(r);
+    p->answer(p->reply, b, len);
+    free(p);
+}
+
+bool tl_flutter_filepicker(const char *ch, const uint8_t *d, size_t len, int reply, void (*answer)(int reply, uint8_t *msg, size_t n))
+{
+    if (strcmp(ch, "miguelruivo.flutter.plugins.filepicker")) return false;
+    char m[64]; sv *args = NULL;
+    if (!method_call(d, len, m, sizeof(m), &args)) { answer(reply, NULL, 0); return true; }
+    tl_log_line("flutter: file_picker %s", m);
+    char dest[700];
+    if (!strcmp(m, "clear")) { size_t l; answer(reply, method_ok(sv_bool(true), &l), l); sv_free(args); return true; }
+    if (!strcmp(m, "save")) {
+        const sv *bytes = sv_get(args, "bytes"); const char *name = sv_str(sv_get(args, "fileName"));
+        snprintf(dest, sizeof(dest), "%s/sdcard/Download", g_data); mkdir(dest, 0755);
+        char path[1024]; snprintf(path, sizeof(path), "%s/%s", dest, name && *name && !strchr(name, '/') ? name : "file");
+        sv *r = sv_null();
+        if (bytes && bytes->type == SV_BYTES) {
+            FILE *f = fopen(path, "wb");
+            if (f) { fwrite(bytes->bytes, 1, bytes->nbytes, f); fclose(f); tl_docs_export(path, TL_DOCS_SAVE); sv_free(r); r = sv_string(path); }
+        }
+        size_t l; answer(reply, method_ok(r, &l), l); sv_free(args); return true;
+    }
+    bool folder = !strcmp(m, "dir");
+    /* the type is the method: any, image, video, media, audio, custom (allowedExtensions) */
+    char mimes[1024] = "";
+    if (!strcmp(m, "image")) snprintf(mimes, sizeof(mimes), "image/*");
+    else if (!strcmp(m, "video")) snprintf(mimes, sizeof(mimes), "video/*");
+    else if (!strcmp(m, "media")) snprintf(mimes, sizeof(mimes), "image/*\nvideo/*");
+    else if (!strcmp(m, "audio")) snprintf(mimes, sizeof(mimes), "audio/*");
+    else if (!strcmp(m, "custom")) {
+        const sv *ext = sv_get(args, "allowedExtensions");
+        for (size_t i = 0; ext && ext->type == SV_LIST && i < ext->n; i++) {
+            const char *e = sv_str(&ext->items[i]);
+            if (!e || !*e) continue;
+            size_t o = strlen(mimes);
+            snprintf(mimes + o, sizeof(mimes) - o, "%s.%s", o ? "\n" : "", e[0] == '.' ? e + 1 : e);
+        }
+    }
+    const sv *multi = sv_get(args, "allowMultipleSelection"), *data = sv_get(args, "withData");
+    int flags = folder ? TL_DOCS_FOLDER : 0;
+    if (multi && multi->type == SV_BOOL && multi->i) flags |= TL_DOCS_MULTIPLE;
+    if (!strcmp(m, "image") || !strcmp(m, "video") || !strcmp(m, "media")) flags |= TL_DOCS_MEDIA;
+    snprintf(dest, sizeof(dest), "%s/sdcard%s", g_data, folder ? "" : !strcmp(m, "image") ? "/Pictures" : !strcmp(m, "video") ? "/Movies" : "/Download");
+    char sd[700]; snprintf(sd, sizeof(sd), "%s/sdcard", g_data); mkdir(sd, 0755); mkdir(dest, 0755);
+    fp_pick *p = calloc(1, sizeof(*p));
+    p->reply = reply; p->folder = folder; p->with_data = data && data->type == SV_BOOL && data->i; p->answer = answer;
+    sv_free(args);
+    tl_docs_pick(mimes, flags, dest, fp_done, p);
+    return true;
 }
 
 /* ------------------------------------------------------------- dispatch */

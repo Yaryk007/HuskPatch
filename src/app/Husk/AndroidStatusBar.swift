@@ -147,7 +147,7 @@ private struct UprightBattery: View {
 
 /// The phone's battery and connection, kept current for the status bar.
 @MainActor
-private final class DeviceStatus: ObservableObject {
+final class DeviceStatus: ObservableObject {
     @Published var level: Double = 1
     @Published var charging = false
     @Published var wifi = false

@@ -38,7 +38,7 @@ public class ContentResolver {
         if (a == null) return null;
         switch (a) {
         case "media": case "com.android.contacts": case "contacts": case "com.android.calendar": case "call_log": case "sms": case "mms":
-        case "mms-sms": case "downloads": case "user_dictionary": case "com.android.externalstorage.documents": case "com.android.providers.media.documents":
+        case "mms-sms": case "downloads": case "user_dictionary": case "com.android.providers.media.documents":
         case "com.android.providers.downloads.documents": case "telephony": case "icc":
             return new android.database.MatrixCursor(proj != null ? proj : new String[] { "_id" });
         default: return null;
@@ -87,6 +87,7 @@ public class ContentResolver {
         String s = u.getScheme();
         if (SCHEME_FILE.equals(s) || s == null) return new java.io.FileOutputStream(u.getPath(), mode.contains("a"));
         ContentProvider p = provider(u);
+        if (p == husk.Documents.Provider.INSTANCE) return husk.Documents.outputStream(u, mode);
         if (p != null) {
             android.os.ParcelFileDescriptor pfd = p.openFile(u, mode);
             if (pfd != null) return new java.io.FileOutputStream(pfd.getFileDescriptor());
