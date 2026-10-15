@@ -83,6 +83,8 @@ struct HuskApp: App {
         AndroidPermissions.install()
         // HuskPatch: "open a file" in those apps shows the iPhone's pickers, and the picks are copied into the app's storage.
         AndroidDocuments.install()
+        // HuskPatch: Android's overscroll (stretch or glow) in the Android 16 style.
+        AndroidOverscroll.install()
 
         // Game controllers, for the games the native runtime runs.
         Task { @MainActor in HuskGamepads.shared.start() }

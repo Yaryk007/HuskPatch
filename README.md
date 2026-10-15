@@ -2,18 +2,24 @@
 
 The text bellow is not what huskpatch was used to be, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed, thank you guys for the support, i might still make updates but i will focus on my other projects more.
 
-> **HuskPatch 2.5.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (2.0 plus build 119) with these additions:
+> **HuskPatch 2.6.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (2.0 plus build 119) with these additions:
 >
-> - **Android OS mode** (Settings › Appearance › Android OS): HuskPatch's interface replaced by Android 16's -- a lock
->   screen you swipe up, a home screen with your games and apps, an app drawer with the whole library, recents, and
+> - **Android OS mode** (Settings › Appearance › Android OS): HuskPatch's interface replaced by LineageOS 23's (Android
+>   16) -- a lock screen you swipe up, a home screen with your games and apps, an app drawer with the whole library, recents, and
 >   Android's navigation: **3-button or gesture navigation** (Settings › System › Navigation mode; swipe up for home,
 >   up and hold for recents, in from either edge for back). Games and apps open straight into the app, full screen.
 >   Turns on the two options below with it.
 >   - **Notification shade and Quick Settings**: pull down from the status bar (or anywhere on the home screen) for
 >     the clock, notifications (your downloads) and tiles that work -- Internet, Flashlight, Dark theme, JIT,
 >     Navigation mode, Battery Saver, Screen lock, Recent apps -- and a brightness slider; pull further for all of them.
->   - Pixel touches: a search bar with the G, voice and Lens buttons, an all-apps button in the dock, the battery
->     under the date, and Android's dialogs instead of iOS alerts.
+>   - **LineageOS look**: its wallpaper (or Material shapes), Trebuchet's dock and page indicator, AOSP's lock screen
+>     with the big two-line clock and flashlight / Do Not Disturb shortcuts, and Android's dialogs instead of iOS alerts.
+>   - **Screen lock** (Settings › Security & privacy): None, Swipe, Pattern, PIN or Password, with AOSP's bouncer (PIN
+>     pad, pattern grid, password field; five wrong tries wait 30 seconds) and a pretend **Fingerprint Unlock** you
+>     enrol by touching the sensor. A look, not security: the iPhone's passcode still protects your data.
+>   - **Testing** (Settings › Testing, also in HuskPatch's own Settings): every Material 3 Expressive component, the
+>     palette, Android's dialogs, toasts, notifications, permission and file dialogs, the lock screen, the overscroll
+>     effect, the translation layer's state, and **installing APKs** with Android's package installer.
 >   - **Play Store app** laid out like Google Play: Games, Apps, Search and You tabs, chips for For you / Top charts /
 >     Categories, carousels, and an app page with Install, screenshots and About.
 >   - **Settings app** laid out like Android 16's: Network & internet, Connected devices, Apps (each app's permissions
@@ -30,7 +36,11 @@ The text bellow is not what huskpatch was used to be, it was a fork of husk to f
 >   goes to Quick Look or the share sheet.
 > - **Apps can close themselves**: finishing the last screen, `System.exit`, `killProcess` or moving to the back closes
 >   the app (back to the launcher in Android OS mode) instead of leaving a black screen or quitting HuskPatch.
-> - **Android 16 Style**: Material 3 Expressive colours from your accent, Android's navigation and search bars,
+> - **Android's overscroll**: lists stretch at their ends as on Android 12+, or glow as on Android 5-11 (Settings ›
+>   Display & touch › Overscroll effect), instead of iOS's rubber band.
+> - **Android 16 Style**: Material 3 Expressive with [ExpressiveUI](https://github.com/edenkollcinaku/ExpressiveUI)'s
+>   components (switches, buttons, menus, loading and progress indicators, carousel), and colours made the way Material
+>   makes them: each role a tone (L*) of a palette from your accent, Android's navigation and search bars,
 >   Material's back button, segmented buttons and switches, large rounded cards and pill buttons. No Liquid Glass.
 > - **Material You in Apps**: apps on the translation layer get Android's dynamic colours, made from your accent.
 > - **Resizable windows** (Multitasking): Android apps and Flutter apps lay out again at the window's new size; games

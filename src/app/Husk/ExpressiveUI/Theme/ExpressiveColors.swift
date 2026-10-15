@@ -1,0 +1,151 @@
+import SwiftUI
+
+/// The colour roles ExpressiveUI's components read.
+///
+/// Material 3 names far more roles than this; the type carries only the ones a shipped component
+/// actually paints with, and grows as components land. Each addition is a minor version, and every
+/// role has a baseline value, so a consumer's existing `ExpressiveColors(...)` call keeps compiling.
+///
+/// Supply your own by mapping your app's palette onto it once, near the root:
+///
+/// ```swift
+/// ContentView()
+///     .expressiveColors(.init(primary: brand, onPrimary: .white, ...))
+/// ```
+///
+/// Components resolve the scheme through `@Environment(\.colorScheme)`, so pass the set for the
+/// scheme in effect — `ExpressiveColors.baseline(for:)` is the shape to copy.
+public struct ExpressiveColors: Equatable, Sendable {
+    /// The accent an active control fills itself with.
+    public var primary: Color
+    /// What is legible drawn *on* `primary`. Not necessarily white: Material picks it by luminance,
+    /// so a bright seed wants near-black content here.
+    public var onPrimary: Color
+    /// The quiet accent surface: a FAB menu's items, and anything else that has to read as the
+    /// accent without competing with the control that is actually the accent.
+    public var primaryContainer: Color
+    /// What is legible drawn on `primaryContainer` — and, on a control that has no container of its
+    /// own, the accent itself: the switch's check glyph.
+    public var onPrimaryContainer: Color
+    /// The tinted-elevated surface. An inactive switch track.
+    public var surfaceContainerHighest: Color
+    /// Borders and inactive control parts that still need to read as a control.
+    public var outline: Color
+    /// The surface an unselected button in a group sits on: a step up from the page, and quiet
+    /// enough that a selected sibling filled with `primary` is obviously the selected one.
+    public var surfaceContainer: Color
+    /// Text and icons on `surfaceContainer` — the secondary content tone, not full-strength
+    /// `onSurface`.
+    public var onSurfaceVariant: Color
+    /// Full-strength content on the page. Used here mostly at 10%, which is what a disabled
+    /// container is made of.
+    public var onSurface: Color
+    /// The surface an elevated button floats on.
+    public var surfaceContainerLow: Color
+    /// The tonal accent: a filled tonal button's container.
+    public var secondaryContainer: Color
+    /// What is legible on `secondaryContainer`.
+    public var onSecondaryContainer: Color
+    /// The quieter border — an outlined button's edge, where `outline` would be too loud.
+    public var outlineVariant: Color
+    /// The third accent. Material reserves it for selection *inside* a surface that is already
+    /// accented — a chosen menu item, where `primary` would fight the control that opened the menu.
+    public var tertiaryContainer: Color
+    /// What is legible on `tertiaryContainer`.
+    public var onTertiaryContainer: Color
+
+    /// The roles added after the first release carry defaults, so call sites written before they
+    /// existed keep compiling. Those defaults are the baseline *light* values, which are wrong in
+    /// the dark — pass the set for the scheme in effect, as `baseline(for:)` does.
+    public init(
+        primary: Color,
+        onPrimary: Color,
+        onPrimaryContainer: Color,
+        surfaceContainerHighest: Color,
+        outline: Color,
+        // Spelled out rather than written as `Color(hex: 0xEADDFF)`, which the compiler rejects in a
+        // public default: the hex initialiser is internal.
+        primaryContainer: Color = Color(.sRGB, red: 234 / 255, green: 221 / 255, blue: 255 / 255, opacity: 1),
+        surfaceContainer: Color = Color(.sRGB, red: 243 / 255, green: 237 / 255, blue: 247 / 255, opacity: 1),
+        onSurfaceVariant: Color = Color(.sRGB, red: 73 / 255, green: 69 / 255, blue: 79 / 255, opacity: 1),
+        onSurface: Color = Color(.sRGB, red: 29 / 255, green: 27 / 255, blue: 32 / 255, opacity: 1),
+        surfaceContainerLow: Color = Color(.sRGB, red: 247 / 255, green: 242 / 255, blue: 250 / 255, opacity: 1),
+        secondaryContainer: Color = Color(.sRGB, red: 232 / 255, green: 222 / 255, blue: 248 / 255, opacity: 1),
+        onSecondaryContainer: Color = Color(.sRGB, red: 29 / 255, green: 25 / 255, blue: 43 / 255, opacity: 1),
+        outlineVariant: Color = Color(.sRGB, red: 202 / 255, green: 196 / 255, blue: 208 / 255, opacity: 1),
+        tertiaryContainer: Color = Color(.sRGB, red: 255 / 255, green: 216 / 255, blue: 228 / 255, opacity: 1),
+        onTertiaryContainer: Color = Color(.sRGB, red: 49 / 255, green: 17 / 255, blue: 29 / 255, opacity: 1)
+    ) {
+        self.primary = primary
+        self.onPrimary = onPrimary
+        self.primaryContainer = primaryContainer
+        self.surfaceContainer = surfaceContainer
+        self.onSurfaceVariant = onSurfaceVariant
+        self.onSurface = onSurface
+        self.surfaceContainerLow = surfaceContainerLow
+        self.secondaryContainer = secondaryContainer
+        self.onSecondaryContainer = onSecondaryContainer
+        self.outlineVariant = outlineVariant
+        self.tertiaryContainer = tertiaryContainer
+        self.onTertiaryContainer = onTertiaryContainer
+        self.onPrimaryContainer = onPrimaryContainer
+        self.surfaceContainerHighest = surfaceContainerHighest
+        self.outline = outline
+    }
+}
+
+public extension ExpressiveColors {
+    /// Material 3's baseline scheme — the purple one the spec ships when no seed colour is given.
+    /// It exists so a component is correct with zero setup, not because it is the look you want.
+    static func baseline(for scheme: ColorScheme) -> ExpressiveColors {
+        scheme == .dark ? .baselineDark : .baselineLight
+    }
+
+    static let baselineLight = ExpressiveColors(
+        primary: Color(hex: 0x6750A4),
+        onPrimary: .white,
+        onPrimaryContainer: Color(hex: 0x21005D),
+        surfaceContainerHighest: Color(hex: 0xE6E0E9),
+        outline: Color(hex: 0x79747E),
+        primaryContainer: Color(hex: 0xEADDFF),
+        surfaceContainer: Color(hex: 0xF3EDF7),
+        onSurfaceVariant: Color(hex: 0x49454F),
+        onSurface: Color(hex: 0x1D1B20),
+        surfaceContainerLow: Color(hex: 0xF7F2FA),
+        secondaryContainer: Color(hex: 0xE8DEF8),
+        onSecondaryContainer: Color(hex: 0x1D192B),
+        outlineVariant: Color(hex: 0xCAC4D0),
+        tertiaryContainer: Color(hex: 0xFFD8E4),
+        onTertiaryContainer: Color(hex: 0x31111D)
+    )
+
+    static let baselineDark = ExpressiveColors(
+        primary: Color(hex: 0xD0BCFF),
+        onPrimary: Color(hex: 0x381E72),
+        onPrimaryContainer: Color(hex: 0xEADDFF),
+        surfaceContainerHighest: Color(hex: 0x36343B),
+        outline: Color(hex: 0x938F99),
+        primaryContainer: Color(hex: 0x4F378B),
+        surfaceContainer: Color(hex: 0x211F26),
+        onSurfaceVariant: Color(hex: 0xCAC4D0),
+        onSurface: Color(hex: 0xE6E0E9),
+        surfaceContainerLow: Color(hex: 0x1D1B20),
+        secondaryContainer: Color(hex: 0x4A4458),
+        onSecondaryContainer: Color(hex: 0xE8DEF8),
+        outlineVariant: Color(hex: 0x49454F),
+        tertiaryContainer: Color(hex: 0x633B48),
+        onTertiaryContainer: Color(hex: 0xFFD8E4)
+    )
+}
+
+extension Color {
+    init(hex: UInt32) {
+        self.init(
+            .sRGB,
+            red: Double((hex >> 16) & 0xFF) / 255,
+            green: Double((hex >> 8) & 0xFF) / 255,
+            blue: Double(hex & 0xFF) / 255,
+            opacity: 1
+        )
+    }
+}

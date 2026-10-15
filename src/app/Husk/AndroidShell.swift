@@ -31,6 +31,14 @@ enum AndroidOS {
 
     static var isOn: Bool { UserDefaults.standard.bool(forKey: key) }
 
+    /// The wallpaper: LineageOS's (dark, its orbit rings in the palette's colours) or Material's soft shapes.
+    enum Wallpaper: String, CaseIterable, Identifiable {
+        case lineage, blobs
+        var id: String { rawValue }
+        var title: String { self == .lineage ? "LineageOS" : "Material shapes" }
+    }
+    static let wallpaperKey = "huskpatch.androidOS.wallpaper"
+
     /// Turn the mode on or off. On also turns on what it is drawn with: the Android 16 style and Material You in apps.
     @MainActor static func set(_ on: Bool) {
         let d = UserDefaults.standard
@@ -40,7 +48,7 @@ enum AndroidOS {
             d.set(true, forKey: Material3.appsKey)
             Material3.exportDynamicColors()
         }
-        AndroidShellState.shared.locked = on
+        AndroidShellState.shared.locked = on && AndroidLock.showsLockScreen
     }
 }
 
@@ -71,7 +79,23 @@ enum ShellApp: Hashable, Identifiable {
 final class AndroidShellState: ObservableObject {
     static let shared = AndroidShellState()
 
-    @Published var locked = AndroidOS.isOn
+    @Published var locked = AndroidOS.isOn && AndroidLock.showsLockScreen
+    /// Do Not Disturb, from the lock screen's shortcut or Quick Settings.
+    @Published var doNotDisturb = false
+    /// Notifications posted in the shell (the Testing page's, an installed app's), newest first.
+    @Published var notifications: [ShellNotification] = []
+
+    func post(_ n: ShellNotification) {
+        withAnimation(.snappy) { notifications.insert(n, at: 0) }
+        if !doNotDisturb { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+    }
+
+    func dismissNotifications() { withAnimation(.snappy) { notifications.removeAll() } }
+
+    /// The icons the lock screen shows for what is waiting.
+    var lockNotifications: [String] {
+        notifications.map(\.icon) + (Downloads.shared.jobs.contains { !$0.complete } ? ["arrow.down.circle"] : [])
+    }
     @Published var open: ShellApp?
     @Published var drawer = false
     @Published var recents = false
@@ -260,7 +284,7 @@ struct AndroidShellView: View {
         }
         .onChange(of: scenePhase) { phase in
             // A phone locks when it is put away: so does this, when HuskPatch goes to the background.
-            if phase == .background { shell.locked = true }
+            if phase == .background, AndroidLock.showsLockScreen { shell.locked = true }
         }
     }
 }
@@ -269,7 +293,16 @@ struct AndroidShellView: View {
 
 /// The wallpaper: soft shapes in the palette's container colours, as Android 16's default wallpapers are.
 struct AndroidWallpaper: View {
+    @AppStorage(AndroidOS.wallpaperKey) private var style = AndroidOS.Wallpaper.lineage
+
     var body: some View {
+        switch style {
+        case .lineage: LineageWallpaper()
+        case .blobs: blobs
+        }
+    }
+
+    private var blobs: some View {
         GeometryReader { geo in
             let w = geo.size.width, h = geo.size.height
             ZStack {
@@ -290,6 +323,39 @@ struct AndroidWallpaper: View {
                     .rotationEffect(.degrees(-28))
                     .offset(x: w * 0.25, y: -h * 0.05)
                     .blur(radius: 18)
+            }
+            .frame(width: w, height: h)
+            .clipped()
+        }
+        .ignoresSafeArea()
+    }
+}
+
+/// LineageOS's default wallpaper, after its logo: on a deep gradient of the palette's dark tones, the large ring and the
+/// small orbiting circle, with a soft light behind them.
+struct LineageWallpaper: View {
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width, h = geo.size.height, r = max(w, h) * 0.42
+            ZStack {
+                LinearGradient(colors: [Color(uiColor: Material3.tone(.primary, 12)), Color(uiColor: Material3.tone(.tertiary, 22)),
+                                        Color(uiColor: Material3.tone(.neutral, 8))],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                RadialGradient(colors: [Color(uiColor: Material3.tone(.primary, 45)).opacity(0.55), .clear],
+                               center: UnitPoint(x: 0.7, y: 0.35), startRadius: 0, endRadius: r * 1.2)
+                Circle()
+                    .stroke(Color(uiColor: Material3.tone(.primary, 80)).opacity(0.35), lineWidth: r * 0.09)
+                    .frame(width: r * 2, height: r * 2)
+                    .offset(x: w * 0.18, y: -h * 0.12)
+                Circle()
+                    .stroke(Color(uiColor: Material3.tone(.tertiary, 70)).opacity(0.18), lineWidth: 2)
+                    .frame(width: r * 2.7, height: r * 2.7)
+                    .offset(x: w * 0.18, y: -h * 0.12)
+                Circle()
+                    .fill(Color(uiColor: Material3.tone(.tertiary, 85)).opacity(0.7))
+                    .frame(width: r * 0.32, height: r * 0.32)
+                    .offset(x: w * 0.18 - r * 1.05, y: -h * 0.12 + r * 0.85)
+                    .blur(radius: 1)
             }
             .frame(width: w, height: h)
             .clipped()
@@ -345,35 +411,27 @@ private struct AndroidHomeScreen: View {
 
             Spacer(minLength: 12)
 
-            // The dock, then the search pill, as on a Pixel.
+            HStack(spacing: 6) {
+                Capsule().fill(Color(uiColor: Material3.onPrimaryContainer)).frame(width: 18, height: 5)
+                Circle().fill(Color(uiColor: Material3.onPrimaryContainer).opacity(0.4)).frame(width: 5, height: 5)
+            }
+            .padding(.bottom, 14)
+
+            // The dock: a row of icons on a soft surface, as Trebuchet draws it.
             HStack {
                 AndroidAppIconButton(app: .playStore, showsLabel: false)
                 AndroidAppIconButton(app: .item(.android), showsLabel: false)
                 AndroidAppIconButton(app: .settings, showsLabel: false)
                 AndroidDrawerButton()
             }
-            .padding(.horizontal, 22)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 10)
+            .background(Color(uiColor: Material3.surfaceContainer).opacity(0.35), in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+            .padding(.horizontal, 14)
+            .padding(.bottom, 14)
 
-            // The Pixel's search bar: the G, then the voice and Lens buttons on the right.
-            Button { withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { shell.drawer = true } } label: {
-                HStack(spacing: 14) {
-                    GoogleG().frame(width: 22, height: 22)
-                    Text("Search").font(.system(size: 17, design: .rounded))
-                    Spacer()
-                    Image(systemName: "mic.fill").font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Color(uiColor: Material3.primary))
-                    Image(systemName: "camera.viewfinder").font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(Color(uiColor: Material3.primary))
-                }
-                .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
-                .padding(.horizontal, 18)
-                .frame(height: 56)
-                .background(Color(uiColor: Material3.surfaceContainerHigh), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 10)
+            // Trebuchet's page indicator under the grid, then the dock. LineageOS ships no Google search bar.
+
         }
         .contentShape(Rectangle())
         // Swiping up anywhere on the home screen opens the drawer, as on Android.
@@ -766,71 +824,6 @@ private struct AndroidEdgeBack: View {
     }
 }
 
-// MARK: - lock screen
-
-/// The lock screen: a big clock in Material 3 Expressive's style, the date, and a swipe up to unlock.
-private struct AndroidLockScreen: View {
-    @ObservedObject private var shell = AndroidShellState.shared
-    @State private var drag: CGFloat = 0
-
-    var body: some View {
-        ZStack {
-            AndroidWallpaper()
-            Color.black.opacity(0.25).ignoresSafeArea()
-            AndroidStatusBar(material: true, transparent: true)
-            VStack(spacing: 0) {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    VStack(spacing: 6) {
-                        let parts = clock(context.date)
-                        Text(parts.0)
-                            .font(.system(size: 120, weight: .medium, design: .rounded))
-                            .monospacedDigit()
-                        Text(parts.1)
-                            .font(.system(size: 120, weight: .light, design: .rounded))
-                            .monospacedDigit()
-                            .padding(.top, -50)
-                        Text(context.date.formatted(.dateTime.weekday(.wide).month(.wide).day()))
-                            .font(.system(size: 18, weight: .medium, design: .rounded))
-                            .padding(.top, 4)
-                    }
-                    .foregroundStyle(.white)
-                }
-                .padding(.top, 70)
-                Spacer()
-                VStack(spacing: 8) {
-                    Image(systemName: "lock.fill").font(.system(size: 18, weight: .semibold))
-                    Text("Swipe up to unlock").font(.system(size: 14, weight: .medium, design: .rounded))
-                }
-                .foregroundStyle(.white.opacity(0.9))
-                .padding(.bottom, 36)
-            }
-        }
-        .offset(y: min(0, drag))
-        .opacity(1 - Double(min(abs(drag) / 600, 0.6)))
-        .contentShape(Rectangle())
-        .gesture(DragGesture(minimumDistance: 10)
-            .onChanged { drag = $0.translation.height }
-            .onEnded { v in
-                if v.translation.height < -120 || v.predictedEndTranslation.height < -300 {
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) { shell.locked = false; drag = 0 }
-                } else {
-                    withAnimation(.spring) { drag = 0 }
-                }
-            })
-        .statusBarHidden(true)
-    }
-
-    /// Hours over minutes, as Android 16's large lock screen clock stacks them.
-    private func clock(_ date: Date) -> (String, String) {
-        let c = Calendar.current.dateComponents([.hour, .minute], from: date)
-        let twelve = !(DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current)?.contains("H") ?? false)
-        var h = c.hour ?? 0
-        if twelve { h = h % 12 == 0 ? 12 : h % 12 }
-        return (String(format: "%02d", h), String(format: "%02d", c.minute ?? 0))
-    }
-}
-
 // MARK: - shade pull, dock extras
 
 /// The status bar's strip, pulled down: the notification shade (pulled far: all of Quick Settings).
@@ -872,36 +865,12 @@ private struct AndroidDrawerButton: View {
     }
 }
 
-/// Google's G, in its four colours.
-private struct GoogleG: View {
-    var body: some View {
-        GeometryReader { g in
-            let s = min(g.size.width, g.size.height), lw = s * 0.2
-            ZStack {
-                arc(-40, 45).stroke(Color(red: 0.26, green: 0.52, blue: 0.96), style: StrokeStyle(lineWidth: lw))
-                arc(45, 135).stroke(Color(red: 0.20, green: 0.66, blue: 0.33), style: StrokeStyle(lineWidth: lw))
-                arc(135, 210).stroke(Color(red: 0.98, green: 0.74, blue: 0.02), style: StrokeStyle(lineWidth: lw))
-                arc(210, 320).stroke(Color(red: 0.92, green: 0.26, blue: 0.21), style: StrokeStyle(lineWidth: lw))
-                Rectangle().fill(Color(red: 0.26, green: 0.52, blue: 0.96))
-                    .frame(width: s * 0.46, height: lw)
-                    .offset(x: s * 0.2)
-            }
-            .padding(lw / 2)
-            .frame(width: s, height: s)
-        }
-    }
-
-    private func arc(_ from: Double, _ to: Double) -> some Shape {
-        ArcShape(from: .degrees(from), to: .degrees(to))
-    }
-}
-
-private struct ArcShape: Shape {
-    let from: Angle
-    let to: Angle
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        p.addArc(center: CGPoint(x: r.midX, y: r.midY), radius: min(r.width, r.height) / 2, startAngle: from, endAngle: to, clockwise: false)
-        return p
-    }
+/// A notification in the shell: an icon, a title and its text.
+struct ShellNotification: Identifiable, Equatable {
+    var id = UUID()
+    var icon: String
+    var app: String
+    var title: String
+    var text: String
+    var date = Date()
 }

@@ -26,6 +26,7 @@ struct SettingsTab: View {
                     row(LibrarySettings(), "square.grid.2x2.fill", .blue, "Library", "Your apps and their icons")
                     row(PerformanceSettings(), "speedometer", .orange, "Performance", "Renderer, sound")
                     row(AppearanceSettings(), "paintbrush.fill", .pink, "Appearance", "Light or dark, accent colour, app icon")
+                    row(AndroidTestingPage(), "testtube.2", .purple, "Testing", "Material 3 Expressive, translation layer, install APKs")
                 }
 
                 Section {

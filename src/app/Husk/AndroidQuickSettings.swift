@@ -85,7 +85,7 @@ struct AndroidShade: View {
 
     @ViewBuilder
     private var notifications: some View {
-        if active.isEmpty {
+        if active.isEmpty && shell.notifications.isEmpty {
             Text("No notifications")
                 .font(.system(size: 15, weight: .medium, design: .rounded))
                 .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
@@ -93,14 +93,18 @@ struct AndroidShade: View {
                 .padding(.vertical, 22)
         } else {
             VStack(spacing: 3) {
+                let posted = Array(shell.notifications.prefix(4))
+                ForEach(Array(posted.enumerated()), id: \.element.id) { i, n in
+                    PostedNotificationCard(note: n, first: i == 0, last: i == posted.count - 1 && active.isEmpty)
+                }
                 ForEach(Array(active.prefix(4).enumerated()), id: \.element.id) { i, job in
-                    AndroidNotificationCard(job: job, first: i == 0, last: i == min(active.count, 4) - 1)
+                    AndroidNotificationCard(job: job, first: i == 0 && posted.isEmpty, last: i == min(active.count, 4) - 1)
                 }
             }
             HStack {
                 Spacer()
                 Button("Manage") { shell.closeShade(); shell.launch(.settings) }
-                Button("Clear all") { shell.closeShade() }
+                Button("Clear all") { shell.dismissNotifications(); shell.closeShade() }
             }
             .buttonStyle(AndroidPillButtonStyle())
         }
@@ -113,6 +117,44 @@ struct AndroidShade: View {
             .frame(maxWidth: .infinity, minHeight: 18)
             .contentShape(Rectangle())
             .onTapGesture { withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) { shell.shadeExpanded.toggle() } }
+    }
+}
+
+/// A notification posted in the shell, swiped away sideways as on Android.
+private struct PostedNotificationCard: View {
+    let note: ShellNotification
+    let first: Bool
+    let last: Bool
+    @ObservedObject private var shell = AndroidShellState.shared
+    @State private var dx: CGFloat = 0
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: note.icon)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Color(uiColor: Material3.onPrimary))
+                .frame(width: 36, height: 36)
+                .background(Color(uiColor: Material3.primary), in: Circle())
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(note.app) · \(note.date.formatted(date: .omitted, time: .shortened))")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+                Text(note.title).font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color(uiColor: Material3.onSurface))
+                Text(note.text).font(.system(size: 14, design: .rounded))
+                    .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(Color(uiColor: Material3.surfaceContainerHighest),
+                    in: RoundedRectangle(cornerRadius: first || last ? 24 : 6, style: .continuous))
+        .offset(x: dx)
+        .opacity(1 - Double(min(abs(dx) / 260, 1)))
+        .gesture(DragGesture(minimumDistance: 14).onChanged { dx = $0.translation.width }.onEnded { v in
+            if abs(v.translation.width) > 120 { withAnimation(.snappy) { shell.notifications.removeAll { $0.id == note.id } } }
+            else { withAnimation(.spring) { dx = 0 } }
+        })
     }
 }
 
@@ -169,7 +211,7 @@ struct AndroidQuickSettingsPanel: View {
     @ObservedObject private var shell = AndroidShellState.shared
     @ObservedObject private var jit = JITCoordinator.shared
     @StateObject private var status = DeviceStatus()
-    @StateObject private var torch = Torch()
+    @ObservedObject private var torch = TorchSwitch.shared
     @AppStorage(AndroidOS.Navigation.key) private var navigation = AndroidOS.Navigation.buttons
     @AppStorage(Theme.Appearance.key) private var appearance = Theme.Appearance.system.rawValue
     @Environment(\.colorScheme) private var scheme
@@ -197,7 +239,7 @@ struct AndroidQuickSettingsPanel: View {
                         .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
                     Spacer()
                     footerButton("pencil", "Edit") {}
-                    footerButton("power", "Lock") { shell.closeShade(); shell.locked = true }
+                    footerButton("power", "Lock") { shell.closeShade(); if AndroidLock.showsLockScreen { shell.locked = true } }
                     footerButton("gearshape", "Settings") { shell.closeShade(); shell.launch(.settings) }
                 }
                 .padding(.horizontal, 10)
@@ -235,8 +277,10 @@ struct AndroidQuickSettingsPanel: View {
                         on: ProcessInfo.processInfo.isLowPowerModeEnabled) {
                 if let u = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(u) }
             },
-            QuickSettingsTile(icon: "lock.fill", title: "Screen lock", subtitle: "Lock now", on: false) {
-                shell.closeShade(); shell.locked = true
+            QuickSettingsTile(icon: shell.doNotDisturb ? "moon.fill" : "moon", title: "Do Not Disturb",
+                              subtitle: shell.doNotDisturb ? "On" : "Off", on: shell.doNotDisturb) { shell.doNotDisturb.toggle() },
+            QuickSettingsTile(icon: "lock.fill", title: "Screen lock", subtitle: AndroidLock.showsLockScreen ? "Lock now" : "None", on: false) {
+                shell.closeShade(); if AndroidLock.showsLockScreen { shell.locked = true }
             },
             QuickSettingsTile(icon: "square.grid.2x2", title: "Recent apps", subtitle: "\(shell.recentApps.count) open", on: false) {
                 shell.closeShade(); shell.toggleRecents()
@@ -321,9 +365,10 @@ struct QuickSettingsTile: View {
     }
 }
 
-/// The flashlight, as the tile switches it.
+/// The flashlight, shared by the Quick Settings tile and the lock screen's shortcut.
 @MainActor
-private final class Torch: ObservableObject {
+final class TorchSwitch: ObservableObject {
+    static let shared = TorchSwitch()
     @Published private(set) var on = false
     let available: Bool
     private let device = AVCaptureDevice.default(for: .video)
@@ -333,8 +378,9 @@ private final class Torch: ObservableObject {
         on = device?.torchMode == .on
     }
 
-    func toggle() {
-        guard let device, available else { return }
+    /// Switches it, and says whether it is on now.
+    @discardableResult func toggle() -> Bool {
+        guard let device, available else { return false }
         do {
             try device.lockForConfiguration()
             device.torchMode = on ? .off : .on
@@ -343,6 +389,7 @@ private final class Torch: ObservableObject {
         } catch {
             HuskLog.log("ui", "flashlight: \(error.localizedDescription)")
         }
+        return on
     }
 }
 
@@ -395,9 +442,7 @@ struct AndroidAlertDialog: View {
                 HStack {
                     Spacer()
                     Button("OK", action: dismiss)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color(uiColor: Material3.primary))
-                        .padding(.horizontal, 12).padding(.vertical, 10)
+                        .buttonStyle(.expressive(.text))
                 }
             }
             .padding(.horizontal, 24).padding(.top, 24).padding(.bottom, 14)

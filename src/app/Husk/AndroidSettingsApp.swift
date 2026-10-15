@@ -22,7 +22,8 @@ struct AndroidSettingsApp: View {
 /// Where a row in Settings goes.
 enum AndroidSettingsRoute: Hashable {
     case network, connected, apps, appInfo(String), specialAccess(AndroidSpecialAccess), display, wallpaper, system, navigation,
-         jit, performance, library, discover, emulator, input, savedMachine, about, legal
+         jit, performance, library, discover, emulator, input, savedMachine, about, legal,
+         security, screenLock, fingerprint, testing
 
     /// The pages HuskPatch already had are pushed with their own (Material-styled) navigation bar; the Android pages draw theirs.
     @MainActor @ViewBuilder var destination: some View {
@@ -48,6 +49,10 @@ enum AndroidSettingsRoute: Hashable {
         case .savedMachine: SavedMachineSettings()
         case .about: AndroidAboutPhonePage().toolbar(.hidden, for: .navigationBar)
         case .legal: AboutSettings()
+        case .security: AndroidSecurityPage().toolbar(.hidden, for: .navigationBar)
+        case .screenLock: AndroidScreenLockPage().toolbar(.hidden, for: .navigationBar)
+        case .fingerprint: AndroidFingerprintPage().toolbar(.hidden, for: .navigationBar)
+        case .testing: AndroidTestingPage(onBack: AndroidSettingsRoute.pop).toolbar(.hidden, for: .navigationBar)
         }
     }
 
@@ -100,6 +105,8 @@ private struct AndroidSettingsHome: View {
          SettingsEntry(route: .performance, icon: "speedometer", tint: .systemRed, title: "Performance", summary: "Renderer, sound", keywords: "gpu renderer sound"),
          SettingsEntry(route: .library, icon: "books.vertical.fill", tint: .systemBlue, title: "Library", summary: "Your apps and their icons", keywords: "library icons"),
          SettingsEntry(route: .emulator, icon: "cpu", tint: .systemGreen, title: "Emulation", summary: "Input, saved machine", keywords: "qemu emulator snapshot input")],
+        [SettingsEntry(route: .security, icon: "lock.shield.fill", tint: .systemTeal, title: "Security & privacy", summary: "Screen lock, Fingerprint Unlock", keywords: "lock pin pattern password fingerprint"),
+         SettingsEntry(route: .testing, icon: "testtube.2", tint: .systemPurple, title: "Testing", summary: "Material 3 Expressive, translation layer, install APKs", keywords: "test debug apk install m3e expressive")],
         [SettingsEntry(route: .system, icon: "gearshape.fill", tint: .systemGray, title: "System", summary: "Navigation mode, multitasking, Android OS mode", keywords: "gestures buttons navigation windows"),
          SettingsEntry(route: .about, icon: "iphone", tint: .systemBlue, title: "About phone", summary: "HuskPatch \(Bundle.main.version)", keywords: "version build developer")],
     ]
@@ -166,7 +173,7 @@ private struct AndroidSettingsHome: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("HuskPatch").font(.system(size: 18, design: .rounded))
                         .foregroundStyle(Color(uiColor: Material3.onSurface))
-                    Text("Android 16 · translation layer and emulation").font(.system(size: 14, design: .rounded))
+                    Text("LineageOS 23 · translation layer and emulation").font(.system(size: 14, design: .rounded))
                         .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
                 }
                 Spacer()
@@ -290,6 +297,7 @@ private struct AndroidDisplayPage: View {
     @AppStorage(Theme.Appearance.key) private var appearance = Theme.Appearance.system
     @AppStorage(Material3.key) private var material3 = false
     @AppStorage(Holiday.key) private var holiday = true
+    @AppStorage(AndroidOverscroll.Effect.key) private var overscroll = AndroidOverscroll.Effect.stretch
 
     var body: some View {
         AndroidSettingsPage(title: "Display & touch", onBack: AndroidSettingsRoute.pop) {
@@ -300,6 +308,17 @@ private struct AndroidDisplayPage: View {
                                            title: a == .system ? "Automatic" : a.title,
                                            summary: a == .system ? "Follows the iPhone" : nil) {
                             AndroidRadio(on: appearance == a)
+                        }
+                    }
+                    .buttonStyle(AndroidRippleStyle())
+                }
+            }
+            AndroidSettingsGroup(header: "Overscroll effect") {
+                ForEach(AndroidOverscroll.Effect.allCases) { e in
+                    Button { overscroll = e } label: {
+                        AndroidSettingsRow(icon: e == .stretch ? "arrow.up.and.down" : e == .glow ? "rays" : "arrow.up.arrow.down",
+                                           title: e.title, summary: e.summary) {
+                            AndroidRadio(on: overscroll == e)
                         }
                     }
                     .buttonStyle(AndroidRippleStyle())
@@ -321,6 +340,7 @@ private struct AndroidDisplayPage: View {
 private struct AndroidWallpaperPage: View {
     @ObservedObject private var theme = AppTheme.shared
     @AppStorage(Material3.appsKey) private var materialApps = false
+    @AppStorage(AndroidOS.wallpaperKey) private var wallpaper = AndroidOS.Wallpaper.lineage
     @State private var custom: Color = AppTheme.shared.accentColor
 
     var body: some View {
@@ -336,6 +356,16 @@ private struct AndroidWallpaperPage: View {
                     .padding(.bottom, 18)
                 }
                 .padding(.bottom, 16)
+            AndroidSettingsGroup(header: "Wallpaper") {
+                ForEach(AndroidOS.Wallpaper.allCases) { w in
+                    Button { wallpaper = w } label: {
+                        AndroidSettingsRow(icon: w == .lineage ? "circle.circle" : "scribble.variable", title: w.title) {
+                            AndroidRadio(on: wallpaper == w)
+                        }
+                    }
+                    .buttonStyle(AndroidRippleStyle())
+                }
+            }
             AndroidSettingsGroup(header: "Colours") {
                 VStack(alignment: .leading, spacing: 14) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 14) {
@@ -511,6 +541,7 @@ private struct AndroidAboutPhonePage: View {
                 AndroidSettingsRow(title: "Device name", summary: UIDevice.current.name)
                 AndroidSettingsRow(title: "Model", summary: model)
                 AndroidSettingsRow(title: "Android version", summary: "16")
+                AndroidSettingsRow(title: "LineageOS version", summary: "23.0-\(Bundle.main.version)-HUSKPATCH")
                 AndroidSettingsRow(title: "HuskPatch version", summary: Bundle.main.version)
                 Button {
                     taps += 1

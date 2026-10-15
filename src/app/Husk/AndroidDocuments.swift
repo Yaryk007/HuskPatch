@@ -101,6 +101,17 @@ final class AndroidDocumentPicker: NSObject {
     private var current: Pick?
     private var queue: [(Pick, String)] = []
 
+    private var testHandlers: [Int32: ([URL]?) -> Void] = [:]
+    private var nextTestID: Int32 = -1
+
+    /// The Testing page's pick: the same pickers and copies, answered to `done` instead of an app.
+    func pickForTest(mimes: String, flags: Int32, into dir: URL, done: @escaping ([URL]?) -> Void) {
+        let id = nextTestID
+        nextTestID -= 1
+        testHandlers[id] = done
+        pick(id: id, mimes: mimes, flags: flags, into: dir)
+    }
+
     func pick(id: Int32, mimes: String, flags: Int32, into dir: URL) {
         let p = Pick(id: id, flags: flags, dir: dir)
         if current != nil { queue.append((p, mimes)); return }
@@ -141,7 +152,9 @@ final class AndroidDocumentPicker: NSObject {
     }
 
     private func finish(_ p: Pick, _ copies: [URL]?) {
-        if let copies, !copies.isEmpty {
+        if let test = testHandlers.removeValue(forKey: p.id) {
+            test(copies?.isEmpty == false ? copies : nil)
+        } else if let copies, !copies.isEmpty {
             HuskLog.log("docs", "pick \(p.id): copied " + copies.map(\.lastPathComponent).joined(separator: ", "))
             copies.map(\.path).joined(separator: "\n").withCString { husk_docs_result(p.id, $0) }
         } else {

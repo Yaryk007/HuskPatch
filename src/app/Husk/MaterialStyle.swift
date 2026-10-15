@@ -21,54 +21,82 @@ enum Material3 {
 
     // MARK: tonal palette
 
-    /// The seed's hue and saturation. Material keeps the seed's hue in every role and varies chroma and tone.
-    private static var seed: (h: CGFloat, s: CGFloat) {
-        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        UIColor(AppTheme.shared.accentColor).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
-        return (h, s)
+    /// Material 3's roles are tones of a few palettes made from one seed colour: a tone is the colour's lightness L* (0 black,
+    /// 100 white), so primary is "tone 40 of the primary palette" in light mode and tone 80 in dark, whatever the hue. The
+    /// palettes keep the seed's hue and give each its own chroma, as Android's tonal-spot scheme does (primary 36,
+    /// secondary 16, tertiary 24 turned 60 degrees, neutral 6, neutral variant 8; CAM16 chroma, about 1.3x in CIELAB).
+    enum Palette { case primary, secondary, tertiary, neutral, neutralVariant, error }
+
+    /// The seed in CIE L*C*h: (hue in degrees, chroma).
+    private static var seedLCh: (h: Double, c: Double) {
+        let lab = Lab(UIColor(AppTheme.shared.accentColor))
+        return (atan2(lab.b, lab.a) * 180 / .pi, (lab.a * lab.a + lab.b * lab.b).squareRoot())
     }
 
-    /// A colour of the seed's hue (turned by `hueShift`, in turns) at a given saturation and lightness (HSL, all 0...1).
-    private static func tone(_ saturation: CGFloat, _ lightness: CGFloat, hueShift: CGFloat = 0) -> UIColor {
-        let h = (seed.h + hueShift).truncatingRemainder(dividingBy: 1), s = saturation, l = lightness
-        let c = (1 - abs(2 * l - 1)) * s
-        let hp = h * 6
-        let x = c * (1 - abs(hp.truncatingRemainder(dividingBy: 2) - 1))
-        let (r, g, b): (CGFloat, CGFloat, CGFloat)
-        switch hp {
-        case ..<1: (r, g, b) = (c, x, 0)
-        case ..<2: (r, g, b) = (x, c, 0)
-        case ..<3: (r, g, b) = (0, c, x)
-        case ..<4: (r, g, b) = (0, x, c)
-        case ..<5: (r, g, b) = (x, 0, c)
-        default:   (r, g, b) = (c, 0, x)
-        }
-        let m = l - c / 2
-        return UIColor(red: r + m, green: g + m, blue: b + m, alpha: 1)
-    }
-
-    /// One role: its lightness in light and in dark mode, at a saturation relative to the seed's.
-    private static func role(sat: CGFloat, light: CGFloat, dark: CGFloat) -> UIColor {
-        UIColor { traits in
-            let s = min(max(seed.s, 0.35), 0.85) * sat
-            return tone(s, traits.userInterfaceStyle == .dark ? dark : light)
+    private static func hueAndChroma(_ p: Palette) -> (Double, Double) {
+        let seed = seedLCh
+        // a grey seed makes grey palettes, as Android's "monochrome" style does
+        let k = min(1, seed.c / 18)
+        switch p {
+        case .primary: return (seed.h, max(min(seed.c, 62), 47) * k)
+        case .secondary: return (seed.h, 21 * k)
+        case .tertiary: return (seed.h + 60, 31 * k)
+        case .neutral: return (seed.h, 8 * k)
+        case .neutralVariant: return (seed.h, 11 * k)
+        case .error: return (35, 70)
         }
     }
 
-    static var primary: UIColor { role(sat: 1, light: 0.40, dark: 0.80) }
-    static var onPrimary: UIColor { role(sat: 1, light: 0.99, dark: 0.20) }
-    static var primaryContainer: UIColor { role(sat: 0.8, light: 0.90, dark: 0.30) }
-    static var onPrimaryContainer: UIColor { role(sat: 0.8, light: 0.10, dark: 0.90) }
-    static var secondaryContainer: UIColor { role(sat: 0.3, light: 0.89, dark: 0.30) }
-    static var surface: UIColor { role(sat: 0.10, light: 0.98, dark: 0.06) }
-    static var surfaceContainerLow: UIColor { role(sat: 0.12, light: 0.96, dark: 0.10) }
-    static var surfaceContainer: UIColor { role(sat: 0.14, light: 0.94, dark: 0.12) }
-    static var surfaceContainerHigh: UIColor { role(sat: 0.14, light: 0.92, dark: 0.17) }
-    static var surfaceContainerHighest: UIColor { role(sat: 0.14, light: 0.90, dark: 0.22) }
-    static var onSurface: UIColor { role(sat: 0.08, light: 0.10, dark: 0.90) }
-    static var onSurfaceVariant: UIColor { role(sat: 0.10, light: 0.30, dark: 0.80) }
-    static var outline: UIColor { role(sat: 0.08, light: 0.50, dark: 0.60) }
-    static var outlineVariant: UIColor { role(sat: 0.08, light: 0.80, dark: 0.30) }
+    /// Tone `tone` (L*, 0...100) of a palette, brought into sRGB by giving up chroma rather than tone.
+    static func tone(_ p: Palette, _ tone: Double) -> UIColor {
+        let (h, c) = hueAndChroma(p)
+        return Lab.color(l: tone, chroma: c, hue: h)
+    }
+
+    /// One role: its tone in light and in dark mode.
+    private static func role(_ p: Palette, _ light: Double, _ dark: Double) -> UIColor {
+        UIColor { traits in tone(p, traits.userInterfaceStyle == .dark ? dark : light) }
+    }
+
+    static var primary: UIColor { role(.primary, 40, 80) }
+    static var onPrimary: UIColor { role(.primary, 100, 20) }
+    static var primaryContainer: UIColor { role(.primary, 90, 30) }
+    static var onPrimaryContainer: UIColor { role(.primary, 10, 90) }
+    static var secondary: UIColor { role(.secondary, 40, 80) }
+    static var secondaryContainer: UIColor { role(.secondary, 90, 30) }
+    static var onSecondaryContainer: UIColor { role(.secondary, 10, 90) }
+    static var tertiary: UIColor { role(.tertiary, 40, 80) }
+    static var tertiaryContainer: UIColor { role(.tertiary, 90, 30) }
+    static var onTertiaryContainer: UIColor { role(.tertiary, 10, 90) }
+    static var error: UIColor { role(.error, 40, 80) }
+    static var errorContainer: UIColor { role(.error, 90, 30) }
+    static var surface: UIColor { role(.neutral, 98, 6) }
+    static var surfaceDim: UIColor { role(.neutral, 87, 6) }
+    static var surfaceBright: UIColor { role(.neutral, 98, 24) }
+    static var surfaceContainerLowest: UIColor { role(.neutral, 100, 4) }
+    static var surfaceContainerLow: UIColor { role(.neutral, 96, 10) }
+    static var surfaceContainer: UIColor { role(.neutral, 94, 12) }
+    static var surfaceContainerHigh: UIColor { role(.neutral, 92, 17) }
+    static var surfaceContainerHighest: UIColor { role(.neutral, 90, 22) }
+    static var onSurface: UIColor { role(.neutral, 10, 90) }
+    static var inverseSurface: UIColor { role(.neutral, 20, 90) }
+    static var inverseOnSurface: UIColor { role(.neutral, 95, 20) }
+    static var onSurfaceVariant: UIColor { role(.neutralVariant, 30, 80) }
+    static var outline: UIColor { role(.neutralVariant, 50, 60) }
+    static var outlineVariant: UIColor { role(.neutralVariant, 80, 30) }
+
+    /// The palette as ExpressiveUI's components read it (its switch, buttons, menus, progress and loading indicators).
+    static func expressive(_ scheme: ColorScheme) -> ExpressiveColors {
+        let t = UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)
+        func c(_ u: UIColor) -> Color { Color(uiColor: u.resolvedColor(with: t)) }
+        return ExpressiveColors(primary: c(primary), onPrimary: c(onPrimary), onPrimaryContainer: c(onPrimaryContainer),
+                                surfaceContainerHighest: c(surfaceContainerHighest), outline: c(outline),
+                                primaryContainer: c(primaryContainer), surfaceContainer: c(surfaceContainer),
+                                onSurfaceVariant: c(onSurfaceVariant), onSurface: c(onSurface),
+                                surfaceContainerLow: c(surfaceContainerLow), secondaryContainer: c(secondaryContainer),
+                                onSecondaryContainer: c(onSecondaryContainer), outlineVariant: c(outlineVariant),
+                                tertiaryContainer: c(tertiaryContainer), onTertiaryContainer: c(onTertiaryContainer))
+    }
 
     // MARK: Material You for apps on the translation layer
 
@@ -79,15 +107,13 @@ enum Material3 {
     /// system_neutral2, system_accent1, system_accent2, system_accent3, each shade 0, 10, 50, 100 ... 900, 1000.
     /// A shade's lightness is Material's tone: shade 0 is white, 1000 black.
     static func dynamicColors() -> [UInt32] {
-        let shades: [CGFloat] = [0, 10, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
-        let s = min(max(seed.s, 0.35), 0.85)
-        // (saturation, hue shift) of each palette, as Material derives them from the seed
-        let palettes: [(CGFloat, CGFloat)] = [(s * 0.08, 0), (s * 0.16, 0), (s, 0), (s * 0.33, 0), (s * 0.5, 1.0 / 6)]
+        let shades: [Double] = [0, 10, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+        let palettes: [Palette] = [.neutral, .neutralVariant, .primary, .secondary, .tertiary]
         var out: [UInt32] = []
-        for (sat, shift) in palettes {
+        for p in palettes {
             for shade in shades {
                 var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-                tone(sat, 1 - shade / 1000, hueShift: shift).getRed(&r, green: &g, blue: &b, alpha: &a)
+                tone(p, 100 - shade / 10).getRed(&r, green: &g, blue: &b, alpha: &a)
                 let byte = { (v: CGFloat) in UInt32((min(max(v, 0), 1) * 255).rounded()) }
                 out.append(0xFF00_0000 | byte(r) << 16 | byte(g) << 8 | byte(b))
             }
@@ -179,35 +205,24 @@ enum Material3 {
     }
 }
 
-/// Material 3's switch: a 52 × 32 track, a thumb that grows from 16 to 24 points when on and carries a check mark,
-/// and an outlined track when off.
+/// Material 3's switch, now ExpressiveUI's (built from the spec's SwitchTokens: the thumb grows to 28 while pressed, the
+/// check is drawn in onPrimaryContainer, and it springs at Material's rates), in HuskPatch's palette.
 struct Material3SwitchStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
-        HStack {
-            configuration.label
-            Spacer(minLength: 12)
-            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-                Capsule()
-                    .fill(Color(uiColor: configuration.isOn ? Material3.primary : Material3.surfaceContainerHighest))
-                    .overlay(Capsule().stroke(Color(uiColor: Material3.outline), lineWidth: configuration.isOn ? 0 : 2))
-                    .frame(width: 52, height: 32)
-                Circle()
-                    .fill(Color(uiColor: configuration.isOn ? Material3.onPrimary : Material3.outline))
-                    .frame(width: configuration.isOn ? 24 : 16, height: configuration.isOn ? 24 : 16)
-                    .overlay {
-                        if configuration.isOn {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(Color(uiColor: Material3.onPrimaryContainer))
-                        }
-                    }
-                    .padding(.horizontal, configuration.isOn ? 4 : 8)
-            }
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isOn)
-            .onTapGesture { configuration.isOn.toggle() }
-            .accessibilityAddTraits(.isButton)
-            .accessibilityValue(configuration.isOn ? "On" : "Off")
-        }
+        Material3Colors { ExpressiveSwitchStyle().makeBody(configuration: configuration) }
+    }
+}
+
+/// HuskPatch's palette under `content`, for ExpressiveUI's components, in the scheme in effect.
+struct Material3Colors<Content: View>: View {
+    @Environment(\.colorScheme) private var scheme
+    @ObservedObject private var theme = AppTheme.shared
+    @ViewBuilder let content: Content
+
+    init(@ViewBuilder _ content: () -> Content) { self.content = content() }
+
+    var body: some View {
+        content.expressiveColors(Material3.expressive(scheme))
     }
 }
 
@@ -218,9 +233,9 @@ struct Material3Root: ViewModifier {
     func body(content: Content) -> some View {
         if on {
             if #available(iOS 16.1, *) {
-                content.toggleStyle(Material3SwitchStyle()).fontDesign(.rounded)
+                Material3Colors { content.toggleStyle(Material3SwitchStyle()).fontDesign(.rounded) }
             } else {
-                content.toggleStyle(Material3SwitchStyle())
+                Material3Colors { content.toggleStyle(Material3SwitchStyle()) }
             }
         } else {
             content
@@ -389,5 +404,58 @@ struct HuskSearch: ViewModifier {
 extension View {
     func huskSearchable(text: Binding<String>, prompt: String) -> some View {
         modifier(HuskSearch(text: text, prompt: prompt))
+    }
+}
+
+// MARK: - CIELAB
+
+/// CIE L*a*b* (D65) for the tonal palette: Material's tone is L*.
+struct Lab {
+    var l: Double, a: Double, b: Double
+
+    init(l: Double, a: Double, b: Double) { self.l = l; self.a = a; self.b = b }
+
+    init(_ color: UIColor) {
+        var r: CGFloat = 0, g: CGFloat = 0, bl: CGFloat = 0, al: CGFloat = 0
+        if !color.getRed(&r, green: &g, blue: &bl, alpha: &al) {
+            var w: CGFloat = 0
+            color.getWhite(&w, alpha: &al); r = w; g = w; bl = w
+        }
+        func lin(_ v: CGFloat) -> Double { let v = Double(min(max(v, 0), 1)); return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        let R = lin(r), G = lin(g), B = lin(bl)
+        let x = (0.4124564 * R + 0.3575761 * G + 0.1804375 * B) / 0.95047
+        let y = 0.2126729 * R + 0.7151522 * G + 0.0721750 * B
+        let z = (0.0193339 * R + 0.1191920 * G + 0.9503041 * B) / 1.08883
+        func f(_ t: Double) -> Double { t > 216.0 / 24389 ? cbrt(t) : (24389.0 / 27 * t + 16) / 116 }
+        l = 116 * f(y) - 16; a = 500 * (f(x) - f(y)); b = 200 * (f(y) - f(z))
+    }
+
+    /// sRGB, or nil when out of gamut.
+    var rgb: (Double, Double, Double)? {
+        let fy = (l + 16) / 116, fx = fy + a / 500, fz = fy - b / 200
+        func inv(_ t: Double) -> Double { let t3 = t * t * t; return t3 > 216.0 / 24389 ? t3 : (116 * t - 16) / (24389.0 / 27) }
+        let x = inv(fx) * 0.95047, y = l > 8 ? fy * fy * fy : l / (24389.0 / 27), z = inv(fz) * 1.08883
+        let R = 3.2404542 * x - 1.5371385 * y - 0.4985314 * z
+        let G = -0.9692660 * x + 1.8760108 * y + 0.0415560 * z
+        let B = 0.0556434 * x - 0.2040259 * y + 1.0572252 * z
+        let e = 0.0001
+        guard (-e...1 + e).contains(R), (-e...1 + e).contains(G), (-e...1 + e).contains(B) else { return nil }
+        func gam(_ v: Double) -> Double { let v = min(max(v, 0), 1); return v <= 0.0031308 ? 12.92 * v : 1.055 * pow(v, 1 / 2.4) - 0.055 }
+        return (gam(R), gam(G), gam(B))
+    }
+
+    /// L* `l` at `hue`, with as much of `chroma` as sRGB can show at that tone.
+    static func color(l: Double, chroma: Double, hue: Double) -> UIColor {
+        let rad = hue * .pi / 180
+        var lo = 0.0, hi = chroma
+        var best = Lab(l: l, a: 0, b: 0).rgb ?? (l / 100, l / 100, l / 100)
+        if let full = Lab(l: l, a: cos(rad) * chroma, b: sin(rad) * chroma).rgb { best = full; lo = chroma }
+        else {
+            for _ in 0..<14 {
+                let mid = (lo + hi) / 2
+                if let c = Lab(l: l, a: cos(rad) * mid, b: sin(rad) * mid).rgb { best = c; lo = mid } else { hi = mid }
+            }
+        }
+        return UIColor(red: best.0, green: best.1, blue: best.2, alpha: 1)
     }
 }
