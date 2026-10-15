@@ -189,6 +189,14 @@ struct PS4PlayView: View {
             if husk_console_state() != Int32(HUSK_CONSOLE_IDLE.rawValue) { husk_console_set_paused(false) }
             model.start()
         }
+        // iOS refuses GPU work from the background and the game's device would be lost: pause it
+        // while Husk is not in front (app switcher, Control Center, a call).
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            husk_console_set_paused(true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            husk_console_set_paused(false)
+        }
         .onDisappear {
             husk_console_set_paused(true)
             virtualPad.disconnect()

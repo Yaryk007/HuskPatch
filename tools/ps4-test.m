@@ -10,7 +10,8 @@
  * l3 r3 options share touchpad, joined with '+') from T to T+D seconds; PS4_USER_DIR (default: a folder in $TMPDIR);
  * PS4_MVK (default /opt/homebrew/lib/libMoltenVK.dylib); TL_XMEM_MIB sizes the JIT region (default 192);
  * HUSK_MEM_LIMIT_MB reports a phone's available memory to the module; AETHER_SHOT_EVERY=<s> saves game screenshots into
- * the user dir's screenshots folder.
+ * the user dir's screenshots folder. PS4_PAD_FIFO=<path> makes a FIFO there and takes live presses from it, one per line,
+ * "buttons seconds" (e.g. "cross 0.5", "down+cross 0.3"), to drive a game while watching its screenshots.
  */
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
@@ -18,8 +19,11 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "husk-console-host.h"
 #include "husk-jit-arena.h"
@@ -91,8 +95,16 @@ int main(int argc, char **argv)
         if (!husk_console_launch(&a, err, sizeof(err))) { fprintf(stderr, "ps4-test: launch failed: %s\n", err); return 1; }
         fprintf(stderr, "ps4-test: launched; log %s\n", log.UTF8String);
 
-        pad_event ev[256];
+        pad_event ev[1024];
         int nev = getenv("PS4_PAD_SCRIPT") ? parse_script(getenv("PS4_PAD_SCRIPT"), ev, 256) : 0;
+        int fifo = -1;
+        char fifo_buf[512];
+        size_t fifo_len = 0;
+        if (getenv("PS4_PAD_FIFO")) {
+            unlink(getenv("PS4_PAD_FIFO"));
+            mkfifo(getenv("PS4_PAD_FIFO"), 0600);
+            fifo = open(getenv("PS4_PAD_FIFO"), O_RDWR | O_NONBLOCK);   /* RDWR: never sees EOF between writers */
+        }
         uint32_t applied = 0;
         struct timespec t0, t;
         clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -101,6 +113,25 @@ int main(int argc, char **argv)
             [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
             clock_gettime(CLOCK_MONOTONIC, &t);
             double now = (t.tv_sec - t0.tv_sec) + (t.tv_nsec - t0.tv_nsec) / 1e9;
+            if (fifo >= 0) {
+                ssize_t r = read(fifo, fifo_buf + fifo_len, sizeof(fifo_buf) - 1 - fifo_len);
+                if (r > 0) fifo_len += (size_t)r;
+                char *nl;
+                while (fifo_len && (nl = memchr(fifo_buf, '\n', fifo_len))) {
+                    *nl = 0;
+                    char names[256]; double d = 0.3;
+                    if (sscanf(fifo_buf, "%255s %lf", names, &d) >= 1 && nev < 1024) {
+                        uint32_t b = 0; char *s2 = NULL;
+                        for (char *t = strtok_r(names, "+", &s2); t; t = strtok_r(NULL, "+", &s2)) b |= button_bits(t);
+                        ev[nev++] = (pad_event){ now, now + d, b };
+                        fprintf(stderr, "ps4-test: t=%.1fs fifo press %s for %.2fs\n", now, fifo_buf, d);
+                    }
+                    size_t used = (size_t)(nl - fifo_buf) + 1;
+                    memmove(fifo_buf, nl + 1, fifo_len - used);
+                    fifo_len -= used;
+                }
+                if (fifo_len >= sizeof(fifo_buf) - 1) fifo_len = 0;
+            }
             uint32_t bits = 0;
             for (int i = 0; i < nev; i++) if (now >= ev[i].start && now < ev[i].end) bits |= ev[i].buttons;
             if (bits != applied) {

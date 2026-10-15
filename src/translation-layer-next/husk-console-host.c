@@ -60,6 +60,64 @@ static uint64_t host_footprint(void)
     return 0;
 }
 
+/* Address space in use and threads alive: iOS gives large mappings one 64 GB window, and a console game's threads each
+ * reserve some of it. */
+static void task_usage(uint64_t *virtual_bytes, unsigned *threads)
+{
+    *virtual_bytes = 0;
+    *threads = 0;
+#if defined(__APPLE__)
+    task_vm_info_data_t info;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info, &count) == KERN_SUCCESS) *virtual_bytes = info.virtual_size;
+    thread_act_array_t list;
+    mach_msg_type_number_t n = 0;
+    if (task_threads(mach_task_self(), &list, &n) == KERN_SUCCESS) {
+        for (mach_msg_type_number_t i = 0; i < n; i++) mach_port_deallocate(mach_task_self(), list[i]);
+        vm_deallocate(mach_task_self(), (vm_address_t)list, n * sizeof(*list));
+        *threads = n;
+    }
+#endif
+}
+
+/* iOS gives large mappings one window from 0x70_0000_0000. What is in it: bytes in use, the highest end, the largest
+ * gap below that end, and the biggest users by VM tag (0 untagged, 240-255 app-specific, the rest Apple's). */
+#define CONSOLE_WINDOW_BASE 0x7000000000ull
+static void window_usage(char *out, size_t outlen)
+{
+    out[0] = 0;
+#if defined(__APPLE__)
+    uint64_t by_tag[256] = {0}, used = 0, top = CONSOLE_WINDOW_BASE, gap = 0, prev_end = CONSOLE_WINDOW_BASE;
+    vm_address_t addr = (vm_address_t)CONSOLE_WINDOW_BASE;
+    for (;;) {
+        vm_size_t size = 0;
+        vm_region_extended_info_data_t info;
+        mach_msg_type_number_t count = VM_REGION_EXTENDED_INFO_COUNT;
+        mach_port_t object = MACH_PORT_NULL;
+        if (vm_region_64(mach_task_self(), &addr, &size, VM_REGION_EXTENDED_INFO, (vm_region_info_t)&info, &count, &object) != KERN_SUCCESS) break;
+        if (object != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), object);
+        uint64_t start = addr, end = addr + size;
+        if (start > prev_end && start - prev_end > gap) gap = start - prev_end;
+        prev_end = end;
+        used += size;
+        by_tag[info.user_tag & 0xff] += size;
+        if (end > top) top = end;
+        addr = (vm_address_t)end;
+    }
+    int n = snprintf(out, outlen, "window used %llu MiB, top 0x%llx, largest gap %llu MiB, tags", (unsigned long long)(used >> 20),
+                     (unsigned long long)top, (unsigned long long)(gap >> 20));
+    for (int k = 0; k < 5 && n > 0 && (size_t)n < outlen; k++) {
+        int best = -1;
+        for (int t = 0; t < 256; t++) if (by_tag[t] && (best < 0 || by_tag[t] > by_tag[best])) best = t;
+        if (best < 0) break;
+        n += snprintf(out + n, outlen - (size_t)n, " %d:%llu", best, (unsigned long long)(by_tag[best] >> 20));
+        by_tag[best] = 0;
+    }
+#else
+    (void)outlen;
+#endif
+}
+
 static void host_log_line(const char *line)
 {
     struct timespec t;
@@ -89,12 +147,30 @@ static float further(float a, float b) { return (a < 0 ? -a : a) >= (b < 0 ? -b 
 static uint8_t stick(float v) { v = v < -1 ? -1 : v > 1 ? 1 : v; return (uint8_t)((v + 1.0f) * 127.5f + 0.5f); }   /* y down, as the PS4 */
 static uint8_t trigger(float v) { v = v < 0 ? 0 : v > 1 ? 1 : v; return (uint8_t)(v * 255.0f + 0.5f); }
 
+static void host_log(const char *fmt, ...);
+
+/* Every 5 s while a game runs: memory and address space, so a run that iOS ends without a word still says what was
+ * running out. */
+static void log_usage(void)
+{
+    uint64_t virtual_bytes;
+    unsigned threads;
+    task_usage(&virtual_bytes, &threads);
+    host_log("console: footprint %llu MiB, %llu MiB available, %llu MiB address space, %u threads",
+             (unsigned long long)(host_footprint() >> 20), (unsigned long long)(host_available_memory() >> 20),
+             (unsigned long long)(virtual_bytes >> 20), threads);
+    char window[256];
+    window_usage(window, sizeof(window));
+    if (window[0]) host_log("console: %s", window);
+}
+
 static void *pad_loop(void *arg)
 {
     (void)arg;
     HuskPadV1 last;
     memset(&last, 0xff, sizeof(last));
-    for (;;) {
+    for (unsigned tick = 0;; tick++) {
+        if (tick % 625 == 0) log_usage();   /* 8 ms ticks */
         tl_pad_state m = {0}, s;
         uint32_t buttons = 0;
         for (int slot = 0; slot < TL_PADS; slot++) {
@@ -132,6 +208,12 @@ static void host_log(const char *fmt, ...)
 }
 
 /* ---- launching ---- */
+
+/* A game that calls exit() ends the app with no fault to report. */
+static void log_exit(void)
+{
+    if (g_module) host_log("console: the process is exiting (exit() with %s loaded)", g_game_id);
+}
 
 bool husk_console_launch(const husk_console_launch_args *a, char *err, size_t errlen)
 {
@@ -187,6 +269,7 @@ bool husk_console_launch(const husk_console_launch_args *a, char *err, size_t er
     }
     snprintf(g_game_id, sizeof(g_game_id), "%s", a->game_id ? a->game_id : a->game);
     g_module = m;
+    atexit(log_exit);
     pthread_create(&g_pad_thread, NULL, pad_loop, NULL);
     pthread_detach(g_pad_thread);
     return true;
