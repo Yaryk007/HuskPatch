@@ -2,7 +2,7 @@
 
 The text bellow is not what huskpatch was used to be, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed, thank you guys for the support, i might still make updates but i will focus on my other projects more.
 
-> **HuskPatch 2.6.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (2.0 plus build 119) with these additions:
+> **HuskPatch 2.6.1** is the latest official [Husk](https://github.com/Leviidev/Husk) code (2.0 plus build 119) with these additions:
 >
 > - **Android OS mode** (Settings › Appearance › Android OS): HuskPatch's interface replaced by LineageOS 23's (Android
 >   16) -- a lock screen you swipe up, a home screen with your games and apps, an app drawer with the whole library, recents, and

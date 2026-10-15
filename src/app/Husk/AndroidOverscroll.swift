@@ -48,9 +48,17 @@ enum AndroidOverscroll {
         guard !installed else { return }
         installed = true
         let cls: AnyClass = UIScrollView.self
-        guard let original = class_getInstanceMethod(cls, #selector(UIView.didMoveToWindow)),
-              let replacement = class_getInstanceMethod(cls, #selector(UIScrollView.huskOverscroll_didMoveToWindow)) else { return }
-        method_exchangeImplementations(original, replacement)
+        let originalSel = #selector(UIView.didMoveToWindow), replacementSel = #selector(UIScrollView.huskOverscroll_didMoveToWindow)
+        guard let original = class_getInstanceMethod(cls, originalSel),
+              let replacement = class_getInstanceMethod(cls, replacementSel) else { return }
+        // UIScrollView inherits didMoveToWindow from UIView: exchanging the inherited method would hook every view (and
+        // crash on the first that is not a scroll view). So UIScrollView gets its own didMoveToWindow -- the hook -- and
+        // the hook's selector gets UIView's implementation, which the hook calls.
+        if class_addMethod(cls, originalSel, method_getImplementation(replacement), method_getTypeEncoding(replacement)) {
+            class_replaceMethod(cls, replacementSel, method_getImplementation(original), method_getTypeEncoding(original))
+        } else {
+            method_exchangeImplementations(original, replacement)
+        }
     }
 
     fileprivate static var driverKey: UInt8 = 0
