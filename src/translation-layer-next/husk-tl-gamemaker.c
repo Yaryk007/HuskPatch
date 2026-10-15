@@ -16,6 +16,7 @@
 #include "husk-tl-dexindex.h"
 #include "husk-tl-egl.h"
 #include "husk-tl-jni.h"
+#include "husk-tl-perm.h"
 #include "husk-tl-ld.h"
 #include "husk-tl-internal.h"
 
@@ -149,6 +150,14 @@ static void J_HttpGet(tl_jcall *c) { tl_log_line("gamemaker: http get %s (offlin
 static void J_HttpPost(tl_jcall *c) { tl_log_line("gamemaker: http post %s (offline)", S(c->args[0].l)); http_fail(c->args[3].i); }
 static void J_HttpRequest(tl_jcall *c) { tl_log_line("gamemaker: http %s %s (offline)", S(c->args[1].l), S(c->args[0].l)); http_fail(c->args[5].i); }
 
+/* HuskPatch: Android's permission dialog, and what was chosen in it (a permission never asked about stays granted) */
+static void J_CheckPermission(tl_jcall *c) { jvalue v; v.j = 0; v.i = tl_perm_granted_lenient(tl_jni_string(c->args[0].l)) ? 1 : 0; c->ret = v; }
+static void J_RequestPermission(tl_jcall *c)
+{
+    const char *p = tl_jni_string(c->args[0].l);
+    if (p) { const char *perms[1] = { p }; tl_perm_request(perms, 1, NULL, NULL); }
+}
+
 static const tl_jhle k_runner[] = {
     { LIB, "GetAssetManager", "()Ljava/lang/Object;", J_GetAssetManager },
     { LIB, "GetApplicationContext", "()Landroid/content/Context;", J_GetApplicationContext },
@@ -159,8 +168,8 @@ static const tl_jhle k_runner[] = {
     { LIB, "HasVsyncHandler", "()I", RetZero },
     { LIB, "WaitForVsync", "()V", Noop },
     { LIB, "OsGetInfo", "()I", J_OsGetInfo },
-    { LIB, "CheckPermission", "(Ljava/lang/String;)I", RetOne },
-    { LIB, "RequestPermission", "(Ljava/lang/String;)V", Noop },
+    { LIB, "CheckPermission", "(Ljava/lang/String;)I", J_CheckPermission },
+    { LIB, "RequestPermission", "(Ljava/lang/String;)V", J_RequestPermission },
     { LIB, "isNetworkConnected", "()Z", RetFalse },
     { LIB, "ShowMessage", "(Ljava/lang/String;)V", J_ShowMessage },
     { LIB, "ShowMessageAsync", "(Ljava/lang/String;I)V", J_ShowMessage },

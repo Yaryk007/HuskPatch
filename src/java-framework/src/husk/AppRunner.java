@@ -186,6 +186,16 @@ public final class AppRunner {
         String pkg = i.getComponent() != null ? i.getComponent().getPackageName() : i.getPackage();
         boolean system = "android".equals(pkg) || "com.android.settings".equals(pkg) || "com.android.permissioncontroller".equals(pkg)
             || (action != null && (action.startsWith("android.settings.") || action.startsWith("android.provider.Settings")));
+        /* HuskPatch: a Settings page for special app access (display over other apps, all files access...) is the host's
+           page for it; the caller hears RESULT_CANCELED once it closes, as Settings answers, and reads the choice itself */
+        String special = system ? Permissions.specialFor(action) : null;
+        if (special != null) {
+            final Activity caller = from instanceof Activity ? (Activity) from : top();
+            Permissions.request(new String[] { special }, (p, r) -> {
+                if (request >= 0 && caller != null) sHandler.post(() -> caller.huskActivityResult(request, Activity.RESULT_CANCELED, null));
+            });
+            return;
+        }
         if (system) {
             final Activity caller = from instanceof Activity ? (Activity) from : top();
             if (request >= 0 && caller != null) sHandler.post(() -> caller.huskActivityResult(request, Activity.RESULT_CANCELED, null));
@@ -240,7 +250,7 @@ public final class AppRunner {
     }
 
     // ---- input from Husk
-    /** events: [n, then n x (phase, id, xbits, ybits)] -- phase 0 down, 1 move, 2 up, 3 cancel; 4 key (id = code, x = down); 5 back; 6 host pause (id 1) / resume (0); 7 text waiting; 8 insets changed; 9 web view events waiting; 10 screen resized (HuskPatch) */
+    /** events: [n, then n x (phase, id, xbits, ybits)] -- phase 0 down, 1 move, 2 up, 3 cancel; 4 key (id = code, x = down); 5 back; 6 host pause (id 1) / resume (0); 7 text waiting; 8 insets changed; 9 web view events waiting; 10 screen resized, 11 permissions answered (id = request, x = granted mask, raw) (HuskPatch) */
     private static void deliver(int[] ev) {
         int n = ev[0];
         for (int k = 0; k < n; k++) {
@@ -253,6 +263,7 @@ public final class AppRunner {
                 if (phase == 8) { applyInsets(); continue; }
                 if (phase == 9) { Web.deliver(); continue; }
                 if (phase == 10) { ViewRoot.screenResized(); continue; }
+                if (phase == 11) { Permissions.deliver(id, ev[3 + 4 * k]); continue; }
                 if (phase == 4) {
                     long t = SystemClock.uptimeMillis();
                     KeyEvent ke = new KeyEvent(t, t, ev[3 + 4 * k] != 0 ? KeyEvent.ACTION_DOWN : KeyEvent.ACTION_UP, id, 0);

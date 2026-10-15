@@ -45,7 +45,7 @@
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>2.3.0</string>
+	<string>2.4.0</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -78,6 +78,22 @@
 	<array>
 		<string>_remotepairing-pairable-host._tcp</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>An Android app you run in HuskPatch asked for the camera, and you allowed it in Android's permission dialog.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>An Android app you run in HuskPatch asked for the microphone, and you allowed it in Android's permission dialog.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>An Android app you run in HuskPatch asked for your location, and you allowed it in Android's permission dialog.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>An Android app you run in HuskPatch asked for your photos and videos, and you allowed it in Android's permission dialog.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>An Android app you run in HuskPatch asked for your contacts, and you allowed it in Android's permission dialog.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>An Android app you run in HuskPatch asked for your calendar, and you allowed it in Android's permission dialog.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>An Android app you run in HuskPatch asked for your calendar, and you allowed it in Android's permission dialog.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>An Android app you run in HuskPatch asked for nearby devices, and you allowed it in Android's permission dialog.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Husk uses the local network to pair with this iPhone for JIT, without a computer.</string>
 	<key>NSSupportsLiveActivities</key>

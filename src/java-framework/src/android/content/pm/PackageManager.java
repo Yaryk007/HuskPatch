@@ -112,7 +112,7 @@ public class PackageManager {
     }
     public FeatureInfo[] getSystemAvailableFeatures() { return new FeatureInfo[0]; }
     public String[] getSystemSharedLibraryNames() { return new String[0]; }
-    public int checkPermission(String perm, String pkg) { return PERMISSION_GRANTED; }
+    public int checkPermission(String perm, String pkg) { return husk.Permissions.check(perm); }
     public boolean isPermissionRevokedByPolicy(String perm, String pkg) { return false; }
     public PermissionInfo getPermissionInfo(String name, int flags) throws NameNotFoundException { PermissionInfo p = new PermissionInfo(); p.name = name; return p; }
     public int checkSignatures(String a, String b) { return SIGNATURE_MATCH; }
@@ -221,7 +221,7 @@ public class PackageManager {
     public boolean isSafeMode() { return false; }
     public boolean isInstantApp() { return false; }
     public boolean isInstantApp(String pkg) { return false; }
-    public boolean canRequestPackageInstalls() { return false; }
+    public boolean canRequestPackageInstalls() { return husk.Permissions.special("android.permission.REQUEST_INSTALL_PACKAGES", false); }
     public PackageInstaller getPackageInstaller() { return null; }
     public android.content.pm.ModuleInfo getModuleInfo(String pkg, int flags) throws NameNotFoundException { throw new NameNotFoundException(pkg); }
     public List<SharedLibraryInfo> getSharedLibraries(int flags) { return new ArrayList<>(); }

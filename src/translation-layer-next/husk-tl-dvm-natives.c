@@ -824,7 +824,15 @@ NAT(Throwable_getStack)
 NAT(Runtime_freeMemory) { UNUSED; *ret = J(256ll << 20); return true; }
 NAT(Runtime_maxMemory) { UNUSED; *ret = J(512ll << 20); return true; }
 NAT(Runtime_gc) { UNUSED; return true; }
-NAT(Runtime_exit) { (void)self; (void)ret; tl_log_line("dvm: Runtime.exit(%d)", a[0].i); _exit(a[0].i); }
+/* HuskPatch: System.exit ends the app, not Husk: its screen closes and the thread that asked stops here, as the process would */
+NAT(Runtime_exit)
+{
+    (void)self; (void)ret;
+    tl_log_line("dvm: Runtime.exit(%d)", a[0].i);
+    void tl_javaapp_finish(void); tl_javaapp_finish();
+    void tl_app_end(const char *why); tl_app_end("System.exit");
+    for (;;) sleep(3600);
+}
 NAT(Runtime_nativeLoad)
 {
     (void)self;

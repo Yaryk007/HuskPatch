@@ -22,6 +22,7 @@
 
 #include "husk-tl-bionic.h"
 #include "husk-tl-godot.h"
+#include "husk-tl-perm.h"
 #include "husk-tl-jni.h"
 #include "husk-tl-ld.h"
 #include "husk-tl-internal.h"
@@ -344,6 +345,13 @@ static void G_alert(tl_jcall *c) { tl_log_line("godot: alert \"%s\": %s", S(c->a
 #define FA "org/godotengine/godot/io/file/FileAccessHandler"
 #define DA "org/godotengine/godot/io/directory/DirectoryAccessHandler"
 #define GD "org/godotengine/godot/Godot"
+/* HuskPatch: Android's permission dialog; the game goes on as it did (granted), and reads the choice when it checks again */
+static void G_requestPermission(tl_jcall *c)
+{
+    const char *p = tl_jni_string(c->args[0].l);
+    if (p) { const char *perms[1] = { p }; tl_perm_request(perms, 1, NULL, NULL); }
+    jvalue v; v.j = 0; v.z = 1; c->ret = v;
+}
 #define M(c, n, s, f) { c, n, s, f }
 static const tl_jhle k_godot[] = {
     M(IO, "getDataDir", "()Ljava/lang/String;", IO_dataDir), M(IO, "getCacheDir", "()Ljava/lang/String;", IO_cacheDir),
@@ -373,7 +381,7 @@ static const tl_jhle k_godot[] = {
     M(DA, "getDriveCount", "(I)I", RetZero), M(DA, "getDrive", "(II)Ljava/lang/String;", DA_drive),
 
     M(GD, "getGLESVersionCode", "()I", G_glesVersion), M(GD, "getCommandLine", "()[Ljava/lang/String;", G_strings),
-    M(GD, "getGrantedPermissions", "()[Ljava/lang/String;", G_strings), M(GD, "requestPermission", "(Ljava/lang/String;)Z", RetTrue),
+    M(GD, "getGrantedPermissions", "()[Ljava/lang/String;", G_strings), M(GD, "requestPermission", "(Ljava/lang/String;)Z", G_requestPermission),
     M(GD, "requestPermissions", "()Z", RetTrue), M(GD, "getCACertificates", "()Ljava/lang/String;", G_emptyString),
     M(GD, "getClipboard", "()Ljava/lang/String;", G_emptyString), M(GD, "setClipboard", "(Ljava/lang/String;)V", Noop),
     M(GD, "hasClipboard", "()Z", RetFalse), M(GD, "setKeepScreenOn", "(Z)V", Noop), M(GD, "vibrate", "(I)V", Noop),

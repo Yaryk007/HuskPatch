@@ -21,6 +21,7 @@
 #include "husk-tl-internal.h"
 #include "husk-tl-ld.h"
 #include "husk-tl-dexindex.h"
+#include "husk-tl-perm.h"
 
 /* ------------------------------------------------------------------ state */
 
@@ -146,8 +147,10 @@ static void Context_getSharedPreferences(tl_jcall *c)
     set_str(p, "name", S(c->args[0].l));
     c->ret = vl(p);
 }
-static void Context_checkCallingOrSelfPermission(tl_jcall *c) { c->ret = vi(0); }   /* PERMISSION_GRANTED */
-static void Context_checkSelfPermission(tl_jcall *c) { c->ret = vi(0); }
+/* HuskPatch: what the user chose in Android's permission dialog (husk-tl-perm.c); one never asked about stays granted, as
+ * before, since an engine's request may have no way back to it */
+static void Context_checkCallingOrSelfPermission(tl_jcall *c) { c->ret = vi(tl_perm_granted_lenient(tl_jni_string(c->args[0].l)) ? 0 : -1); }
+static void Context_checkSelfPermission(tl_jcall *c) { c->ret = vi(tl_perm_granted_lenient(tl_jni_string(c->args[0].l)) ? 0 : -1); }
 
 /* getSystemService(name): one object per kind of service. */
 static void Context_getSystemService(tl_jcall *c)
@@ -1093,6 +1096,7 @@ extern void tl_loop_install(void);
 extern void tl_input_install(void);
 extern void tl_tls_install(void);
 extern void tl_gms_install(void);
+extern void tl_android_extras_install(void);
 void tl_jni_hle_install(void)
 {
     for (size_t i = 0; i < sizeof(k_classes) / sizeof(k_classes[0]); i++) tl_jni_declare(k_classes[i].name, k_classes[i].super);
@@ -1103,6 +1107,7 @@ void tl_jni_hle_install(void)
     tl_tls_install();
     tl_http_install();
     tl_gms_install();
+    tl_android_extras_install();
 
     H.activity = make("android/app/Activity");
     H.resources = make("android/content/res/Resources");

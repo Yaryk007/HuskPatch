@@ -17,7 +17,7 @@ public class NotificationManager {
     public java.util.List<NotificationChannelGroup> getNotificationChannelGroups() { return new java.util.ArrayList<>(mGroups.values()); }
     public void deleteNotificationChannel(String id) { mChannels.remove(id); }
     public void deleteNotificationChannelGroup(String id) { mGroups.remove(id); }
-    public boolean areNotificationsEnabled() { return true; }
+    public boolean areNotificationsEnabled() { return husk.Permissions.special("android.permission.POST_NOTIFICATIONS", true); }
     public boolean areNotificationsPaused() { return false; }
     public int getImportance() { return IMPORTANCE_DEFAULT; }
     public android.service.notification.StatusBarNotification[] getActiveNotifications() { return new android.service.notification.StatusBarNotification[0]; }

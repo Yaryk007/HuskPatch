@@ -79,6 +79,9 @@ struct HuskApp: App {
         // Copies of shared APKs that were never placed.
         IncomingFiles.clearLeftovers()
 
+        // HuskPatch: Android's permission dialogs for apps on the translation layer (and the iPhone's, where iOS asks too).
+        AndroidPermissions.install()
+
         // Game controllers, for the games the native runtime runs.
         Task { @MainActor in HuskGamepads.shared.start() }
     }

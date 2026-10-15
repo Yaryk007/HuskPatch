@@ -211,7 +211,7 @@ public class PowerManager {
     public boolean isDeviceIdleMode() { return false; }
     public boolean isDeviceLightIdleMode() { return false; }
     public boolean isExemptFromLowPowerStandby() { return false; }
-    public boolean isIgnoringBatteryOptimizations(java.lang.String p0) { return false; }
+    public boolean isIgnoringBatteryOptimizations(java.lang.String p0) { return husk.Permissions.special("android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS", false); }
     public boolean isInteractive(int p0) { return false; }
     public boolean isLightDeviceIdleMode() { return false; }
     public boolean isLowPowerStandbyEnabled() { return (huskFill.get("LowPowerStandbyEnabled") instanceof Boolean ? (Boolean) huskFill.get("LowPowerStandbyEnabled") : false); }

@@ -2,12 +2,23 @@
 
 The text bellow is not what huskpatch was used to be, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed, thank you guys for the support, i might still make updates but i will focus on my other projects more.
 
-> **HuskPatch 2.3.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (2.0 plus build 113) with these additions:
+> **HuskPatch 2.4.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (2.0 plus build 119) with these additions:
 >
 > - **Android OS mode** (Settings › Appearance › Android OS): HuskPatch's interface replaced by Android 16's -- a lock
->   screen you swipe up, a home screen with your games and apps, an app drawer with the whole library, Settings and
->   Play Store as apps, recents, and Android's back / home / recents buttons. Games and apps open straight into the
->   app, full screen, with the buttons kept under them. Turns on the two options below with it.
+>   screen you swipe up, a home screen with your games and apps, an app drawer with the whole library, recents, and
+>   Android's navigation: **3-button or gesture navigation** (Settings › System › Navigation mode; swipe up for home,
+>   up and hold for recents, in from either edge for back). Games and apps open straight into the app, full screen.
+>   Turns on the two options below with it.
+>   - **Play Store app** laid out like Google Play: Games, Apps, Search and You tabs, chips for For you / Top charts /
+>     Categories, carousels, and an app page with Install, screenshots and About.
+>   - **Settings app** laid out like Android 16's: Network & internet, Connected devices, Apps (each app's permissions
+>     and special app access), Display & touch, Wallpaper & style, System, About phone (tap Build number seven times).
+> - **Android permissions** on the translation layer: when an app asks for a permission, Android's dialog appears. If
+>   iOS guards the same thing (camera, microphone, location, photos, contacts, calendar, notifications, Bluetooth),
+>   allowing it goes on to the iPhone's own prompt; if it is Android's alone (phone, SMS, display over other apps...),
+>   only Android asks. Change them later in Settings › Apps.
+> - **Apps can close themselves**: finishing the last screen, `System.exit`, `killProcess` or moving to the back closes
+>   the app (back to the launcher in Android OS mode) instead of leaving a black screen or quitting HuskPatch.
 > - **Android 16 Style**: Material 3 Expressive colours from your accent, Android's navigation and search bars,
 >   Material's back button, segmented buttons and switches, large rounded cards and pill buttons. No Liquid Glass.
 > - **Material You in Apps**: apps on the translation layer get Android's dynamic colours, made from your accent.

@@ -11,9 +11,23 @@ import UIKit
 /// - a home screen with the games and apps Home shows, a dock (Play Store, Settings, Android) and a search pill;
 /// - an app drawer, swiped up from the home screen, with everything in the Library;
 /// - Settings and Play Store as apps: the same screens as the tabs, opened full screen like any other app;
-/// - recents, and Android's three buttons -- back, home, recents -- along the bottom.
+/// - recents, and Android's navigation along the bottom: the three buttons -- back, home, recents -- or gestures, as
+///   Settings › System › Navigation mode chooses.
 enum AndroidOS {
     static let key = "huskpatch.androidOS"
+
+    /// How the system is navigated: Android's two choices, in Settings › System › Navigation mode.
+    enum Navigation: String, CaseIterable, Identifiable {
+        case gestures, buttons
+        static let key = "huskpatch.androidOS.navigation"
+        var id: String { rawValue }
+        var title: String { self == .gestures ? "Gesture navigation" : "3-button navigation" }
+        var summary: String {
+            self == .gestures
+                ? "To go Home, swipe up from the bottom of the screen. To switch apps, swipe up from the bottom, hold, then release. To go back, swipe from either the left or right edge."
+                : "Go back, Home, and switch apps with buttons at the bottom of your screen."
+        }
+    }
 
     static var isOn: Bool { UserDefaults.standard.bool(forKey: key) }
 
@@ -62,6 +76,9 @@ final class AndroidShellState: ObservableObject {
     @Published var drawer = false
     @Published var recents = false
     @Published private(set) var recentApps: [ShellApp] = []
+    /// Where Settings and the Play Store are, so Android's back goes back a page in them before it leaves them.
+    @Published var settingsPath = NavigationPath()
+    @Published var storePath = NavigationPath()
     /// Why an app could not be opened, shown as an alert.
     @Published var notice: String?
 
@@ -90,6 +107,12 @@ final class AndroidShellState: ObservableObject {
             notice = "\(g.label) needs JIT. HuskPatch is turning it on: open the app again once JIT is on."
             return false
         }
+        // An app that closed itself: its engine cannot be started again in this run, as an engine cannot be unloaded
+        if let loaded = husk_native_loaded_apk().map({ String(cString: $0) }), loaded == g.apks.first, husk_unity_state() == Int32(HUSK_UNITY_ENDED) {
+            notice = "\(g.label) was closed. An Android app can't be started again once it has closed in the same session: "
+                   + "close HuskPatch completely and open it again to run it."
+            return false
+        }
         if let loaded = husk_native_loaded_apk().map({ String(cString: $0) }), loaded != g.apks.first {
             let other = Launcher.items(store: TranslationLayerStore.shared, host: AndroidHost.shared)
                 .first { if case .game(let o) = $0 { return o.apks.first == loaded }; return false }?.title
@@ -108,6 +131,8 @@ final class AndroidShellState: ObservableObject {
     /// Android's back: into the app first, when it has a back of its own (an Android app's activities, a Flutter or web
     /// app's pages); it closes itself when there is nothing left to go back to (appClosedItself). Otherwise home.
     func back() {
+        if !recents, !drawer, open == .settings, !settingsPath.isEmpty { settingsPath.removeLast(); return }
+        if !recents, !drawer, open == .playStore, !storePath.isEmpty { storePath.removeLast(); return }
         if !recents, !drawer, let g = openGame {
             if g.report?.webKind != nil, let web = WebAppRuntime.runtime(for: g) { web.back(); return }
             switch g.screenEngine {
@@ -141,6 +166,7 @@ final class AndroidShellState: ObservableObject {
 
 struct AndroidShellView: View {
     @ObservedObject private var shell = AndroidShellState.shared
+    @AppStorage(AndroidOS.Navigation.key) private var navigation = AndroidOS.Navigation.buttons
     @ObservedObject private var store = TranslationLayerStore.shared
     @ObservedObject private var host = AndroidHost.shared
     @ObservedObject private var theme = AppTheme.shared
@@ -177,7 +203,16 @@ struct AndroidShellView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                AndroidNavigationButtons(solid: shell.open != nil, overApp: shell.openGame != nil)
+                if navigation == .gestures {
+                    AndroidGestureBar(solid: shell.open != nil, overApp: shell.openGame != nil)
+                } else {
+                    AndroidNavigationButtons(solid: shell.open != nil, overApp: shell.openGame != nil)
+                }
+            }
+
+            // Gesture navigation: back is a swipe in from either edge.
+            if navigation == .gestures, !shell.locked {
+                AndroidEdgeBack()
             }
 
             // Android's status bar over everything but the lock screen, which draws its own.
@@ -492,8 +527,8 @@ private struct AndroidAppContainer: View {
         default:
             Group {
                 switch app {
-                case .settings: SettingsTab()
-                case .playStore: StoreView()
+                case .settings: AndroidSettingsApp()
+                case .playStore: AndroidPlayStore()
                 case .item(let item):
                     NavigationStack {
                         LibraryRouteView(route: item.route)
@@ -501,7 +536,7 @@ private struct AndroidAppContainer: View {
                     }
                 }
             }
-            .background(Theme.bg.ignoresSafeArea(.container, edges: [.top, .horizontal]))
+            .background(Color(uiColor: Material3.surface).ignoresSafeArea(.container, edges: [.top, .horizontal]))
         }
     }
 }
@@ -601,6 +636,99 @@ private struct AndroidNavigationButtons: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(name)
+    }
+}
+
+// MARK: - gesture navigation
+
+/// Gesture navigation's handle: a thin bar along the bottom. Swipe up from it to go home; swipe up and hold to see recent
+/// apps. On the home screen, a swipe up opens the app drawer.
+private struct AndroidGestureBar: View {
+    let solid: Bool
+    var overApp = false
+    @ObservedObject private var shell = AndroidShellState.shared
+    @State private var lift: CGFloat = 0
+
+    var body: some View {
+        ZStack {
+            Capsule()
+                .fill(overApp ? Color.white.opacity(0.85) : solid ? Color(uiColor: Material3.onSurface) : Color(uiColor: Material3.onPrimaryContainer))
+                .frame(width: 108, height: 4)
+                .offset(y: max(-14, lift / 6))
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 22)
+        .background((overApp ? Color.black : solid ? Color(uiColor: Material3.surfaceContainer) : Color.clear).ignoresSafeArea(edges: .bottom))
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 8, coordinateSpace: .global)
+            .onChanged { lift = min(0, $0.translation.height) }
+            .onEnded { v in
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { lift = 0 }
+                let dy = v.translation.height
+                guard dy < -30 else { return }
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                // held: the finger slowed down before letting go, far enough up
+                let held = abs(v.predictedEndTranslation.height - dy) < 50 && dy < -110
+                if held { shell.toggleRecents() }
+                else if shell.open == nil && !shell.drawer && !shell.recents {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { shell.drawer = true }
+                } else { shell.home() }
+            })
+        .accessibilityElement()
+        .accessibilityLabel("Home")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { shell.home() }
+    }
+}
+
+/// Gesture navigation's back: a swipe in from the left or right edge, with Android's arrow growing beside the finger.
+private struct AndroidEdgeBack: View {
+    @ObservedObject private var shell = AndroidShellState.shared
+    @State private var pull: CGFloat = 0
+    @State private var y: CGFloat = 0
+    @State private var fromRight = false
+
+    private let edge: CGFloat = 18
+    private let trigger: CGFloat = 70
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                strip(right: false, geo: geo)
+                strip(right: true, geo: geo).offset(x: geo.size.width - edge)
+                if pull > 4 {
+                    let p = min(pull, 110)
+                    Capsule()
+                        .fill(Color.black.opacity(0.75))
+                        .frame(width: 32 + p * 0.2, height: 64)
+                        .overlay(Image(systemName: "arrow.left")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                            .scaleEffect(pull > trigger ? 1.15 : 0.9))
+                        .offset(x: fromRight ? geo.size.width - p * 0.5 - 16 : p * 0.5 - 32, y: y - 32)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+    }
+
+    private func strip(right: Bool, geo: GeometryProxy) -> some View {
+        Color.clear
+            .frame(width: edge, height: geo.size.height)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 6, coordinateSpace: .local)
+                .onChanged { v in
+                    fromRight = right
+                    y = v.startLocation.y
+                    pull = max(0, right ? -v.translation.width : v.translation.width)
+                }
+                .onEnded { _ in
+                    if pull > trigger {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        shell.back()
+                    }
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { pull = 0 }
+                })
     }
 }
 

@@ -24,6 +24,7 @@
 #include "husk-tl-egl.h"
 #include "husk-tl-internal.h"
 #include "husk-tl-ld.h"
+#include "husk-tl-perm.h"
 
 void tl_nwindow_configure(int w, int h, void *layer);
 void *tl_nwindow_get(void);
@@ -273,6 +274,28 @@ NAT(N_setContentView) { (void)self; (void)ret; A.content = a[0].l; return true; 
 NAT(N_vibrate) { (void)self; (void)a; (void)ret; if (A.cfg.vibrate) A.cfg.vibrate((int)a[0].j); return true; }
 NAT(N_openUrl) { (void)self; (void)ret; const char *u = tl_jni_string(a[0].l); tl_log_line("javaapp: open %s", u ? u : "?"); if (A.cfg.open_url && u) A.cfg.open_url(u); return true; }
 NAT(N_exit) { (void)self; (void)a; (void)ret; tl_log_line("javaapp: the app finished"); atomic_store(&A.ended, true); return true; }
+/* HuskPatch: Android's runtime permissions (husk/Permissions.java). The answer comes back through the input queue, as phase 11,
+ * so the app hears it on its main thread. */
+static void perm_answered(void *ctx, int n, uint32_t granted)
+{
+    (void)n;
+    int id = (int)(intptr_t)ctx;
+    pthread_mutex_lock(&A.q_lock);
+    if (A.qn + 4 <= 4096) { A.q[A.qn++] = 11; A.q[A.qn++] = id; A.q[A.qn++] = (int32_t)granted; A.q[A.qn++] = 0; }
+    pthread_mutex_unlock(&A.q_lock);
+}
+NAT(N_permissionState) { (void)self; jvalue v; v.j = 0; v.i = tl_perm_state(tl_jni_string(a[0].l)); *ret = v; return true; }
+NAT(N_requestPermissions)
+{
+    (void)self; (void)ret;
+    jobj *arr = a[1].l;
+    int n = arr ? (int)arr->oarr.len : 0;
+    if (n > 32) n = 32;
+    const char *perms[32];
+    for (int i = 0; i < n; i++) { const char *s = arr->oarr.v[i] ? tl_jni_string(arr->oarr.v[i]) : NULL; perms[i] = s ? s : ""; }
+    tl_perm_request(perms, n, perm_answered, (void *)(intptr_t)a[0].i);
+    return true;
+}
 NAT(N_uptimeNanos) { (void)self; (void)a; struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); *ret = J((int64_t)t.tv_sec * 1000000000ll + t.tv_nsec); return true; }
 NAT(N_pollInput)
 {
@@ -466,6 +489,8 @@ static const struct { const char *name, *sig; dvm_native_fn fn; } k_native[] = {
     { "vibrate", "(J)V", N_vibrate },
     { "openUrl", "(Ljava/lang/String;)V", N_openUrl },
     { "exit", "()V", N_exit },
+    { "permissionState", "(Ljava/lang/String;)I", N_permissionState },
+    { "requestPermissions", "(I[Ljava/lang/String;)V", N_requestPermissions },
     { "uptimeNanos", "()J", N_uptimeNanos },
     { "readApkFile", "(ILjava/lang/String;)[B", N_readApkFile },
     { "splitPaths", "()[Ljava/lang/String;", N_splitPaths },
@@ -1170,6 +1195,7 @@ void tl_javaapp_set_paused(bool p)
 }
 unsigned long tl_javaapp_frames(void) { return atomic_load(&A.frames); }
 bool tl_javaapp_ended(void) { return atomic_load(&A.ended); }
+void tl_javaapp_finish(void) { atomic_store(&A.ended, true); }
 
 /* HuskPatch: the app's window changed size (a resizable window over Husk). The view system reads the screen's size from
  * A.cfg on every layout, so it relays out at the new size, as an Android window does when it is resized; the frame

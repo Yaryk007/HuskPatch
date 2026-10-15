@@ -342,11 +342,11 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, Ke
     public boolean onNavigateUp() { if (mInfo != null && mInfo.parentActivity != null) { finish(); return true; } return false; }
     public boolean shouldUpRecreateTask(Intent target) { return false; }
     public Intent getParentActivityIntent() { return mInfo != null && mInfo.parentActivity != null ? new Intent().setClassName(getPackageName(), mInfo.parentActivity) : null; }
+    /* HuskPatch: Android's permission dialog, from the host (husk.Permissions); the answer comes as it does on a phone */
     public final void requestPermissions(String[] perms, int request) {
-        final int[] r = new int[perms.length];
-        mHandler.post(() -> onRequestPermissionsResult(request, perms, r));
+        husk.Permissions.request(perms, (p, r) -> mHandler.post(() -> onRequestPermissionsResult(request, p, r)));
     }
-    public boolean shouldShowRequestPermissionRationale(String p) { return false; }
+    public boolean shouldShowRequestPermissionRationale(String p) { return husk.Permissions.rationale(p); }
     public SharedPreferences getPreferences(int mode) { return getSharedPreferences(getLocalClassName(), mode); }
     public void runOnUiThread(Runnable r) { if (Looper.myLooper() == Looper.getMainLooper()) r.run(); else mHandler.post(r); }
     public final Cursor_ managedQueryHusk() { return null; }

@@ -41,5 +41,8 @@ public final class Native {
     public static native void vibrate(long ms);
     public static native void openUrl(String url);
     public static native void exit();
+    /** HuskPatch: Android's runtime permissions (husk.Permissions): what the user chose, and a request answered as input phase 11. */
+    public static native int permissionState(String perm);
+    public static native void requestPermissions(int id, String[] perms);
     public static native long uptimeNanos();
 }

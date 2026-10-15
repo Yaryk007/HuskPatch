@@ -87,6 +87,8 @@ private struct AppWindow: View {
     @State private var barShown = true
     @State private var barHideToken = 0
     @State private var stoppedWhy: AppDiagnosis?
+    /// HuskPatch: it ran in this window, so ending now means the app closed itself.
+    @State private var wasRunning = false
     /// The frame as a drag or a resize began.
     @State private var startFrame: CGRect?
 
@@ -195,10 +197,13 @@ private struct AppWindow: View {
             if n > 600, model.state == Int32(HUSK_UNITY_RUNNING) { GameStatusStore.shared.record(app.id, .plays) }
         }
         .onChange(of: model.state) { st in
+            if st == Int32(HUSK_UNITY_RUNNING) { wasRunning = true }
             if st == Int32(HUSK_UNITY_FAILED) || st == Int32(HUSK_UNITY_ENDED), stoppedWhy == nil, let d = AppDiagnosis.ofCurrentRun() {
                 stoppedWhy = d
                 GameStatusStore.shared.record(app.id, st == Int32(HUSK_UNITY_FAILED) ? .failed : .crashed, diagnosis: d)
             } else if st == Int32(HUSK_UNITY_FAILED) { GameStatusStore.shared.record(app.id, .failed) }
+            // HuskPatch: an app that closed itself (its last screen finished, System.exit...) closes, as on Android
+            else if st == Int32(HUSK_UNITY_ENDED), wasRunning { windows.close() }
         }
         .onReceive(NotificationCenter.default.publisher(for: TLUnityUIView.appClosedItself)) { _ in windows.close() }
         .overlay { if let d = stoppedWhy { AppStoppedOverlay(app: app, diagnosis: d) { windows.close() } } }

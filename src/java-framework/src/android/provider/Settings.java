@@ -2088,7 +2088,7 @@ public final class Settings {
         public static final java.lang.String WINDOW_ORIENTATION_LISTENER_LOG = "window_orientation_listener_log";
         public System() { super(); }
         public static void adjustConfigurationForUser(android.content.ContentResolver p0, android.content.res.Configuration p1, int p2, boolean p3) {}
-        public static boolean canWrite(android.content.Context p0) { return false; }
+        public static boolean canWrite(android.content.Context p0) { return husk.Permissions.special("android.permission.WRITE_SETTINGS", false); }
         public static void clearConfiguration(android.content.res.Configuration p0) {}
         public static void clearProviderForTest() {}
         public static void getCloneFromParentOnValueSettings(java.util.Map p0) {}
@@ -2176,5 +2176,5 @@ public final class Settings {
         sValues.put(table + "/" + name, value);
         return true;
     }
-    public static boolean canDrawOverlays(android.content.Context context) { return false; }
+    public static boolean canDrawOverlays(android.content.Context context) { return husk.Permissions.special("android.permission.SYSTEM_ALERT_WINDOW", false); }
 }

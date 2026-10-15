@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 #define _DARWIN_C_SOURCE
+#include "husk-tl-perm.h"
 #include "husk-tl-unity-app.h"
 #include "husk-console-host.h"
 
@@ -150,12 +151,29 @@ static void install_crash_reporter(void)
 
 /* ------------------------------------------------------------------- launch */
 
+/* HuskPatch: an app that has ended is paused where it is -- its sound and its other threads stop -- from a thread of its own,
+ * since the thread that ended it may be one the pause waits on. */
+static void pause_engine(bool paused);
+static void *pause_ended(void *arg) { (void)arg; pause_engine(true); return NULL; }
+static void stop_ended(void)
+{
+    pthread_t t;
+    if (pthread_create(&t, NULL, pause_ended, NULL) == 0) pthread_detach(t);
+}
+
 /* exit() from the game ends the game, and the thread that asked. */
 static void guest_exit(int status)
 {
     tl_log_line("native: the game exited (%d)", status);
-    atomic_store(&A.state, HUSK_UNITY_ENDED);
+    if (atomic_exchange(&A.state, HUSK_UNITY_ENDED) == HUSK_UNITY_RUNNING) stop_ended();
     pthread_exit(NULL);
+}
+
+/* HuskPatch: the app closed itself without exiting (Activity.finish, moveTaskToBack...): the screen closes and the app stops. */
+static void app_end(const char *why)
+{
+    (void)why;
+    if (atomic_exchange(&A.state, HUSK_UNITY_ENDED) == HUSK_UNITY_RUNNING) stop_ended();
 }
 
 /* Says every few seconds that the engine is alive, and how much memory the phone says is left: a silent death
@@ -281,6 +299,7 @@ static void *launch_thread(void *arg)
     (void)arg;
     pthread_setname_np("husk-native-start");
     tl_guest_exit_hook = guest_exit;
+    tl_app_end_hook = app_end;
     {
         char path[1100];
         snprintf(path, sizeof(path), "%s/%s", A.data, A.engine == ENGINE_UNITY ? "unity-run.log" : "native-run.log");
@@ -568,6 +587,8 @@ void husk_sdl_set_safe_insets(int left, int top, int right, int bottom) { tl_sdl
 int husk_sdl_apk_is_portrait(const char *apk) { return tl_sdl_manifest_portrait(apk) ? 1 : 0; }
 int husk_apk_orientation(const char *apk) { return tl_manifest_orientation(apk); }
 int husk_apk_is_game(const char *apk) { return tl_manifest_is_game(apk) ? 1 : 0; }
+int tl_manifest_permissions(const char *apk, char *out, size_t cap);
+int husk_apk_permissions(const char *apk, char *out, unsigned long cap) { return tl_manifest_permissions(apk, out, cap); }
 bool tl_manifest_split_required(const char *apk);
 int husk_apk_split_required(const char *apk) { return tl_manifest_split_required(apk) ? 1 : 0; }
 void husk_sdl_set_keyboard_handler(void (*handler)(int action)) { tl_sdl_set_keyboard_handler(handler); }
@@ -655,6 +676,10 @@ void husk_unity_touch(int phase, int id, float x, float y)
 void husk_unity_set_paused(bool paused)
 {
     if (atomic_load(&A.state) != HUSK_UNITY_RUNNING) return;
+    pause_engine(paused);
+}
+static void pause_engine(bool paused)
+{
     if (A.engine == ENGINE_JAVA) { tl_javaapp_set_paused(paused); tl_audio_set_paused(paused); }
     else if (A.engine == ENGINE_GAMEMAKER) { tl_gm_set_paused(paused); tl_audio_set_paused(paused); }
     else if (A.engine == ENGINE_FLUTTER) { tl_flutter_set_paused(paused); tl_audio_set_paused(paused); }

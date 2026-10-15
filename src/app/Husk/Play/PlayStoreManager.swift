@@ -18,6 +18,10 @@ final class PlayStoreManager: ObservableObject {
     @Published var featuredApps: [PlayAPI.PlayApp] = []
     @Published var searchResults: [PlayAPI.PlayApp] = []
     @Published var isSearching = false
+    /// HuskPatch: the Play Store app's Games and Apps tabs.
+    @Published var games: [PlayAPI.PlayApp] = []
+    @Published var apps: [PlayAPI.PlayApp] = []
+    @Published var sectionsLoading = false
 
     // Download progress: [packageName: fractional progress 0.0 ... 1.0]
     @Published var downloadProgress: [String: Double] = [:]
@@ -164,6 +168,19 @@ final class PlayStoreManager: ObservableObject {
             self.isLoading = false
             HuskLog.log("store", "Failed to browse apps: \(error.localizedDescription)")
         }
+    }
+
+    /// HuskPatch: the Games and Apps tabs, once per session (pull to refresh loads them again).
+    func loadSections(force: Bool = false) async {
+        guard let s = session, !s.bearer.isEmpty, !sectionsLoading else { return }
+        if !force, !games.isEmpty, !apps.isEmpty { return }
+        sectionsLoading = true
+        async let g = PlayAPI.details(of: PlayAPI.featuredGames, session: s)
+        async let a = PlayAPI.details(of: PlayAPI.featuredAppList, session: s)
+        let (gs, as_) = await (g, a)
+        if !gs.isEmpty { games = gs }
+        if !as_.isEmpty { apps = as_ }
+        sectionsLoading = false
     }
 
     func search(query: String) async {

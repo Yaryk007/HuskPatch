@@ -691,6 +691,8 @@ struct TLCocosAttemptView: View {
     @StateObject private var model = TLUnityModel()
     /// Why the app stopped, when its log says: shown over the screen
     @State private var stoppedWhy: AppDiagnosis?
+    /// HuskPatch: it ran on this screen, so ending now means the app closed itself.
+    @State private var wasRunning = false
     @AppStorage("husk.tl.unity.showLog") private var showLogSetting = false
     @AppStorage(TranslationLayer.devInfoKey) private var devInfo = false
     @AppStorage(Material3.key) private var material3 = false
@@ -827,10 +829,13 @@ struct TLCocosAttemptView: View {
             if f > 600, model.state == Int32(HUSK_UNITY_RUNNING) { GameStatusStore.shared.record(app.id, .plays) }
         }
         .onChange(of: model.state) { st in
+            if st == Int32(HUSK_UNITY_RUNNING) { wasRunning = true }
             if st == Int32(HUSK_UNITY_FAILED) || st == Int32(HUSK_UNITY_ENDED), stoppedWhy == nil, let d = AppDiagnosis.ofCurrentRun() {
                 stoppedWhy = d
                 GameStatusStore.shared.record(app.id, st == Int32(HUSK_UNITY_FAILED) ? .failed : .crashed, diagnosis: d)
             } else if st == Int32(HUSK_UNITY_FAILED) { GameStatusStore.shared.record(app.id, .failed) }
+            // HuskPatch: an app that closed itself (its last screen finished, System.exit...) closes, as on Android
+            else if st == Int32(HUSK_UNITY_ENDED), wasRunning { close() }
         }
         .onDisappear {
             CrashReport.gameEnded()

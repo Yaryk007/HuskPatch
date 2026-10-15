@@ -204,6 +204,7 @@ typedef struct ev {
     struct ev *next;
     int64_t when;
     jobj *handler, *msg, *run, *frame;
+    void (*fn)(void *); void *arg;      /* HuskPatch: a C callback from the runtime (tl_loop_post_main_fn) */
 } ev;
 
 typedef struct looper {
@@ -332,6 +333,7 @@ static void run_runnable(jobj *run)
 
 static void dispatch(ev *e)
 {
+    if (e->fn) { e->fn(e->arg); return; }
     if (e->frame) {
         jobj *t = box_long(e->when);
         jobj *r = proxy_call(e->frame, "android/view/Choreographer$FrameCallback", "doFrame", "(J)V", &t, 1);
@@ -712,6 +714,16 @@ static const tl_jhle k_loop_hle[] = {
 };
 
 jobj *tl_loop_main_looper(void) { return main_looper()->mirror; }
+
+/* HuskPatch: run `fn` on the app's main looper, where its Java callbacks (and Unity's C# proxies) expect to be called. */
+void tl_loop_post_main_fn(void (*fn)(void *), void *arg)
+{
+    ev *e = calloc(1, sizeof(*e));
+    if (!e) return;
+    e->when = now_ns();
+    e->fn = fn; e->arg = arg;
+    enqueue(main_looper(), e);
+}
 
 void tl_loop_install(void)
 {

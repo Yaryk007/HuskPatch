@@ -91,7 +91,7 @@ public final class ContextImpl extends Context {
     @Override public boolean stopService(Intent s) { return Services.stop(s); }
     @Override public boolean bindService(Intent s, ServiceConnection c, int flags) { return Services.bind(this, s, c); }
     @Override public void unbindService(ServiceConnection c) { Services.unbind(c); }
-    @Override public int checkPermission(String p, int pid, int uid) { return PackageManager.PERMISSION_GRANTED; }
+    @Override public int checkPermission(String p, int pid, int uid) { return Permissions.check(p); }
     @Override public Context createPackageContext(String pkg, int flags) throws PackageManager.NameNotFoundException {
         if (pkg.equals(getPackageName()) || "android".equals(pkg)) return this;
         throw new PackageManager.NameNotFoundException(pkg);

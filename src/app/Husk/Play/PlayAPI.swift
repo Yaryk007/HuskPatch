@@ -421,6 +421,29 @@ enum PlayAPI {
         "org.libretro.retroarch"
     ]
 
+    /// HuskPatch: the Play Store app's Games and Apps tabs. Games the translation layer runs well first.
+    static let featuredGames: [String] = [
+        "com.kiloo.subwaysurf", "com.robtopx.geometryjumplite", "com.mojang.minecraftpe", "com.supercell.clashofclans",
+        "com.imangi.templerun2", "com.halfbrick.fruitninjafree", "com.ea.game.pvzfree_row", "com.fingersoft.hillclimb",
+        "com.vectorunit.cobalt.googleplay", "com.supercell.brawlstars", "com.king.candycrushsaga", "com.outfit7.mytalkingtomfree",
+        "com.innersloth.spacemafia", "com.miniclip.eightballpool", "com.ketchapp.stack", "com.nekki.shadowfight",
+    ]
+    static let featuredAppList: [String] = [
+        "org.videolan.vlc", "org.libretro.retroarch", "org.mozilla.firefox", "com.spotify.music", "com.duolingo",
+        "org.telegram.messenger", "com.discord", "com.microsoft.office.outlook", "com.google.android.apps.translate",
+        "org.wikipedia", "com.shazam.android", "com.reddit.frontpage",
+    ]
+
+    /// Several apps' details at once, in the order asked; the ones Play does not answer for are left out.
+    static func details(of packages: [String], session: PlaySession) async -> [PlayApp] {
+        var found: [String: PlayApp] = [:]
+        await withTaskGroup(of: PlayApp?.self) { group in
+            for pkg in packages { group.addTask { try? await details(packageName: pkg, session: session) } }
+            for await app in group { if let app { found[app.id] = app } }
+        }
+        return packages.compactMap { found[$0] }
+    }
+
     /// Browse top / featured apps
     static func browse(session: PlaySession) async throws -> [PlayApp] {
         // Fetch details concurrently for the featured apps

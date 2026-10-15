@@ -162,6 +162,22 @@ void husk_unity_set_paused(bool paused);
 /* The app's package name from its manifest into `out`; false if it cannot be read. */
 bool husk_unity_package_name(const char *apk, char *out, unsigned long out_len);
 
+/*
+ * HuskPatch: Android's runtime permissions (husk-tl-perm.c). The host answers both calls; until it registers, every permission
+ * is granted, as before.
+ *
+ * `check` is asked from any thread and must not block: HUSK_PERM_GRANTED, HUSK_PERM_DENIED (asked before: Android's
+ * shouldShowRequestPermissionRationale), HUSK_PERM_DENIED_FOREVER, or HUSK_PERM_UNSET (never asked). `request` shows
+ * the host's dialogs for the permissions in `perms` (Android names, one per line) and answers later, on any thread, with
+ * husk_perm_result: bit i of `granted` set when perms[i] was granted. A special permission (SYSTEM_ALERT_WINDOW and the
+ * like: Settings' "special app access") comes through `request` too, alone, when the app opens its Settings page.
+ */
+enum { HUSK_PERM_GRANTED = 0, HUSK_PERM_DENIED = 1, HUSK_PERM_DENIED_FOREVER = 2, HUSK_PERM_UNSET = 3 };
+void husk_perm_set_host(int (*check)(const char *perm), void (*request)(int id, const char *perms));
+void husk_perm_result(int id, unsigned granted);
+/* The permissions an APK's manifest asks for, one per line into `out`; returns how many. */
+int husk_apk_permissions(const char *apk, char *out, unsigned long cap);
+
 #ifdef __cplusplus
 }
 #endif
