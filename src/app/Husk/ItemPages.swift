@@ -100,8 +100,13 @@ struct GamePage: View {
     @State private var savesMessage: String?
     @State private var confirmRestore: URL?
     @State private var confirmQuit = false
+    @State private var reporting: CompatSubject?
 
     private var runs: Bool { app.report?.canRun == true }
+
+    private var compatSubject: CompatSubject? {
+        app.packageName.map { CompatSubject(package: $0, name: app.label, isGame: LibraryItem.game(app).isGame, iconPath: app.iconPath) }
+    }
 
     /// Another game already loaded in this run of Husk: engines cannot be unloaded, so this one cannot start until Husk is
     /// closed and opened again.
@@ -151,6 +156,10 @@ struct GamePage: View {
                 }
             }
 
+            if let compatSubject, !isGeodeLauncher {
+                CompatibilitySection(subject: compatSubject, reporting: $reporting)
+            }
+
             if !ShowcaseStore.shared.pictures(for: app.packageName).isEmpty {
                 Section("Screenshots") {
                     ShowcaseGallery(package: app.packageName)
@@ -159,10 +168,10 @@ struct GamePage: View {
             }
 
             Section {
-                NavigationLink(value: LibraryRoute.gameSettings(app.id)) {
+                HuskLink(value: LibraryRoute.gameSettings(app.id)) {
                     Label("Game Settings", systemImage: "slider.horizontal.3")
                 }
-                NavigationLink(value: LibraryRoute.gameReport(app.id)) {
+                HuskLink(value: LibraryRoute.gameReport(app.id)) {
                     Label("Technical Details", systemImage: "cpu")
                 }
             }
@@ -202,7 +211,8 @@ struct GamePage: View {
         .listStyle(.insetGrouped)
         .navigationTitle(app.label)
         .navigationBarTitleDisplayMode(.inline)
-        .fullScreenCover(isPresented: $playing) { TLAttemptView(app: app) }
+        .fullScreenCover(isPresented: $playing, onDismiss: askHowItRan) { TLAttemptView(app: app) }
+        .sheet(item: $reporting) { CompatReportSheet(subject: $0) }
         .sheet(item: Binding(get: { backupFile.map(IdentifiedURL.init) }, set: { backupFile = $0?.url })) { f in
             ShareSheet(items: [f.url])
         }
@@ -252,6 +262,14 @@ struct GamePage: View {
             return
         }
         start()
+    }
+
+    /// After a session that got going: how did it run? Once per game per build, and only when it played (a crash has its own sheet).
+    private func askHowItRan() {
+        guard var subject = compatSubject, CompatibilityStore.shared.shouldAsk(subject.package),
+              GameStatusStore.shared.status(app.id)?.result == .plays else { return }
+        subject.afterPlaying = true
+        Task { try? await Task.sleep(nanoseconds: 500_000_000); reporting = subject }
     }
 
     /// Full screen, or in a window over Husk when Multitasking says so for this app.
@@ -522,7 +540,7 @@ struct AndroidAppPage: View {
                 router.startAndroid()
             }
         } else {
-            NavigationLink(value: LibraryRoute.androidSystem) {
+            HuskLink(value: LibraryRoute.androidSystem) {
                 Label("Get Android First", systemImage: "arrow.down.circle")
                     .font(.system(.headline, design: .rounded))
                     .frame(maxWidth: .infinity).frame(height: 50)

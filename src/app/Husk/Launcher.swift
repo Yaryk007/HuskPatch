@@ -165,7 +165,7 @@ struct HomeView: View {
                         }
                         Text("HuskPatch")
                             .font(.system(size: 28, weight: .heavy, design: .rounded))
-                        if holiday { ChristmasTree(size: 30).padding(.leading, 2) }
+                        if holiday && Holiday.inSeason { ChristmasTree(size: 30).padding(.leading, 2) }
                         Spacer()
                         HeaderButton(systemImage: "plus") { router.addSomething() }
                             .accessibilityLabel("Add a Game or App")
@@ -185,7 +185,6 @@ struct HomeView: View {
                             JITTile()
                             DownloadsTile()
                         }
-                        AndroidTile()
                     }
                     if let error = jit.error, !Launcher.jitOn {
                         Text(error).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
@@ -199,9 +198,10 @@ struct HomeView: View {
                             .padding(.top, 6)
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
                             ForEach(rest.prefix(UIDevice.current.userInterfaceIdiom == .pad ? 16 : 8)) { item in
-                                NavigationLink(value: item.route) { LibrarySquare(item: item) }
+                                HuskLink(value: item.route) { LibrarySquare(item: item) }
                                     .buttonStyle(CardButtonStyle())
                                     .accessibilityLabel(item.title)
+                                    .libraryItemMenu(item) { router.home.append($0) }
                             }
                         }
                     }
@@ -211,9 +211,9 @@ struct HomeView: View {
                 .padding(.bottom, 32)
                 .id(jit.attachGeneration)
             }
-            .scrollIndicators(.hidden)
+            .huskHideScrollIndicators()
             .background(Color(uiColor: .systemBackground).ignoresSafeArea())
-            .toolbar(.hidden, for: .navigationBar)
+            .huskNavigationBar(hidden: true)
             .libraryDestinations()
         }
     }
@@ -254,7 +254,7 @@ private struct LeadTile: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            NavigationLink(value: item.route) {
+            HuskLink(value: item.route) {
                 ItemBackdrop(item: item)
                     .frame(height: 150)
                     .frame(maxWidth: .infinity)
@@ -262,7 +262,7 @@ private struct LeadTile: View {
             }
             .buttonStyle(.plain)
             HStack(spacing: 12) {
-                NavigationLink(value: item.route) {
+                HuskLink(value: item.route) {
                     HStack(spacing: 12) {
                         ItemIcon(item: item, size: 40)
                         VStack(alignment: .leading, spacing: 2) {
@@ -386,7 +386,7 @@ private struct AndroidTile: View {
     var body: some View {
         Tile(padding: 14) {
             HStack(spacing: 12) {
-                NavigationLink(value: LibraryItem.android.route) {
+                HuskLink(value: LibraryItem.android.route) {
                     HStack(spacing: 12) {
                         TileGlyph(systemImage: "apps.iphone", color: AndroidMark.green, size: 40)
                         VStack(alignment: .leading, spacing: 2) {
@@ -548,7 +548,7 @@ struct AndroidMark: View {
             .font(.system(size: size * 0.46, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
-            .background(Self.green.gradient, in: RoundedRectangle(cornerRadius: size * 0.225, style: .continuous))
+            .background(Self.green.huskGradient, in: RoundedRectangle(cornerRadius: size * 0.225, style: .continuous))
     }
 }
 
@@ -600,7 +600,8 @@ struct LibraryScreen: View {
                         .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
                     let games = items.filter(\.isGame)
                     // Android, as an app of its own: pinned first, and found by search like anything else.
-                    let apps = (matches(query, "Android") ? [LibraryItem.android] : []) + items.filter { !$0.isGame }
+                    // Android itself is in Settings now (experimental); the apps installed in it still show here
+                    let apps = items.filter { !$0.isGame }
 
                     if router.libraryFilter != .apps {
                         section("Games", games, empty: query.isEmpty ? "Add a game with the + button." : nil)
@@ -614,10 +615,10 @@ struct LibraryScreen: View {
                 .padding(.top, 8)
                 .padding(.bottom, 32)
             }
-            .scrollIndicators(.hidden)
-            .scrollDismissesKeyboard(.immediately)
+            .huskHideScrollIndicators()
+            .huskDismissKeyboardOnScroll()
             .background(Color(uiColor: .systemBackground).ignoresSafeArea())
-            .toolbar(.hidden, for: .navigationBar)
+            .huskNavigationBar(hidden: true)
             .libraryDestinations()
         }
     }
@@ -638,10 +639,11 @@ struct LibraryScreen: View {
                                                  count: UIDevice.current.userInterfaceIdiom == .pad ? 8 : 4),
                                   spacing: 18) {
                             ForEach(items) { item in
-                                NavigationLink(value: item.route) {
+                                HuskLink(value: item.route) {
                                     LauncherTile(title: item.title, iconPath: item.iconPath, item: item, caption: caption(item), size: 60)
                                 }
                                 .buttonStyle(CardButtonStyle())
+                                .libraryItemMenu(item) { router.library.append($0) }
                             }
                         }
                     }
@@ -707,6 +709,58 @@ struct LauncherTile: View {
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
+    }
+}
+
+/// Long-press on a library tile: play or open it, its settings, and removing it -- what iOS puts on a home screen icon.
+private struct LibraryItemMenu: ViewModifier {
+    let item: LibraryItem
+    let push: (LibraryRoute) -> Void
+    @State private var confirmRemove = false
+
+    func body(content: Content) -> some View {
+        content
+            .contextMenu {
+                Button {
+                    if case .game(let g) = item { Router.shared.autoPlay = g.id }
+                    push(item.route)
+                } label: {
+                    Label(item.isGame ? "Play" : "Open", systemImage: item.isGame ? "play.fill" : "arrow.up.forward.app")
+                }
+                if case .game(let g) = item {
+                    Button { push(.gameSettings(g.id)) } label: { Label("Settings", systemImage: "slider.horizontal.3") }
+                    Divider()
+                    Button(role: .destructive) { confirmRemove = true } label: { Label("Remove", systemImage: "trash") }
+                } else if case .app(let p) = item, AndroidHost.shared.isReady {
+                    Divider()
+                    Button(role: .destructive) { confirmRemove = true } label: { Label("Uninstall", systemImage: "trash") }
+                        .accessibilityHint("Removes \(p.label) from Android")
+                }
+            }
+            .confirmationDialog(removeTitle, isPresented: $confirmRemove, titleVisibility: .visible) {
+                Button(removeVerb, role: .destructive) {
+                    switch item {
+                    case .game(let g): TranslationLayerStore.shared.remove(g)
+                    case .app(let p): AndroidHost.shared.uninstall(p.name)
+                    default: break
+                    }
+                }
+            } message: {
+                Text(removeMessage)
+            }
+    }
+
+    private var removeVerb: String { if case .app = item { return "Uninstall" }; return "Remove" }
+    private var removeTitle: String { "\(removeVerb) \(item.title)?" }
+    private var removeMessage: String {
+        if case .app = item { return "It is uninstalled from Android, with its data." }
+        return "Its files and saved progress are deleted from Husk."
+    }
+}
+
+extension View {
+    func libraryItemMenu(_ item: LibraryItem, push: @escaping (LibraryRoute) -> Void) -> some View {
+        modifier(LibraryItemMenu(item: item, push: push))
     }
 }
 
@@ -803,8 +857,8 @@ func matches(_ query: String, _ names: String...) -> Bool {
 extension View {
     /// The pages an item opens, for whichever stack shows it.
     func libraryDestinations() -> some View {
-        navigationDestination(for: LibraryRoute.self) { route in
-            LibraryRouteView(route: route).toolbar(.visible, for: .navigationBar)
+        huskDestination(for: LibraryRoute.self) { route in
+            LibraryRouteView(route: route).huskNavigationBar(hidden: false)
         }
     }
 }

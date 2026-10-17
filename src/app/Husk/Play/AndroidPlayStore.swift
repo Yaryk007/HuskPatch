@@ -15,7 +15,7 @@ struct AndroidPlayStore: View {
     @State private var query = ""
 
     var body: some View {
-        NavigationStack(path: $shell.storePath) {
+        SwiftUI.NavigationStack(path: $shell.storePath) {
             Group {
                 if !manager.isSignedIn {
                     PlaySignInPage(showSignIn: $showSignIn)

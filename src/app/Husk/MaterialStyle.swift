@@ -262,7 +262,6 @@ struct Material3NavigationBar: View {
         (.home, "Home", "house"),
         (.library, "Library", "square.grid.2x2"),
         (.store, "Store", "cart"),
-        (.help, "FAQ", "questionmark.circle"),
         (.settings, "Settings", "gearshape"),
     ]
 
@@ -312,16 +311,15 @@ struct Material3NavigationBar: View {
 
 /// The tabs without UIKit's tab bar, for the Android 16 style: every tab stays built (each keeps where it was, as it
 /// does in a TabView) and only the chosen one is shown, above Material3NavigationBar.
-struct Material3Tabs<Home: View, Library: View, Store: View, Help: View, Settings: View>: View {
+struct Material3Tabs<Home: View, Library: View, Store: View, Settings: View>: View {
     @Binding var selection: HuskTab
-    let home: Home, library: Library, store: Store, help: Help, settings: Settings
+    let home: Home, library: Library, store: Store, settings: Settings
 
     var body: some View {
         ZStack {
             page(.home, home)
             page(.library, library)
             page(.store, store)
-            page(.help, help)
             page(.settings, settings)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {

@@ -41,7 +41,7 @@ struct PS4Game: Identifiable, Hashable {
     static let shared = PS4Store()
 
     /// Visible in Files as "PS4 Games": drop an extracted game folder in.
-    static var root: URL {
+    nonisolated static var root: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("PS4 Games", isDirectory: true)
     }
     /// The PS4 layer's own data, shared by every game: its settings, saves, system modules and shader cache.
@@ -88,6 +88,21 @@ struct PS4Game: Identifiable, Hashable {
     }
 
     func game(_ titleID: String) -> PS4Game? { games.first { $0.titleID == titleID } }
+
+    /// The folder in PS4 Games holding the game with this title ID, looked up on disk (any thread).
+    nonisolated static func folder(of titleID: String) -> URL? {
+        let fm = FileManager.default
+        func list(_ dir: URL) -> [URL] {
+            (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+        }
+        for top in list(root) {
+            for folder in [top] + list(top) where !folder.lastPathComponent.uppercased().hasSuffix("-UPDATE") {
+                guard fm.fileExists(atPath: folder.appendingPathComponent("eboot.bin").path) else { continue }
+                if ParamSfo.parse(from: folder.appendingPathComponent("sce_sys/param.sfo"))?.titleID == titleID { return folder }
+            }
+        }
+        return nil
+    }
 }
 
 /// A PS4 param.sfo (PSF): the title, its ID and version.
@@ -95,6 +110,8 @@ struct ParamSfo {
     var title: String?
     var titleID: String?
     var appVersion: String?
+    /// "gd" for a game, "gp" for an update.
+    var category: String?
 
     static func parse(from url: URL) -> ParamSfo? {
         guard let data = try? Data(contentsOf: url), data.count >= 0x14 else { return nil }
@@ -116,6 +133,7 @@ struct ParamSfo {
             case "TITLE": sfo.title = value
             case "TITLE_ID": sfo.titleID = value
             case "APP_VER": sfo.appVersion = value
+            case "CATEGORY": sfo.category = value
             default: break
             }
         }

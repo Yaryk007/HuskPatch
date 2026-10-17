@@ -382,8 +382,12 @@ final class TranslationLayerStore: ObservableObject {
                     continue
                 }
                 var name = url.lastPathComponent
-                if !name.lowercased().hasSuffix(".apk") { name += ".apk" }
-                let dest = dir.appendingPathComponent(name)
+                // An expansion file (main.<version>.<package>.obb) goes to obb/ under its own name: the runtime finds it there
+                // when the game asks for Android/obb/<package>/<name>
+                let isOBB = name.lowercased().hasSuffix(".obb")
+                if !isOBB && !name.lowercased().hasSuffix(".apk") { name += ".apk" }
+                if isOBB { try fm.createDirectory(at: dir.appendingPathComponent("obb"), withIntermediateDirectories: true) }
+                let dest = isOBB ? dir.appendingPathComponent("obb").appendingPathComponent(name) : dir.appendingPathComponent(name)
                 if move {
                     try fm.moveItem(at: url, to: dest)
                 } else {
@@ -836,8 +840,8 @@ struct TLClassicAttemptView: View {
             }
         }
         .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
-        .defersSystemGestures(on: .all)
+        .huskHideSystemOverlays()
+        .huskDefersSystemGestures(on: .all)
         .onAppear {
             HuskOrientation.set(portrait ? .portrait : .landscape)
             UIApplication.shared.isIdleTimerDisabled = settings.keepAwake

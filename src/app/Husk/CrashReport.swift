@@ -67,16 +67,18 @@ final class CrashReport: ObservableObject {
     /// A game is starting: if Husk ends before `gameEnded`, the next launch will say so.
     ///
     /// Not while Husk is in the background, though: iOS ends background apps when it wants the memory, without a word,
-    /// and that is not the game's doing. The note goes when Husk leaves the screen and comes back with it.
+    /// and that is not the game's doing. Nor while it is only inactive: swiping it away from the app switcher ends it with
+    /// no background notice at all (it is merely inactive while the switcher is up), which read as a crash every time
+    /// (a Geometry Dash session closed that way). The note goes when Husk stops being active and comes back with it.
     static func gameStarted(_ app: TLApp) {
         running = app
         writeMarker()
         if observers.isEmpty {
             let nc = NotificationCenter.default
-            observers.append(nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+            observers.append(nc.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
                 try? FileManager.default.removeItem(at: marker)
             })
-            observers.append(nc.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
+            observers.append(nc.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
                 writeMarker()
             })
         }
@@ -165,6 +167,14 @@ struct CrashReportSheet: View {
     let report: CrashReport.Report
     @Environment(\.dismiss) private var dismiss
     @State private var file: URL?
+    @State private var reporting: CompatSubject?
+
+    /// The game, for a report to the compatibility list.
+    private var subject: CompatSubject? {
+        guard let app = TranslationLayerStore.shared.apps.first(where: { $0.id == report.appID }), let pkg = app.packageName else { return nil }
+        return CompatSubject(package: pkg, name: app.label, isGame: LibraryItem.game(app).isGame, iconPath: app.iconPath,
+                             crash: "\(report.cause.title). \(report.cause.detail)")
+    }
 
     var body: some View {
         NavigationStack {
@@ -193,11 +203,18 @@ struct CrashReportSheet: View {
                     }
 
                     if let file {
-                        ShareLink(item: file) {
+                        HuskShareLink(item: file) {
                             Label("Share Report", systemImage: "square.and.arrow.up")
                                 .frame(maxWidth: .infinity).padding(.vertical, 6)
                         }
                         .buttonStyle(.borderedProminent)
+                    }
+                    if let subject {
+                        Button { reporting = subject } label: {
+                            Label("Report to the Compatibility List", systemImage: "list.bullet.clipboard")
+                                .frame(maxWidth: .infinity).padding(.vertical, 6)
+                        }
+                        .buttonStyle(.bordered)
                     }
                     Text("The report holds the full log of that run and which device and build it was on. Nothing is sent anywhere unless you share it.")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -209,5 +226,6 @@ struct CrashReportSheet: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
         .task { file = CrashReport.writeReport(report) }
+        .sheet(item: $reporting) { CompatReportSheet(subject: $0) }
     }
 }

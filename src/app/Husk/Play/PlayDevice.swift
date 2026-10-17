@@ -37,7 +37,12 @@ enum PlayDevice {
         let id = Locale.current.identifier.replacingOccurrences(of: "-", with: "_")
         return id.contains("_") ? id : "en_US"
     }
-    static var country: String { (Locale.current.region?.identifier ?? "US").lowercased() }
+    /// The two-letter region, from the API each OS version has (this file also builds into tools/playdl on the Mac).
+    static var regionCode: String? {
+        if #available(iOS 16, macOS 13, *) { return Locale.current.region?.identifier }
+        return Locale.current.regionCode
+    }
+    static var country: String { (PlayDevice.regionCode ?? "US").lowercased() }
 
     static let sharedLibraries = [
         "android.ext.shared", "android.hidl.base-V1.0-java", "android.hidl.manager-V1.0-java", "android.net.ipsec.ike",

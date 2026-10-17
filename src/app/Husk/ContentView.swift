@@ -14,6 +14,8 @@ struct ContentView: View {
     @ObservedObject private var host = AndroidHost.shared
 
     @State private var started = false
+    /// Asking before full Android starts: it is the experimental part of Husk
+    @State private var confirmAndroid = false
     @State private var showLogs = false
     /// True while the guest's own screen is being shown instead of the library.
     /// Starts false: the tab UI is the home screen, and the guest -- including
@@ -59,7 +61,7 @@ struct ContentView: View {
                     // (Liquid Glass on iOS 26), which cannot be restyled into one.
                     Material3Tabs(selection: $router.tab,
                                   home: HomeView(), library: LibraryScreen(), store: StoreView(),
-                                  help: FAQTab(), settings: SettingsTab())
+                                  settings: SettingsTab())
                 } else {
                     TabView(selection: $router.tab) {
                         HomeView()
@@ -74,10 +76,6 @@ struct ContentView: View {
                             .tabItem { Label("Store", systemImage: "cart.fill") }
                             .tag(HuskTab.store)
 
-                        FAQTab()
-                            .tabItem { Label("FAQ", systemImage: "questionmark.circle.fill") }
-                            .tag(HuskTab.help)
-
                         SettingsTab()
                             .tabItem { Label("Settings", systemImage: "gearshape.fill") }
                             .tag(HuskTab.settings)
@@ -87,7 +85,7 @@ struct ContentView: View {
             .opacity(showGuestScreen && started && runner.isRunning ? 0 : 1)
 
             // Christmas: snow over the tabs (never over Android or an app's window, which come after it)
-            if holiday && !(showGuestScreen && started && runner.isRunning) {
+            if holiday && Holiday.inSeason && !(showGuestScreen && started && runner.isRunning) {
                 Snowfall().ignoresSafeArea()
             }
 
@@ -153,6 +151,13 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showLogs) { LogView() }
+        .alert("Start Android?", isPresented: $confirmAndroid) {
+            Button("Start") { startFromLibrary() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Full Android emulation is experimental. It is slow, takes minutes to start, and can freeze or crash Husk. "
+               + "Games and apps run much better in the Translation Layer.")
+        }
         // A game that ended Husk last time: say so, with its report.
         .sheet(item: Binding(get: { showOnboarding ? nil : crash.pending }, set: { crash.pending = $0 }),
                onDismiss: { if WhatsNew.due { showWhatsNew = true } }) { r in
@@ -175,6 +180,7 @@ struct ContentView: View {
             Text("You have \(AppUpdates.current). The new version's IPA is on its release page.")
         }
         .task { await updates.check() }
+        .task { await CompatibilityStore.shared.refresh() }
         .sheet(isPresented: $router.showFiles) { FilesTab() }
         .sheet(isPresented: $router.showDownloads) { DownloadsTab() }
         // Pictures for the apps here: read the index on launch and whenever the set of apps changes.
@@ -191,8 +197,7 @@ struct ContentView: View {
         .sheet(isPresented: Binding(get: { !incoming.waiting.isEmpty },
                                     set: { if !$0 { incoming.discard() } })) {
             IncomingChooser()
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
+                .huskDetents([.medium], dragIndicator: true)
         }
         // APKs meant for Android wait until it can take them.
         .onChange(of: host.isReady) { ready in
@@ -226,7 +231,7 @@ struct ContentView: View {
             if crash.pending == nil, !massTest.active { router.resumeSwitch() }
             if crash.pending == nil, WhatsNew.due { showWhatsNew = true }
             router.openGuest = { showGuestScreen = true }
-            router.startAndroid = { startFromLibrary() }
+            router.startAndroid = { confirmAndroid = true }
             evaluate()
         }
         // The two-parameter onChange is iOS 17; this single-parameter form is
@@ -249,6 +254,7 @@ struct ContentView: View {
         jit.enableAtLaunchIfAsked()
         try? guest.prepareFirmware()
         guest.refresh()
+        if AutoStart.readyAtLaunch == nil { AutoStart.readyAtLaunch = guest.state == .ready }
         HuskBridgeFS.shared.prepare()
 
         // What is installed is compared against the release by digest, not by
@@ -275,11 +281,26 @@ struct ContentView: View {
         // app. But the setup flow now asks the question outright, and someone
         // who answered yes has made the decision -- continuing to ignore it
         // just means every launch begins by pressing Start.
+        //
+        // Only when Android was already installed as Husk opened (#75, #128): evaluate() runs on every return to the foreground,
+        // so an image that finished downloading in this run would otherwise start the moment Husk came back -- with a debugger
+        // that iOS may have suspended hours into the download, whose unanswered trap ends Husk. And not again after a start
+        // that Husk did not survive, or every launch would end the same way.
         guard Onboarding.autoStart, !started, guest.state == .ready,
               !showOnboarding else { return }
+        guard AutoStart.readyAtLaunch == true else {
+            HuskLog.log("ui", "Android was installed in this run; not starting it on its own (press Start)")
+            return
+        }
+        guard !AutoStart.lastOneDied() else {
+            HuskLog.log("ui", "Husk closed while starting Android on launch last time; not starting it on its own this time")
+            return
+        }
         HuskLog.log("ui", "starting Android on launch")
         booting = true
+        AutoStart.begin()
         start()
+        if !started { AutoStart.end() }
     }
 
     /// Start the guest from the library, without leaving it.
@@ -324,6 +345,11 @@ struct ContentView: View {
             guard JITBootstrap.mapJITWorks else {
                 HuskLog.log("jit", "refusing to start QEMU: no trap servicer is "
                                  + "answering and MAP_JIT does not execute here")
+                // Said on screen too: a Start button that silently does nothing reads as a hang (#122).
+                host.say("Android can't start without JIT",
+                         JITBootstrap.lastFailure ?? "Husk could not get executable memory. Turn JIT on again (Settings > JIT) and retry.",
+                         good: false)
+                booting = false
                 return
             }
             HuskLog.log("jit", "no dual mapping, but MAP_JIT executes -- letting "
@@ -505,10 +531,10 @@ struct GuestScreenView: View {
         // document picker is up, and an importer attached to a view that goes
         // away goes away with it.
         .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
+        .huskHideSystemOverlays()
         .sheet(isPresented: $showControls) {
             ControlsSheet(keyboard: $keyboard)
-                .presentationDetents([.height(300)])
+                .huskDetents([.height(300)])
         }
     }
 }
@@ -678,4 +704,30 @@ struct ControlsSheet: View {
         .padding(.horizontal, 14).padding(.vertical, 12)
         .contentShape(Rectangle())
     }
+}
+
+/// Starting Android on launch, made safe to repeat: whether the image was there as Husk opened, and a marker that is only on
+/// disk while an automatic start is under way, so a start Husk did not survive is not tried again on the next launch.
+enum AutoStart {
+    /// Whether the guest was ready on the first look in this process; nil before it.
+    nonisolated(unsafe) static var readyAtLaunch: Bool?
+
+    private static var marker: String {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("husk-autostart-pending").path
+    }
+
+    /// True once per crash: the marker of an automatic start that never finished is read and removed.
+    static func lastOneDied() -> Bool {
+        guard FileManager.default.fileExists(atPath: marker) else { return false }
+        try? FileManager.default.removeItem(atPath: marker)
+        return true
+    }
+
+    /// Marks an automatic start; the mark goes once QEMU has been running for a minute.
+    static func begin() {
+        FileManager.default.createFile(atPath: marker, contents: Data())
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { end() }
+    }
+
+    static func end() { try? FileManager.default.removeItem(atPath: marker) }
 }

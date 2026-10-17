@@ -5,6 +5,7 @@ import SwiftUI
 /// push a page of their own. What belongs to the app, what belongs to the emulator, and what the thing is.
 struct SettingsTab: View {
     @AppStorage(AppWindows.defaultKey) private var multitask = false
+    @AppStorage(CompatibilityStore.askKey) private var askCompat = true
 
     var body: some View {
         NavigationStack {
@@ -27,6 +28,8 @@ struct SettingsTab: View {
                     row(PerformanceSettings(), "speedometer", .orange, "Performance", "Renderer, sound")
                     row(AppearanceSettings(), "paintbrush.fill", .pink, "Appearance", "Light or dark, accent colour, app icon")
                     row(AndroidTestingPage(), "testtube.2", .purple, "Testing", "Material 3 Expressive, translation layer, install APKs")
+                    row(FontSettings(), "textformat", .indigo, "Fonts", "Chinese, Japanese and Korean text")
+                    row(FAQTab(), "questionmark.circle.fill", .teal, "Help", "Answers to common problems")
                 }
 
                 Section {
@@ -38,7 +41,7 @@ struct SettingsTab: View {
                             }
                         } icon: {
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(Color.purple.gradient)
+                                .fill(Color.purple.huskGradient)
                                 .frame(width: 30, height: 30)
                                 .overlay {
                                     Image(systemName: "macwindow.on.rectangle")
@@ -54,10 +57,44 @@ struct SettingsTab: View {
                        + "Each app can override this in its own settings.")
                 }
 
-                Section("Emulator") {
+                Section {
+                    Toggle(isOn: $askCompat) {
+                        Label {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Ask How Games Ran")
+                                Text("After playing, once per game per update").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                        } icon: {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color.green.huskGradient)
+                                .frame(width: 30, height: 30)
+                                .overlay {
+                                    Image(systemName: "list.bullet.clipboard")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundStyle(.white)
+                                }
+                        }
+                    }
+                    Link(destination: CompatibilityStore.site) {
+                        Label("Compatibility List", systemImage: "safari")
+                    }
+                } header: {
+                    Text("Compatibility")
+                } footer: {
+                    Text("Game pages and the Store show how each app runs for everyone, from antiweb.lol. Your reports go there "
+                       + "with your device, iOS version, Husk build and JIT method.")
+                }
+
+                Section {
+                    row(AndroidSystemPage(), "apps.iphone", AndroidMark.green, "Android", "Experimental: full Android in an emulator")
                     row(InputSettings(), "hand.tap.fill", .indigo, "Input", "Screen, touch, keyboard")
                     row(NetworkSettings(), "globe", .green, "Network", "Internet and saved sessions")
                     row(SavedMachineSettings(), "externaldrive.fill", .teal, "Saved Machine", "Snapshots and automatic saving")
+                } header: {
+                    Text("Android Emulator")
+                } footer: {
+                    Text("Full Android runs in an emulator, for the apps the Translation Layer can't run yet. It is experimental: slow, "
+                       + "and it can freeze or crash.")
                 }
             }
             .listStyle(.insetGrouped)
@@ -88,7 +125,7 @@ struct SettingsTab: View {
                 }
             } icon: {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(tint.gradient)
+                    .fill(tint.huskGradient)
                     .frame(width: 30, height: 30)
                     .overlay {
                         Image(systemName: icon)
@@ -165,6 +202,80 @@ struct LibrarySettings: View {
         }
         .huskForm()
         .navigationTitle("Library")
+    }
+}
+
+// MARK: - Fonts
+
+/// The Chinese, Japanese and Korean fonts the bundle leaves out (#95: 58 MB of Android's 82 MB of fonts), downloaded on request. Apps
+/// on the translation layer find them where Android keeps them, through fonts.xml, which already names the file.
+@MainActor
+final class CJKFonts: ObservableObject {
+    static let shared = CJKFonts()
+    static let fileName = "NotoSansCJK-Regular.ttc"
+    static let source = URL(string: "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTC/NotoSansCJK-Regular.ttc")!
+    nonisolated static var directory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Fonts", isDirectory: true)
+    }
+    nonisolated static var installed: Bool { FileManager.default.fileExists(atPath: directory.appendingPathComponent(fileName).path) }
+
+    @Published private(set) var isInstalled = CJKFonts.installed
+    @Published private(set) var downloading = false
+    @Published private(set) var failure: String?
+
+    func download() {
+        guard !downloading else { return }
+        downloading = true
+        failure = nil
+        Task {
+            do {
+                let (temp, response) = try await URLSession.shared.download(from: Self.source)
+                guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+                try FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
+                let dest = Self.directory.appendingPathComponent(Self.fileName)
+                try? FileManager.default.removeItem(at: dest)
+                try FileManager.default.moveItem(at: temp, to: dest)
+                HuskLog.log("fonts", "CJK fonts installed at \(dest.path)")
+                isInstalled = true
+            } catch {
+                failure = "The download failed: \(error.localizedDescription)"
+                HuskLog.log("fonts", "CJK font download failed: \(error.localizedDescription)")
+            }
+            downloading = false
+        }
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: Self.directory.appendingPathComponent(Self.fileName))
+        isInstalled = Self.installed
+    }
+}
+
+struct FontSettings: View {
+    @ObservedObject private var fonts = CJKFonts.shared
+
+    var body: some View {
+        Form {
+            Section {
+                if fonts.isInstalled {
+                    Label("Installed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    Button(role: .destructive) { fonts.remove() } label: { Label("Remove", systemImage: "trash") }
+                } else {
+                    Button { fonts.download() } label: {
+                        Label(fonts.downloading ? "Downloading…" : "Download (19.5 MB)", systemImage: "arrow.down.circle")
+                    }
+                    .disabled(fonts.downloading)
+                }
+                if let failure = fonts.failure { Text(failure).font(.caption).foregroundStyle(.red) }
+            } header: {
+                Text("Chinese, Japanese and Korean")
+            } footer: {
+                Text("Noto Sans CJK, the font Android uses for these languages. Games and apps that draw their own text (Unity, Flutter, "
+                   + "cocos2d-x) show empty boxes for these characters without it. Takes effect the next time an app opens.")
+            }
+        }
+        .huskForm()
+        .navigationTitle("Fonts")
     }
 }
 
@@ -436,6 +547,7 @@ struct JITSettings: View {
     @ObservedObject private var jit = JITCoordinator.shared
     @State private var autoStart = Onboarding.autoStart
     @AppStorage(JITCoordinator.autoEnableKey) private var autoJIT = false
+    @AppStorage(JITCoordinator.trollStoreAutoKey) private var trollStoreJIT = true
     @State private var keepAttached = JITBootstrap.keepDebuggerAttached
 
     private var pairingLabel: String {
@@ -538,6 +650,14 @@ struct JITSettings: View {
                    + "version, so Husk tests both rather than assuming.")
             }
 
+            if JITBootstrap.isInstalledWithTrollStore {
+                Section {
+                    Toggle("Turn On JIT with TrollStore at Launch", isOn: $trollStoreJIT)
+                } footer: {
+                    Text("Each time Husk opens without JIT, it asks TrollStore to turn it on. TrollStore's URL Scheme setting must be on.")
+                }
+            }
+
             Section {
                 Toggle("Turn On JIT at Launch", isOn: $autoJIT)
                     .disabled(!HuskBuiltInJIT.isAvailable)
@@ -592,6 +712,9 @@ struct SavedMachineSettings: View {
         UserDefaults.standard.object(forKey: "husk.downloadSnapshot") as? Bool ?? true
     @State private var askWhichToDelete = false
     @State private var deleteResult: String?
+    @State private var askRemoveAndroid = false
+    @State private var removeResult: String?
+    @State private var androidBytes = GuestImage.shared.androidBytes
     @AppStorage(GuestImage.askUpdatesKey) private var askUpdates = true
 
     var body: some View {
@@ -644,6 +767,21 @@ struct SavedMachineSettings: View {
             }
 
             Section {
+                Button(role: .destructive) { askRemoveAndroid = true } label: {
+                    Label("Remove Android", systemImage: "trash.slash")
+                }
+                .disabled(runner.isRunning || androidBytes == 0)
+                if let removeResult {
+                    Text(removeResult).font(.caption).foregroundStyle(.secondary)
+                }
+            } footer: {
+                Text(androidBytes > 0
+                     ? "Android's system, its data and the saved machine take \(ByteCountFormatter.string(fromByteCount: androidBytes, countStyle: .file)). "
+                     + "Apps and games on the translation layer do not need them. Android downloads again the next time it is started."
+                     : "Android is not downloaded.")
+            }
+
+            Section {
                 Toggle("Ask about Android updates", isOn: $askUpdates)
             } footer: {
                 Text("When a new Android image or snapshot is published, Husk asks once whether to download it. "
@@ -659,6 +797,16 @@ struct SavedMachineSettings: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Android will boot from cold once, then save a new one.")
+        }
+        .confirmationDialog("Remove Android?", isPresented: $askRemoveAndroid, titleVisibility: .visible) {
+            Button("Remove Android", role: .destructive) {
+                let freed = GuestImage.shared.removeAll()
+                androidBytes = GuestImage.shared.androidBytes
+                removeResult = "Freed \(ByteCountFormatter.string(fromByteCount: freed, countStyle: .file))."
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Everything installed or saved inside Android is deleted. Translation layer apps keep their data.")
         }
     }
 
@@ -701,7 +849,8 @@ struct AppearanceSettings: View {
                 Text("Theme")
             } footer: {
                 Text("System follows the phone: light by day, dark by night. The guest's own "
-                   + "screen stays dark either way — it is a picture of another phone.")
+                   + "screen stays dark either way — it is a picture of another phone. "
+                   + "Holiday decorations appear from December to early January.")
             }
 
             Section {
@@ -803,7 +952,7 @@ struct AppearanceSettings: View {
             .overlay {
                 if selected {
                     Image(systemName: "checkmark")
-                        .font(.caption.bold())
+                        .font(.caption.weight(.bold))
                         .foregroundStyle(color.isLight ? .black : .white)
                 }
             }

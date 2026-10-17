@@ -22,7 +22,7 @@ struct JITSetupFlow: View {
     var body: some View {
         NavigationStack(path: $path) {
             choose
-                .navigationDestination(for: Step.self) { step in
+                .huskDestination(for: Step.self) { step in
                     switch step {
                     case .pairOnDevice: pairOnDevice
                     case .importFile: importFile
@@ -369,15 +369,13 @@ struct JITSetupFlow: View {
                 point(1, "Install Husk.ipa through TrollStore, on an iOS version TrollStore supports. It carries the "
                        + "entitlements TrollStore keeps, so the same file works there and in a sideloader.",
                       done: JITBootstrap.isInstalledWithTrollStore)
-                point(2, "In TrollStore's Settings, turn on URL Scheme. TrollStore ignores enable-jit requests without it.",
-                      done: JITBootstrap.isTrollStoreInstalled)
+                point(2, "In TrollStore's Settings, turn on URL Scheme. TrollStore ignores enable-jit requests without it.")
                 point(3, "Whenever Android or a game starts, Husk asks TrollStore to enable JIT. TrollStore opens Husk, "
                        + "attaches to it for a moment and lets go, which leaves it allowed to run code it wrote.")
             }
             .padding(16).huskCard()
             if !JITBootstrap.isTrollStoreInstalled {
-                Label("TrollStore was not found on this \(device). Husk can only use it once it is installed "
-                    + "and Husk was installed through it.", systemImage: "info.circle")
+                Label("TrollStore was not found on this \(device). It installs on iOS 14.0 to 17.0.", systemImage: "info.circle")
                     .font(.system(size: 13)).foregroundStyle(Theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)
             }

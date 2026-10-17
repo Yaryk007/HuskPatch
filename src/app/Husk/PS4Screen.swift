@@ -75,6 +75,7 @@ final class PS4SurfaceView: UIView {
         args.region_bytes = 0
         HuskLog.log("ps4", "launching \(game.title) (\(game.titleID)) at \(width)x\(height)")
         var err = [CChar](repeating: 0, count: 512)
+        husk_console_set_text_requester(PS4Keyboard.request)
         if !husk_console_launch(&args, &err, err.count) {
             let reason = String(cString: err)
             HuskLog.log("ps4", "launch refused: \(reason)")
@@ -179,8 +180,8 @@ struct PS4PlayView: View {
             }
         }
         .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
-        .defersSystemGestures(on: .all)
+        .huskHideSystemOverlays()
+        .huskDefersSystemGestures(on: .all)
         .onTapGesture(count: 3) { withAnimation { showBar.toggle() } }
         .onAppear {
             HuskOrientation.set(.landscape)
@@ -209,5 +210,46 @@ struct PS4PlayView: View {
     private func leave() {
         husk_console_set_paused(true)
         dismiss()
+    }
+}
+
+/// A PS4 game's keyboard dialog (a world or character name), answered with an iOS text prompt. The game keeps polling its
+/// dialog until the answer arrives; Cancel gives it the game's own cancel.
+enum PS4Keyboard {
+    static let request: husk_console_text_requester = { title, initial, maxChars, done, ctx in
+        guard let done else { return -1 }
+        let title = title.map { String(cString: $0) } ?? ""
+        let initial = initial.map { String(cString: $0) } ?? ""
+        let context = UInt(bitPattern: ctx)
+        DispatchQueue.main.async {
+            present(title: title, initial: initial, maxChars: Int(maxChars), done: done, ctx: UnsafeMutableRawPointer(bitPattern: context))
+        }
+        return 0
+    }
+
+    @MainActor private static func present(title: String, initial: String, maxChars: Int,
+                                           done: @escaping @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void,
+                                           ctx: UnsafeMutableRawPointer?) {
+        let root = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first
+        guard var top = root else {
+            HuskLog.log("ps4", "keyboard asked for, but there is no window to show it in; cancelled")
+            done(ctx, nil)
+            return
+        }
+        while let p = top.presentedViewController { top = p }
+        HuskLog.log("ps4", "the game asked for text (\(title.isEmpty ? "no title" : title), up to \(maxChars) characters)")
+        let alert = UIAlertController(title: title.isEmpty ? "Enter Text" : title, message: nil, preferredStyle: .alert)
+        alert.addTextField {
+            $0.text = initial
+            $0.autocorrectionType = .no
+            $0.clearButtonMode = .whileEditing
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in done(ctx, nil) })
+        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak alert] _ in
+            var text = alert?.textFields?.first?.text ?? ""
+            if maxChars > 0, text.count > maxChars { text = String(text.prefix(maxChars)) }
+            text.withCString { done(ctx, $0) }
+        })
+        top.present(alert, animated: true)
     }
 }

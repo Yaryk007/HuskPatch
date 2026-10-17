@@ -5,11 +5,12 @@
  *   clang -fobjc-arc -O1 -o /tmp/ps4-test tools/ps4-test.m src/translation-layer-next/husk-console-host.c \
  *       src/translation-layer-next/husk-jit-arena.c -Isrc/translation-layer-next -Isrc/translation-layer -framework Foundation -framework QuartzCore -framework Metal
  *   /tmp/ps4-test <libhuskps4.dylib> <eboot.bin or game folder> [seconds]
+ *   /tmp/ps4-test <libhuskps4.dylib> --install <package.pkg> <dest folder>   (what Husk's PS4 import does with a .pkg)
  *
  * Environment: PS4_PAD_SCRIPT="T:buttons:D,..." holds buttons (cross circle square triangle up down left right l1 r1 l2 r2
  * l3 r3 options share touchpad, joined with '+') from T to T+D seconds; PS4_USER_DIR (default: a folder in $TMPDIR);
  * PS4_MVK (default /opt/homebrew/lib/libMoltenVK.dylib); TL_XMEM_MIB sizes the JIT region (default 192);
- * HUSK_MEM_LIMIT_MB reports a phone's available memory to the module; AETHER_SHOT_EVERY=<s> saves game screenshots into
+ * PS4_TEXT answers the game's keyboard dialog; HUSK_MEM_LIMIT_MB reports a phone's available memory to the module; AETHER_SHOT_EVERY=<s> saves game screenshots into
  * the user dir's screenshots folder. PS4_PAD_FIFO=<path> makes a FIFO there and takes live presses from it, one per line,
  * "buttons seconds" (e.g. "cross 0.5", "down+cross 0.3"), to drive a game while watching its screenshots.
  */
@@ -28,6 +29,22 @@
 #include "husk-console-host.h"
 #include "husk-jit-arena.h"
 #include "husk-tl-gamepad.h"
+
+/* The game's keyboard dialog: PS4_TEXT=<text> answers it a second later, as a player would; PS4_TEXT unset leaves the module
+ * to answer for the player (an empty PS4_TEXT cancels). */
+static int test_text_requester(const char *title, const char *initial, uint32_t max_chars, void (*done)(void *, const char *), void *ctx)
+{
+    const char *answer = getenv("PS4_TEXT");
+    if (!answer) return -1;
+    fprintf(stderr, "ps4-test: the game asked for text (title \"%s\", initial \"%s\", up to %u); answering \"%s\"\n",
+            title ? title : "", initial ? initial : "", max_chars, answer);
+    char *copy = strdup(answer);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_global_queue(0, 0), ^{
+        done(ctx, copy[0] ? copy : NULL);
+        free(copy);
+    });
+    return 0;
+}
 
 void tl_log_line(const char *fmt, ...)
 {
@@ -68,9 +85,23 @@ static int parse_script(const char *s, pad_event *ev, int max)
     return n;
 }
 
+static void install_progress(void *ctx, uint64_t done, uint64_t total)
+{
+    (void)ctx;
+    static int last = -1;
+    int pct = total ? (int)(done * 100 / total) : 0;
+    if (pct != last) { last = pct; fprintf(stderr, "\rinstalling %d%%", pct); }
+}
+
 int main(int argc, char **argv)
 {
     @autoreleasepool {
+        if (argc == 5 && !strcmp(argv[2], "--install")) {
+            char err[512] = "";
+            bool ok = husk_console_install_package(argv[1], argv[3], argv[4], install_progress, NULL, err, sizeof err);
+            fprintf(stderr, "\n%s\n", ok ? "installed" : err);
+            return ok ? 0 : 1;
+        }
         if (argc < 3) { fprintf(stderr, "usage: %s <libhuskps4.dylib> <eboot.bin or game folder> [seconds]\n", argv[0]); return 2; }
         int secs = argc > 3 ? atoi(argv[3]) : 60;
         const int w = 1280, h = 720;
@@ -92,6 +123,7 @@ int main(int argc, char **argv)
             .vulkan_path = mvk, .metal_layer = (__bridge void *)layer, .width_px = w, .height_px = h, .scale = 1.0f, .region_bytes = region,
         };
         char err[512] = "";
+        husk_console_set_text_requester(test_text_requester);
         if (!husk_console_launch(&a, err, sizeof(err))) { fprintf(stderr, "ps4-test: launch failed: %s\n", err); return 1; }
         fprintf(stderr, "ps4-test: launched; log %s\n", log.UTF8String);
 

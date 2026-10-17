@@ -9,7 +9,7 @@ struct AndroidSettingsApp: View {
     @ObservedObject private var shell = AndroidShellState.shared
 
     var body: some View {
-        NavigationStack(path: $shell.settingsPath) {
+        SwiftUI.NavigationStack(path: $shell.settingsPath) {
             AndroidSettingsHome()
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: AndroidSettingsRoute.self) { route in

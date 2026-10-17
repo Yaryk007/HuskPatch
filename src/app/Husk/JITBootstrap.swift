@@ -79,6 +79,17 @@ enum JITBootstrap {
             return false
         }
         if !isDebuggerAttached { selfGrantTried = true }
+        // Before iOS 26, unless StikDebug's script is what attached, no brk: TrollStore's enable-jit (and its Open with JIT)
+        // attaches for 100 ms and services nothing, and a brk in that window stops Husk for good (TrollStore then says
+        // "trollstorehelper returned 3"). A debugged process there makes its own executable memory anyway: QEMU maps its
+        // buffer with MAP_JIT and the translation layer makes its region itself.
+        if canGrantOwnJIT && !stikDebugMayServiceTraps {
+            selfGrantTried = true
+            let works = mapJITWorks
+            HuskLog.log("jit", "not trapping for a JIT region (no StikDebug); MAP_JIT \(works ? "executes" : "does not execute") here")
+            if works { lastFailure = nil }
+            return works
+        }
         HuskLog.log("jit", "claiming \(jitBytes / (1024 * 1024)) MiB of JIT memory now, "
                          + "before the guest download -- StikDebug does not stay attached")
         let ok = husk_ios_jit_prewarm(jitBytes)
@@ -118,6 +129,12 @@ enum JITBootstrap {
     static var keepDebuggerAttached: Bool {
         get { UserDefaults.standard.bool(forKey: "husk.keepDebuggerAttached") }
         set { UserDefaults.standard.set(newValue, forKey: "husk.keepDebuggerAttached") }
+    }
+
+    /// Whether StikDebug's script may be the debugger: the only one that answers a brk.
+    private static var stikDebugMayServiceTraps: Bool {
+        let method = UserDefaults.standard.string(forKey: "husk.jitMethod") ?? JITMethod.automatic.rawValue
+        return method == JITMethod.stikDebug.rawValue || (method == JITMethod.automatic.rawValue && isStikDebugInstalled)
     }
 
     /// The one try at making the region without a debugger has been made (it is not repeated: the answer will not change).
@@ -225,10 +242,24 @@ enum JITBootstrap {
         URL(string: "stikjit://").map(UIApplication.shared.canOpenURL) ?? false
     }
 
-    /// TrollStore answers enable-jit on the `apple-magnifier` scheme.
-    static var isTrollStoreInstalled: Bool {
-        URL(string: "apple-magnifier://").map(UIApplication.shared.canOpenURL) ?? false
-    }
+    /// Whether TrollStore is on this device. It answers enable-jit on the `apple-magnifier` scheme, but that scheme is also the
+    /// Magnifier app's, on every iPhone, so whether it opens says nothing. A Husk TrollStore installed knows from its marker file;
+    /// otherwise SpringBoard is asked to open TrollStore, suspended, which an ordinary app is refused (9) when it exists and told
+    /// it does not (7) when it does not. TrollStore installs on iOS 14.0 to 17.0 only.
+    static let isTrollStoreInstalled: Bool = {
+        if isInstalledWithTrollStore { return true }
+        if #available(iOS 17.0.1, *) { return false }
+        typealias Launch = @convention(c) (NSString, NSURL?, NSDictionary?, NSDictionary?, Bool) -> Int32
+        guard let lib = dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_NOW),
+              let sym = dlsym(lib, "SBSLaunchApplicationWithIdentifierAndURLAndLaunchOptions") else { return false }
+        let launch = unsafeBitCast(sym, to: Launch.self)
+        for id in ["com.opa334.TrollStore", "com.opa334.TrollStoreLite"] {
+            let r = launch(id as NSString, nil, nil, nil, true)
+            HuskLog.log("jit", "SpringBoard on opening \(id): \(r)")
+            if r == 9 { return true }
+        }
+        return false
+    }()
 
     /// Whether this copy of Husk was installed by TrollStore (or TrollStore Lite): it leaves a marker file next to the app in
     /// its bundle container (TrollStore's `TS_MARKER`). Only then is it a TrollStore app, which keeps the entitlements it was
@@ -273,8 +304,8 @@ enum JITBootstrap {
         guard let bundleID = Bundle.main.bundleIdentifier else { return false }
         
         let url = "apple-magnifier://enable-jit?bundle-id=\(bundleID)"
-        guard let launchURL = URL(string: url), UIApplication.shared.canOpenURL(launchURL) else {
-            HuskLog.log("jit", "FAIL: cannot open apple-magnifier:// -- TrollStore is not installed")
+        guard isTrollStoreInstalled, let launchURL = URL(string: url) else {
+            HuskLog.log("jit", "FAIL: TrollStore is not installed")
             return false
         }
         

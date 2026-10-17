@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import SwiftUI
 
-/// The FAQ tab: common problems and what to do about them, so a user stuck on JIT or on an app
-/// that will not open has an answer without leaving Husk.
+/// Help: common problems and what to do about them, so a user stuck on JIT or on an app that will not open has an answer
+/// without leaving Husk. A page in Settings (it was a tab of its own; four tabs read simpler than five).
 struct FAQTab: View {
     @State private var query = ""
 
@@ -16,7 +16,6 @@ struct FAQTab: View {
     }
 
     var body: some View {
-        NavigationStack {
             List {
                 ForEach(sections) { s in
                     Section {
@@ -30,9 +29,8 @@ struct FAQTab: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("FAQ")
+            .navigationTitle("Help")
             .huskSearchable(text: $query, prompt: "Search problems")
-        }
     }
 }
 
@@ -109,6 +107,10 @@ enum FAQ {
                        + "Your library, apps and saves are kept."),
         ]),
         Section(title: "Apps and Games", symbol: "gamecontroller.fill", items: [
+            Item(question: "How do I add a PS4 game?",
+                 answer: "Tap + and pick a fake package (.pkg), a folder of packages, or an extracted game folder (eboot.bin and sce_sys). "
+                       + "Husk installs it into PS4 Games in Files, and an update package goes beside the game it updates. "
+                       + "Retail packages are locked to a PS4 and do not install. PS4 games need iOS 17.4 or later."),
             Item(question: "An app will not open",
                  answer: "Open its page in the Library. Husk says why it stopped:\n"
                        + "• **Protected app:** it checks that it is on a real Android phone, or uses anti-cheat or DRM. Husk does not get around these.\n"

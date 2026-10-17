@@ -2,9 +2,11 @@ name: Husk
 options:
   bundleIdPrefix: com.husk
   deploymentTarget:
-    # 16.0: the lowest the app builds at as written (its SwiftUI is iOS 16), so
-    # it installs on the iOS 16 versions TrollStore runs on. QEMU, ANGLE and
-    # rppairing are built for 15.5, below it.
+    # 15.5: what QEMU, ANGLE and rppairing are built for, and the TrollStore
+    # and Dopamine iOS 15 devices (#92). Compat15.swift stands in for the
+    # iOS 16 SwiftUI the screens use.
+    # HuskPatch: 16.0. Its Android OS mode, Material 3 skin and ExpressiveUI are
+    # built on iOS 16 SwiftUI (NavigationPath, ShareLink, Layout) throughout.
     iOS: "16.0"
   createIntermediateGroups: true
 

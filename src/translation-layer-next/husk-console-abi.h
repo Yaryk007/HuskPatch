@@ -49,6 +49,15 @@ typedef struct HuskHostV1 {
     /* Full path of the Vulkan implementation to load directly (MoltenVK in Husk's Frameworks), or
      * NULL for the platform default. */
     const char *vulkan_library_path;
+
+    /* Asks the player for text: a game's keyboard dialog (a character or world name). Husk shows
+     * its keyboard and later calls done(ctx, text) once, on any thread, with the UTF-8 text, or
+     * with NULL when the player cancelled. title and initial are UTF-8 and may be empty; max_chars
+     * is the field's limit in characters. Returns 0 when Husk took the request, nonzero when it
+     * cannot ask now (the module then answers for the player). Absent from hosts built before it:
+     * struct_size says. */
+    int (*request_text)(const char *title, const char *initial, uint32_t max_chars,
+                        void (*done)(void *ctx, const char *text), void *ctx);
 } HuskHostV1;
 
 /* Controller state Husk merges from its pads and the on-screen pad. Buttons are the PS4 pad's
@@ -99,6 +108,16 @@ typedef struct HuskConsoleModuleV1 {
     /* After STOPPED: when the game asked to start another executable (sceSystemServiceLoadExec),
      * its path and '\n'-joined args are copied out and 1 is returned; else 0. */
     int (*take_pending_restart)(char *path, int path_size, char *args, int args_size);
+
+    /* Extracts a package file (.pkg) into dest_dir, which it creates: eboot.bin and sce_sys/ for
+     * a game, the changed files for an update. Needs no init and no running game, and runs on the
+     * caller's thread. Only packages that open without a console's own keys install (fake
+     * packages and homebrew); a retail package is refused. progress(ctx, done, total) may be
+     * NULL. Returns 0 when extracted; else copies a message to err and returns nonzero.
+     * Absent from modules built before it: struct_size says. */
+    int (*install_package)(const char *package, const char *dest_dir,
+                           void (*progress)(void *ctx, uint64_t done, uint64_t total), void *ctx,
+                           char *err, int err_size);
 } HuskConsoleModuleV1;
 
 /* The module's one exported symbol. Returns NULL when it cannot run in this process. */
