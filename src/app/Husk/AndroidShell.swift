@@ -8,7 +8,8 @@ import UIKit
 /// it shows instead of the tabs:
 ///
 /// - a lock screen, swiped up to unlock, at launch and whenever HuskPatch comes back to the front;
-/// - a home screen with the games and apps Home shows, a dock (Play Store, Settings, Android) and a search pill;
+/// - a home screen as LineageOS 22 sets it up: the clock widget, the games and apps Home shows, and the dock of system apps
+///   (Phone, Messaging, Contacts, Browser, Camera -- AndroidSystemApps.swift);
 /// - an app drawer, swiped up from the home screen, with everything in the Library;
 /// - Settings and Play Store as apps: the same screens as the tabs, opened full screen like any other app;
 /// - recents, and Android's navigation along the bottom: the three buttons -- back, home, recents -- or gestures, as
@@ -31,11 +32,25 @@ enum AndroidOS {
 
     static var isOn: Bool { UserDefaults.standard.bool(forKey: key) }
 
-    /// The wallpaper: LineageOS's (dark, its orbit rings in the palette's colours) or Material's soft shapes.
+    /// The wallpaper: LineageOS 22's (a teal sweep across the dark), its earlier one (orbit rings in the palette's colours),
+    /// or Material's soft shapes.
     enum Wallpaper: String, CaseIterable, Identifiable {
-        case lineage, blobs
+        case lineage22, lineage, blobs
         var id: String { rawValue }
-        var title: String { self == .lineage ? "LineageOS" : "Material shapes" }
+        var title: String {
+            switch self {
+            case .lineage22: return "LineageOS 22"
+            case .lineage: return "LineageOS orbit"
+            case .blobs: return "Material shapes"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .lineage22: return "rectangle.portrait.inset.filled"
+            case .lineage: return "circle.circle"
+            case .blobs: return "scribble.variable"
+            }
+        }
     }
     static let wallpaperKey = "huskpatch.androidOS.wallpaper"
 
@@ -52,16 +67,18 @@ enum AndroidOS {
     }
 }
 
-/// Something that can be open in the shell: one of the two system apps, or an item from the library.
+/// Something that can be open in the shell: Settings, the Play Store, one of the other system apps, or an item from the library.
 enum ShellApp: Hashable, Identifiable {
     case settings
     case playStore
+    case system(AndroidSystemApp)
     case item(LibraryItem)
 
     var id: String {
         switch self {
         case .settings: return "system:settings"
         case .playStore: return "system:playstore"
+        case .system(let a): return "system:" + a.rawValue
         case .item(let i): return i.id
         }
     }
@@ -70,6 +87,7 @@ enum ShellApp: Hashable, Identifiable {
         switch self {
         case .settings: return "Settings"
         case .playStore: return "Play Store"
+        case .system(let a): return a.title
         case .item(let i): return i.title
         }
     }
@@ -85,17 +103,22 @@ final class AndroidShellState: ObservableObject {
     /// Notifications posted in the shell (the Testing page's, an installed app's), newest first.
     @Published var notifications: [ShellNotification] = []
 
+    /// A notification that has just come in, shown at the top for a few seconds (heads-up), unless Do Not Disturb is on.
+    @Published var headsUp: ShellNotification?
+
     func post(_ n: ShellNotification) {
         withAnimation(.snappy) { notifications.insert(n, at: 0) }
-        if !doNotDisturb { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+        guard !doNotDisturb else { return }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) { headsUp = n }
+        Task {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if headsUp?.id == n.id { withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) { headsUp = nil } }
+        }
     }
 
     func dismissNotifications() { withAnimation(.snappy) { notifications.removeAll() } }
 
-    /// The icons the lock screen shows for what is waiting.
-    var lockNotifications: [String] {
-        notifications.map(\.icon) + (Downloads.shared.jobs.contains { !$0.complete } ? ["arrow.down.circle"] : [])
-    }
     @Published var open: ShellApp?
     @Published var drawer = false
     @Published var recents = false
@@ -103,6 +126,11 @@ final class AndroidShellState: ObservableObject {
     /// Where Settings and the Play Store are, so Android's back goes back a page in them before it leaves them.
     @Published var settingsPath = NavigationPath()
     @Published var storePath = NavigationPath()
+    /// Android's back inside the open system app (a page, a dialog), set by the app while it shows: true when it went back.
+    private(set) var appBack: (() -> Bool)?
+    private var appBackOwner: UUID?
+    func setAppBack(_ owner: UUID, _ handler: @escaping () -> Bool) { appBackOwner = owner; appBack = handler }
+    func clearAppBack(_ owner: UUID) { if appBackOwner == owner { appBack = nil; appBackOwner = nil } }
     /// Why an app could not be opened, shown as Android's dialog.
     @Published var notice: String?
     /// The notification shade, pulled down from the status bar; expanded: all of Quick Settings.
@@ -170,6 +198,7 @@ final class AndroidShellState: ObservableObject {
         if shade { closeShade(); return }
         if !recents, !drawer, open == .settings, !settingsPath.isEmpty { settingsPath.removeLast(); return }
         if !recents, !drawer, open == .playStore, !storePath.isEmpty { storePath.removeLast(); return }
+        if !recents, !drawer, case .system? = open, let appBack, appBack() { return }
         if !recents, !drawer, let g = openGame {
             if g.report?.webKind != nil, let web = WebAppRuntime.runtime(for: g) { web.back(); return }
             switch g.screenEngine {
@@ -258,6 +287,15 @@ struct AndroidShellView: View {
                 AndroidShadePull()
             }
 
+            if let n = shell.headsUp, !shell.shade, !shell.locked {
+                VStack {
+                    AndroidHeadsUp(note: n)
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(4)
+            }
+
             if shell.shade {
                 AndroidShade()
                     .transition(.move(edge: .top).combined(with: .opacity))
@@ -293,10 +331,11 @@ struct AndroidShellView: View {
 
 /// The wallpaper: soft shapes in the palette's container colours, as Android 16's default wallpapers are.
 struct AndroidWallpaper: View {
-    @AppStorage(AndroidOS.wallpaperKey) private var style = AndroidOS.Wallpaper.lineage
+    @AppStorage(AndroidOS.wallpaperKey) private var style = AndroidOS.Wallpaper.lineage22
 
     var body: some View {
         switch style {
+        case .lineage22: Lineage22Wallpaper()
         case .lineage: LineageWallpaper()
         case .blobs: blobs
         }
@@ -364,6 +403,40 @@ struct LineageWallpaper: View {
     }
 }
 
+/// LineageOS 22's default wallpaper: near black at the top and the bottom, and between them a broad teal sweep that rises
+/// from the left edge to the upper right, brightest along its crest. Its own colours, not the palette's, as a picture is.
+struct Lineage22Wallpaper: View {
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width, h = geo.size.height
+            ZStack {
+                LinearGradient(colors: [Color(red: 0.04, green: 0.07, blue: 0.08), Color(red: 0.03, green: 0.11, blue: 0.12),
+                                        Color(red: 0.02, green: 0.06, blue: 0.07)],
+                               startPoint: .top, endPoint: .bottom)
+                // the sweep: a wide band, turned, its light falling off to the dark on both sides
+                LinearGradient(stops: [.init(color: .clear, location: 0),
+                                       .init(color: Color(red: 0.05, green: 0.36, blue: 0.38), location: 0.32),
+                                       .init(color: Color(red: 0.16, green: 0.62, blue: 0.6), location: 0.5),
+                                       .init(color: Color(red: 0.07, green: 0.4, blue: 0.42), location: 0.66),
+                                       .init(color: .clear, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(width: w * 2.2, height: h * 0.62)
+                    .rotationEffect(.degrees(-24))
+                    .offset(x: w * 0.1, y: -h * 0.02)
+                    .blur(radius: 18)
+                // the crest's glow at the upper right, and the dark wedge over the top left
+                RadialGradient(colors: [Color(red: 0.3, green: 0.78, blue: 0.74).opacity(0.5), .clear],
+                               center: UnitPoint(x: 0.85, y: 0.22), startRadius: 0, endRadius: w * 0.7)
+                LinearGradient(colors: [Color.black.opacity(0.75), .clear], startPoint: .topLeading, endPoint: UnitPoint(x: 0.6, y: 0.35))
+                LinearGradient(colors: [.clear, Color.black.opacity(0.7)], startPoint: UnitPoint(x: 0.5, y: 0.62), endPoint: .bottom)
+            }
+            .frame(width: w, height: h)
+            .clipped()
+        }
+        .ignoresSafeArea()
+    }
+}
+
 // MARK: - home screen
 
 private struct AndroidHomeScreen: View {
@@ -372,21 +445,21 @@ private struct AndroidHomeScreen: View {
     @ObservedObject private var host = AndroidHost.shared
     @ObservedObject private var jit = JITCoordinator.shared
 
-    /// What Home shows: the most recent first, then up to eight more.
-    private var homeItems: [LibraryItem] {
+    /// The home screen's grid: Play Store and Settings, then what Home shows -- the most recent first, then more, to fill
+    /// four rows.
+    private var homeItems: [ShellApp] {
         let all = Launcher.byRecent(Launcher.items(store: store, host: host))
         let lead = all.first { $0.lastUsed != nil } ?? all.first
-        guard let lead else { return [] }
-        return [lead] + all.filter { $0 != lead }.prefix(8)
+        let items = lead.map { [$0] + all.filter { $0 != lead } } ?? []
+        return [.playStore, .settings] + items.prefix(14).map(ShellApp.item)
     }
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
 
     var body: some View {
         VStack(spacing: 0) {
-            AtAGlance()
-                .padding(.horizontal, 24)
-                .padding(.top, 28)
+            AndroidClockWidget()
+                .padding(.top, 44)
 
             if !Launcher.jitOn {
                 Button { jit.enable() } label: {
@@ -403,35 +476,23 @@ private struct AndroidHomeScreen: View {
             Spacer(minLength: 12)
 
             LazyVGrid(columns: columns, spacing: 18) {
-                ForEach(homeItems) { item in
-                    AndroidAppIconButton(app: .item(item))
+                ForEach(homeItems) { app in
+                    AndroidAppIconButton(app: app)
                 }
             }
             .padding(.horizontal, 16)
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 16)
 
-            HStack(spacing: 6) {
-                Capsule().fill(Color(uiColor: Material3.onPrimaryContainer)).frame(width: 18, height: 5)
-                Circle().fill(Color(uiColor: Material3.onPrimaryContainer).opacity(0.4)).frame(width: 5, height: 5)
-            }
-            .padding(.bottom, 14)
-
-            // The dock: a row of icons on a soft surface, as Trebuchet draws it.
+            // The dock: five icons straight on the wallpaper, as Trebuchet draws it on LineageOS 22. No search bar, no
+            // drawer button: the drawer is a swipe up.
             HStack {
-                AndroidAppIconButton(app: .playStore, showsLabel: false)
-                AndroidAppIconButton(app: .item(.android), showsLabel: false)
-                AndroidAppIconButton(app: .settings, showsLabel: false)
-                AndroidDrawerButton()
+                ForEach(AndroidSystemApp.dock) { a in
+                    AndroidAppIconButton(app: .system(a), showsLabel: false, size: 54)
+                }
             }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 10)
-            .background(Color(uiColor: Material3.surfaceContainer).opacity(0.35), in: RoundedRectangle(cornerRadius: 32, style: .continuous))
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 18)
             .padding(.bottom, 14)
-
-            // Trebuchet's page indicator under the grid, then the dock. LineageOS ships no Google search bar.
-
         }
         .contentShape(Rectangle())
         // Swiping up anywhere on the home screen opens the drawer, as on Android.
@@ -442,25 +503,48 @@ private struct AndroidHomeScreen: View {
     }
 }
 
-/// The date at the top of the home screen.
-private struct AtAGlance: View {
-    @StateObject private var status = DeviceStatus()
+/// The clock widget at the top of the home screen (DeskClock's digital clock): the time large and thin in the wallpaper's
+/// light tone, the date under it. Tapping it opens Clock.
+private struct AndroidClockWidget: View {
+    @ObservedObject private var shell = AndroidShellState.shared
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { context in
-            VStack(alignment: .leading, spacing: 2) {
-                Text(context.date.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
-                    .font(.system(size: 26, weight: .regular, design: .rounded))
-                HStack(spacing: 6) {
-                    Image(systemName: status.charging ? "battery.100.bolt" : "battery.75")
-                    Text(status.charging ? "Charging · \(Int((status.level * 100).rounded()))%" : "\(Int((status.level * 100).rounded()))% battery")
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            Button { shell.launch(.system(.clock)) } label: {
+                VStack(spacing: 2) {
+                    Text(AndroidClockFace.time(context.date))
+                        .font(.system(size: 84, weight: .regular, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(Color(uiColor: AndroidClockFace.ink))
+                    Text(context.date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.92))
                 }
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .opacity(0.85)
+                .shadow(color: .black.opacity(0.25), radius: 6, y: 1)
             }
-            .foregroundStyle(Color(uiColor: Material3.onPrimaryContainer))
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
         }
+    }
+}
+
+/// The clock's face, shared by the home screen's widget and the lock screen.
+enum AndroidClockFace {
+    /// The time without AM/PM, as Android's clocks show it: 5:27, or 17:27 with the 24-hour clock.
+    static func time(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = .current
+        f.setLocalizedDateFormatFromTemplate("jmm")
+        let s = f.string(from: date)
+        return s.replacingOccurrences(of: f.amSymbol, with: "").replacingOccurrences(of: f.pmSymbol, with: "")
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    /// The clock's colour: a light, saturated tone of the palette (teal on LineageOS 22's wallpaper).
+    static var ink: UIColor {
+        UserDefaults.standard.string(forKey: AndroidOS.wallpaperKey).map { $0 == AndroidOS.Wallpaper.lineage22.rawValue } ?? true
+            ? UIColor(red: 0.45, green: 0.95, blue: 0.95, alpha: 1)
+            : Material3.tone(.primary, 85)
     }
 }
 
@@ -506,6 +590,8 @@ struct AndroidAppIcon: View {
                     .foregroundStyle(Color(uiColor: Material3.onPrimaryContainer))
                     .frame(width: size, height: size)
                     .background(Color(uiColor: Material3.primaryContainer).opacity(0.95))
+            case .system(let a):
+                AndroidSystemAppIcon(app: a, size: size)
             case .playStore:
                 PlayTriangle()
                     .fill(AngularGradient(colors: [.green, .blue, .red, .yellow, .green], center: .center))
@@ -563,6 +649,7 @@ private struct AndroidAppDrawer: View {
     /// Everything in the Library, and the two system apps and Android, by name.
     private var apps: [ShellApp] {
         let items = Launcher.items(store: store, host: host).map(ShellApp.item) + [.item(.android), .settings, .playStore]
+            + AndroidSystemApp.allCases.map(ShellApp.system)
         return items
             .filter { matches(query, $0.title) }
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
@@ -621,6 +708,7 @@ private struct AndroidAppContainer: View {
                 switch app {
                 case .settings: AndroidSettingsApp()
                 case .playStore: AndroidPlayStore()
+                case .system(let a): a.content
                 case .item(let item):
                     NavigationStack {
                         LibraryRouteView(route: item.route)
@@ -824,7 +912,7 @@ private struct AndroidEdgeBack: View {
     }
 }
 
-// MARK: - shade pull, dock extras
+// MARK: - shade pull
 
 /// The status bar's strip, pulled down: the notification shade (pulled far: all of Quick Settings).
 private struct AndroidShadePull: View {
@@ -843,25 +931,6 @@ private struct AndroidShadePull: View {
             Spacer()
         }
         .allowsHitTesting(!shell.shade && !shell.locked)
-    }
-}
-
-/// The dock's last place: the app drawer, as a dotted-grid icon.
-private struct AndroidDrawerButton: View {
-    @ObservedObject private var shell = AndroidShellState.shared
-
-    var body: some View {
-        Button { withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { shell.drawer = true } } label: {
-            Image(systemName: "circle.grid.3x3.fill")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(Color(uiColor: Material3.onPrimaryContainer))
-                .frame(width: 58, height: 58)
-                .background(Color(uiColor: Material3.secondaryContainer), in: Circle())
-                .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
-        }
-        .buttonStyle(AndroidPressStyle())
-        .frame(maxWidth: .infinity)
-        .accessibilityLabel("All apps")
     }
 }
 

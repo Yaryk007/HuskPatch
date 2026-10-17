@@ -91,15 +91,17 @@
 		<string>_remotepairing-pairable-host._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>An Android app you run in HuskPatch asked for the camera, and you allowed it in Android's permission dialog.</string>
+	<string>Android OS mode's Camera, and Android apps you allow in Android's permission dialog, use the camera.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>An Android app you run in HuskPatch asked for the microphone, and you allowed it in Android's permission dialog.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>An Android app you run in HuskPatch asked for your location, and you allowed it in Android's permission dialog.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Android OS mode's Camera saves the photos you take to your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>An Android app you run in HuskPatch asked for your photos and videos, and you allowed it in Android's permission dialog.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>An Android app you run in HuskPatch asked for your contacts, and you allowed it in Android's permission dialog.</string>
+	<string>Android OS mode's Phone, Contacts and Messaging show your contacts, as do Android apps you allow in Android's permission dialog.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>An Android app you run in HuskPatch asked for your calendar, and you allowed it in Android's permission dialog.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>

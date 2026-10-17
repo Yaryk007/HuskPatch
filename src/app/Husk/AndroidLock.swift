@@ -58,6 +58,13 @@ enum AndroidLock {
 
     static var fingerprints: Int { UserDefaults.standard.integer(forKey: fingerprintsKey) }
 
+    /// The lock screen's corner shortcuts (flashlight, Do Not Disturb). Off by default, as LineageOS 22 sets it up.
+    static let shortcutsKey = "huskpatch.lock.shortcuts"
+
+    /// Unlocked once since HuskPatch opened: until then the lock screen says "Unlock for all features and data", as Android
+    /// does before the first unlock after a restart.
+    @MainActor static var unlockedSinceLaunch = false
+
     /// Fingerprint unlock: on, with a finger enrolled and a secure lock under it, as Android requires.
     static var fingerprintOn: Bool {
         kind.secure && fingerprints > 0 && UserDefaults.standard.object(forKey: fingerprintKey) as? Bool ?? true
@@ -111,19 +118,23 @@ final class AndroidLockGuard: ObservableObject {
 
 // MARK: - lock screen
 
-/// The keyguard: the date at the top, the big two-line clock, the shortcuts in the bottom corners, and the lock icon (or the
-/// fingerprint sensor) over "Swipe up to open". Swiping up opens the bouncer when there is a secret.
+/// The keyguard, as LineageOS 22 (AOSP 15) draws it: with nothing waiting, the large clock in the middle with the date under
+/// it; with notifications, the small clock and date at the top left and the notifications under them as cards. At the
+/// bottom, the lock icon (or the fingerprint sensor) over "Unlock for all features and data" until the first unlock, then
+/// "Swipe up to open"; the corner shortcuts when they are turned on. Swiping up opens the bouncer when there is a secret.
 struct AndroidLockScreen: View {
     @ObservedObject private var shell = AndroidShellState.shared
     @State private var drag: CGFloat = 0
     @State private var bouncer = false
     @ObservedObject private var torch = TorchSwitch.shared
+    @ObservedObject private var downloads = Downloads.shared
+    @AppStorage(AndroidLock.shortcutsKey) private var shortcuts = false
 
     var body: some View {
         ZStack {
             AndroidWallpaper()
             Color.black.opacity(bouncer ? 0.55 : 0.28).ignoresSafeArea()
-            AndroidStatusBar(material: true, transparent: true)
+            AndroidStatusBar(material: true, transparent: true, hidesClock: true)
                 .environment(\.colorScheme, .dark)
 
             if bouncer {
@@ -154,59 +165,88 @@ struct AndroidLockScreen: View {
         .statusBarHidden(true)
     }
 
+    /// Notifications show as cards; what does not fit (and running downloads) as icons under them.
+    private var cards: [ShellNotification] { Array(shell.notifications.prefix(3)) }
+    private var overflow: [String] {
+        shell.notifications.dropFirst(3).map(\.icon) + (downloads.jobs.contains { !$0.complete } ? ["arrow.down.circle"] : [])
+    }
+
     private var keyguard: some View {
-        VStack(spacing: 0) {
+        let small = !cards.isEmpty || !overflow.isEmpty
+        return VStack(spacing: 0) {
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                VStack(alignment: .leading, spacing: 0) {
-                    // the smartspace: the date, then the battery, as LineageOS shows it without a weather provider
-                    Text(context.date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
-                        .font(.system(size: 20, weight: .medium, design: .rounded))
-                    Spacer().frame(height: 60)
-                    let parts = clock(context.date)
-                    VStack(alignment: .center, spacing: -46) {
-                        Text(parts.0)
-                        Text(parts.1)
+                let date = context.date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+                if small {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(AndroidClockFace.time(context.date))
+                            .font(.system(size: 66, weight: .regular, design: .rounded))
+                            .monospacedDigit()
+                        Text(date).font(.system(size: 15, weight: .medium, design: .rounded))
                     }
-                    .font(.system(size: 168, weight: .regular, design: .rounded))
-                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 28)
+                    .padding(.top, 56)
+                } else {
+                    VStack(spacing: 4) {
+                        Text(AndroidClockFace.time(context.date))
+                            .font(.system(size: 118, weight: .regular, design: .rounded))
+                            .monospacedDigit()
+                            .minimumScaleFactor(0.5)
+                            .lineLimit(1)
+                            .foregroundStyle(Color(uiColor: AndroidClockFace.ink))
+                        Text(date).font(.system(size: 16, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white)
+                    }
                     .frame(maxWidth: .infinity)
-                    .foregroundStyle(Color(uiColor: Material3.primaryContainer))
+                    .padding(.top, 150)
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 28)
-                .padding(.top, 64)
             }
-            Spacer()
-            if !shell.lockNotifications.isEmpty {
-                HStack(spacing: 8) {
-                    ForEach(shell.lockNotifications.prefix(5), id: \.self) { icon in
-                        Image(systemName: icon).font(.system(size: 14, weight: .semibold))
-                            .frame(width: 30, height: 30)
-                            .background(.white.opacity(0.18), in: Circle())
+            .animation(.spring(response: 0.45, dampingFraction: 0.85), value: small)
+
+            if small {
+                VStack(spacing: 6) {
+                    ForEach(cards) { AndroidNotificationBubble(note: $0, overWallpaper: true) }
+                    if !overflow.isEmpty {
+                        HStack(spacing: 8) {
+                            ForEach(Array(overflow.prefix(6).enumerated()), id: \.offset) { _, icon in
+                                Image(systemName: icon).font(.system(size: 13, weight: .semibold))
+                                    .frame(width: 28, height: 28)
+                                    .background(.white.opacity(0.18), in: Circle())
+                            }
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.top, 6)
                     }
                 }
-                .foregroundStyle(.white)
-                .padding(.bottom, 18)
+                .padding(.horizontal, 12)
+                .padding(.top, 22)
+                .transition(.opacity)
             }
+
+            Spacer()
             ZStack(alignment: .bottom) {
-                HStack {
-                    shortcut(torch.on ? "flashlight.on.fill" : "flashlight.off.fill", on: torch.on) { torch.toggle() }
-                    Spacer()
-                    shortcut(shell.doNotDisturb ? "moon.fill" : "moon", on: shell.doNotDisturb) { shell.doNotDisturb.toggle() }
+                if shortcuts {
+                    HStack {
+                        shortcut(torch.on ? "flashlight.on.fill" : "flashlight.off.fill", on: torch.on) { torch.toggle() }
+                        Spacer()
+                        shortcut(shell.doNotDisturb ? "moon.fill" : "moon", on: shell.doNotDisturb) { shell.doNotDisturb.toggle() }
+                    }
+                    .padding(.horizontal, 30)
                 }
-                .padding(.horizontal, 30)
-                VStack(spacing: 14) {
+                VStack(spacing: 12) {
                     if AndroidLock.fingerprintOn {
                         AndroidFingerprintSensor(onMatch: unlock)
                     } else {
                         Image(systemName: AndroidLock.kind.secure ? "lock.fill" : "lock.open.fill")
-                            .font(.system(size: 22, weight: .semibold))
+                            .font(.system(size: 20, weight: .semibold))
                     }
-                    Text(AndroidLock.fingerprintOn ? "Touch the fingerprint sensor, or swipe up" : "Swipe up to open")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                    Text(!AndroidLock.unlockedSinceLaunch && AndroidLock.kind.secure ? "Unlock for all features and data"
+                         : AndroidLock.fingerprintOn ? "Touch the fingerprint sensor, or swipe up" : "Swipe up to open")
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
                 }
                 .foregroundStyle(.white.opacity(0.92))
-                .padding(.bottom, 64)
+                .padding(.bottom, shortcuts ? 64 : 40)
             }
             .padding(.bottom, 22)
         }
@@ -230,16 +270,8 @@ struct AndroidLockScreen: View {
     private func unlock() {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         AndroidLockGuard.shared.succeeded()
+        AndroidLock.unlockedSinceLaunch = true
         withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) { shell.locked = false; drag = 0; bouncer = false }
-    }
-
-    /// Hours over minutes, as AOSP's large lock screen clock stacks them.
-    private func clock(_ date: Date) -> (String, String) {
-        let c = Calendar.current.dateComponents([.hour, .minute], from: date)
-        let twelve = !(DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current)?.contains("H") ?? false)
-        var h = c.hour ?? 0
-        if twelve { h = h % 12 == 0 ? 12 : h % 12 }
-        return (String(format: "%02d", h), String(format: "%02d", c.minute ?? 0))
     }
 }
 
@@ -512,6 +544,7 @@ struct AndroidPasswordField: View {
 struct AndroidSecurityPage: View {
     @AppStorage(AndroidLock.kindKey) private var kindRaw = AndroidLock.Kind.swipe.rawValue
     @AppStorage(AndroidLock.fingerprintsKey) private var fingerprints = 0
+    @AppStorage(AndroidLock.shortcutsKey) private var shortcuts = false
 
     var body: some View {
         AndroidSettingsPage(title: "Security & privacy", onBack: AndroidSettingsRoute.pop) {
@@ -543,6 +576,12 @@ struct AndroidSecurityPage: View {
                                        summary: fingerprints == 0 ? "Not set up" : "\(fingerprints) fingerprint\(fingerprints == 1 ? "" : "s") added")
                 }
                 .buttonStyle(AndroidRippleStyle())
+            }
+            AndroidSettingsGroup(header: "Lock screen") {
+                AndroidSettingsRow(icon: "flashlight.on.fill", tint: .systemOrange, title: "Shortcuts",
+                                   summary: "Flashlight and Do Not Disturb in the lock screen's corners") {
+                    Toggle("", isOn: $shortcuts).labelsHidden().toggleStyle(Material3SwitchStyle())
+                }
             }
             Text("The lock is part of Android OS mode's look. It isn't real security: the iPhone's own passcode protects your data.")
                 .font(.system(size: 13, design: .rounded))

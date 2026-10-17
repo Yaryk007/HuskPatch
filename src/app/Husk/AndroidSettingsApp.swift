@@ -340,7 +340,7 @@ private struct AndroidDisplayPage: View {
 private struct AndroidWallpaperPage: View {
     @ObservedObject private var theme = AppTheme.shared
     @AppStorage(Material3.appsKey) private var materialApps = false
-    @AppStorage(AndroidOS.wallpaperKey) private var wallpaper = AndroidOS.Wallpaper.lineage
+    @AppStorage(AndroidOS.wallpaperKey) private var wallpaper = AndroidOS.Wallpaper.lineage22
     @State private var custom: Color = AppTheme.shared.accentColor
 
     var body: some View {
@@ -359,7 +359,7 @@ private struct AndroidWallpaperPage: View {
             AndroidSettingsGroup(header: "Wallpaper") {
                 ForEach(AndroidOS.Wallpaper.allCases) { w in
                     Button { wallpaper = w } label: {
-                        AndroidSettingsRow(icon: w == .lineage ? "circle.circle" : "scribble.variable", title: w.title) {
+                        AndroidSettingsRow(icon: w.icon, title: w.title) {
                             AndroidRadio(on: wallpaper == w)
                         }
                     }

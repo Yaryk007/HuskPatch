@@ -14,6 +14,8 @@ struct AndroidStatusBar: View {
     let material: Bool
     /// Over a wallpaper (Android OS mode's home and lock screens): no bar of its own, icons in the wallpaper's ink.
     var transparent = false
+    /// The lock screen: its own clock is the big one, so the bar's left side is empty, as Android's keyguard has it.
+    var hidesClock = false
     @StateObject private var status = DeviceStatus()
     @Environment(\.colorScheme) private var scheme
 
@@ -49,6 +51,7 @@ struct AndroidStatusBar: View {
             Text(time(now))
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .monospacedDigit()
+                .opacity(hidesClock ? 0 : 1)
             Spacer(minLength: 0)
             connection(fg, size: 13)
             ZStack(alignment: .leading) {

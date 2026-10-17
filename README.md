@@ -2,18 +2,27 @@
 
 The text bellow is not what huskpatch was used to be, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed, thank you guys for the support, i might still make updates but i will focus on my other projects more.
 
-> **HuskPatch 2.6.1** is the latest official [Husk](https://github.com/Leviidev/Husk) code (2.0 plus build 119) with these additions:
+> **HuskPatch 3.0.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (the 3.0 work, build 123: Compatibility
+> List, Godot 4, OBB expansion files, CJK fonts, Help in Settings...) with these additions:
 >
-> - **Android OS mode** (Settings › Appearance › Android OS): HuskPatch's interface replaced by LineageOS 23's (Android
->   16) -- a lock screen you swipe up, a home screen with your games and apps, an app drawer with the whole library, recents, and
+> - **Android OS mode** (Settings › Appearance › Android OS): HuskPatch's interface replaced by LineageOS 22's (Android
+>   15) -- a lock screen you swipe up, a home screen with your games and apps, an app drawer with the whole library, recents, and
 >   Android's navigation: **3-button or gesture navigation** (Settings › System › Navigation mode; swipe up for home,
 >   up and hold for recents, in from either edge for back). Games and apps open straight into the app, full screen.
 >   Turns on the two options below with it.
 >   - **Notification shade and Quick Settings**: pull down from the status bar (or anywhere on the home screen) for
 >     the clock, notifications (your downloads) and tiles that work -- Internet, Flashlight, Dark theme, JIT,
 >     Navigation mode, Battery Saver, Screen lock, Recent apps -- and a brightness slider; pull further for all of them.
->   - **LineageOS look**: its wallpaper (or Material shapes), Trebuchet's dock and page indicator, AOSP's lock screen
->     with the big two-line clock and flashlight / Do Not Disturb shortcuts, and Android's dialogs instead of iOS alerts.
+>   - **LineageOS 22 look**: its teal wallpaper (or the older orbit one, or Material shapes); a home screen with the
+>     clock widget and Trebuchet's dock of system apps; AOSP 15's lock screen -- the large clock in the middle, or the
+>     small one top left with your notifications as cards under it, "Unlock for all features and data" until the first
+>     unlock, optional flashlight / Do Not Disturb shortcuts; heads-up notifications; Android's dialogs instead of iOS alerts.
+>   - **System apps**, as LineageOS ships them, working through the iPhone where iOS allows: **Phone** (dialpad,
+>     recents, favourites; calls go through iOS), **Messaging** (conversations; texts go through iOS's message sheet),
+>     **Contacts** (the iPhone's, with new contacts), **Browser** (Jelly: address bar, incognito, desktop site, search
+>     engine), **Camera** (Aperture: photos to your library, flash, grid, zoom, QR codes), **Clock** (alarms and timer
+>     as notifications, world clock, stopwatch), **Calculator** (scientific row, history) and **Files** (Internal storage
+>     and HuskPatch's files: categories, recents, search, preview, share, rename, new folder, import from the iPhone).
 >   - **Screen lock** (Settings › Security & privacy): None, Swipe, Pattern, PIN or Password, with AOSP's bouncer (PIN
 >     pad, pattern grid, password field; five wrong tries wait 30 seconds) and a pretend **Fingerprint Unlock** you
 >     enrol by touching the sensor. A look, not security: the iPhone's passcode still protects your data.
@@ -51,6 +60,8 @@ The text bellow is not what huskpatch was used to be, it was a fork of husk to f
 > - HuskPatch's own icon and name; Husk's original icon is still there as **Automatic Legacy**, with the others.
 >
 > Upstream's PS4 games (libhuskps4) are not in these builds: the PS4 layer needs Leviidev's unpublished FEXCore fork.
+>
+> HuskPatch needs iOS 16 (upstream Husk now runs on iOS 15.5; HuskPatch's Android UI is built on iOS 16 SwiftUI).
 >
 > Builds: **Actions → Build IPA**, artifact **Husk-ipa**. Android's Java libraries in them come from the official 2.0
 > release; Husk's Java framework is built from this repo. Untested builds: use
