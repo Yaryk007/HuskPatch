@@ -12,6 +12,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -464,6 +465,10 @@ static void System_loadLibrary(tl_jcall *c)
     }
 }
 static void System_getProperty(tl_jcall *c) { const char *k = S(c->args[0].l); const char *v = !strcmp(k, "os.arch") ? "aarch64" : !strcmp(k, "http.agent") ? "Dalvik/2.1.0 (Linux; U; Android 14; Pixel 8)" : NULL; c->ret = vl(v ? STR(v) : NULL); }
+/* android.os.SystemClock: time since boot (the host's), in ms or ns */
+static void SystemClock_uptimeMillis(tl_jcall *c) { struct timespec ts; clock_gettime(CLOCK_UPTIME_RAW, &ts); jvalue v; v.j = (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000; c->ret = v; }
+static void SystemClock_elapsedRealtime(tl_jcall *c) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); jvalue v; v.j = (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000; c->ret = v; }
+static void SystemClock_elapsedRealtimeNanos(tl_jcall *c) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); jvalue v; v.j = (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec; c->ret = v; }
 static void System_currentTimeMillis(tl_jcall *c) { struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts); jvalue v; v.j = (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000; c->ret = v; }
 static void System_nanoTime(tl_jcall *c) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); jvalue v; v.j = (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec; c->ret = v; }
 static void UnityPlayer_initializeGoogleAr(tl_jcall *c) { c->ret = vz(0); }
@@ -578,6 +583,36 @@ static void SP_getBoolean(tl_jcall *c) { c->ret = vz(c->args[1].z); }
 static void SP_edit(tl_jcall *c) { c->ret = vl(make("android/content/SharedPreferences$Editor")); }
 static void Editor_self(tl_jcall *c) { c->ret = vl(tl_jni_ref(c->self)); }
 static void Editor_noop(tl_jcall *c) { (void)c; }
+static void SP_getFloat(tl_jcall *c) { jvalue v; v.j = 0; v.f = c->args[1].f; c->ret = v; }
+static void SP_getLong(tl_jcall *c) { jvalue v; v.j = c->args[1].j; c->ret = v; }
+static void Editor_commit(tl_jcall *c) { c->ret = vz(1); }
+/* java.io.FileOutputStream over a host file (Unity's Java side writes its files with it): the descriptor + 1 in native */
+static int fos_fd(const jobj *o) { return o && o->native ? (int)(intptr_t)o->native - 1 : -1; }
+static void fos_open(tl_jcall *c, const char *path, bool append)
+{
+    int fd = path ? open(path, O_WRONLY | O_CREAT | (append ? O_APPEND : O_TRUNC), 0644) : -1;
+    if (fd < 0) { tl_jni_throw("java/io/FileNotFoundException", path ? path : "null"); return; }
+    c->self->native = (void *)(intptr_t)(fd + 1);
+}
+static void FOS_init_file(tl_jcall *c) { fos_open(c, c->args[0].l ? file_path(c->args[0].l) : NULL, false); }
+static void FOS_init_file_append(tl_jcall *c) { fos_open(c, c->args[0].l ? file_path(c->args[0].l) : NULL, c->args[1].z); }
+static void FOS_init_path(tl_jcall *c) { fos_open(c, S(c->args[0].l), false); }
+static void FOS_init_path_append(tl_jcall *c) { fos_open(c, S(c->args[0].l), c->args[1].z); }
+static void fos_write(int fd, const jobj *a, int32_t off, int32_t len)
+{
+    if (!a || off < 0 || len < 0 || (uint32_t)off + (uint32_t)len > a->arr.len) { tl_jni_throw("java/lang/IndexOutOfBoundsException", ""); return; }
+    for (int32_t done = 0; done < len; ) {
+        ssize_t n = write(fd, (const char *)a->arr.data + off + done, (size_t)(len - done));
+        if (n <= 0) { tl_jni_throw("java/io/IOException", strerror(errno)); return; }
+        done += (int32_t)n;
+    }
+}
+static void FOS_write_range(tl_jcall *c) { fos_write(fos_fd(c->self), c->args[0].l, c->args[1].i, c->args[2].i); }
+static void FOS_write_all(tl_jcall *c) { const jobj *a = c->args[0].l; fos_write(fos_fd(c->self), a, 0, a ? (int32_t)a->arr.len : 0); }
+static void FOS_write_byte(tl_jcall *c) { uint8_t b = (uint8_t)c->args[0].i; if (write(fos_fd(c->self), &b, 1) != 1) tl_jni_throw("java/io/IOException", strerror(errno)); }
+static void FOS_close(tl_jcall *c) { int fd = fos_fd(c->self); if (fd >= 0) { close(fd); c->self->native = NULL; } }
+static void FOS_flush(tl_jcall *c) { (void)c; }
+static void File_setReadOnly(tl_jcall *c) { c->ret = vz(chmod(file_path(c->self), 0444) == 0); }
 /* An iterator is empty unless it was made over a list (tl_jni_new_list_iterator). */
 typedef struct { jobj **items; uint32_t n, i; } list_iter;
 static void Iterator_hasNext(tl_jcall *c) { const list_iter *it = c->self ? c->self->native : NULL; c->ret = vz(it && it->i < it->n); }
@@ -927,6 +962,9 @@ static const tl_jhle k_hle[] = {
     M("java/lang/String", "hashCode", "()I", String_hashCode),
     M("java/lang/System", "getProperty", "(Ljava/lang/String;)Ljava/lang/String;", System_getProperty),
     M("java/lang/System", "currentTimeMillis", "()J", System_currentTimeMillis),
+    M("android/os/SystemClock", "uptimeMillis", "()J", SystemClock_uptimeMillis),
+    M("android/os/SystemClock", "elapsedRealtime", "()J", SystemClock_elapsedRealtime),
+    M("android/os/SystemClock", "elapsedRealtimeNanos", "()J", SystemClock_elapsedRealtimeNanos),
     M("java/lang/System", "nanoTime", "()J", System_nanoTime),
     M("java/io/File", "<init>", "(Ljava/lang/String;)V", File_init_s),
     M("java/io/File", "<init>", "(Ljava/io/File;Ljava/lang/String;)V", File_init_fs),
@@ -1008,6 +1046,23 @@ static const tl_jhle k_hle[] = {
     M("android/content/SharedPreferences", "getString", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", SP_getString),
     M("android/content/SharedPreferences", "getBoolean", "(Ljava/lang/String;Z)Z", SP_getBoolean),
     M("android/content/SharedPreferences", "edit", "()Landroid/content/SharedPreferences$Editor;", SP_edit),
+    M("android/content/SharedPreferences", "getFloat", "(Ljava/lang/String;F)F", SP_getFloat),
+    M("android/content/SharedPreferences", "getLong", "(Ljava/lang/String;J)J", SP_getLong),
+    M("android/content/SharedPreferences$Editor", "commit", "()Z", Editor_commit),
+    M("android/content/SharedPreferences$Editor", "putFloat", "(Ljava/lang/String;F)Landroid/content/SharedPreferences$Editor;", Editor_self),
+    M("android/content/SharedPreferences$Editor", "putLong", "(Ljava/lang/String;J)Landroid/content/SharedPreferences$Editor;", Editor_self),
+    M("android/content/SharedPreferences$Editor", "remove", "(Ljava/lang/String;)Landroid/content/SharedPreferences$Editor;", Editor_self),
+    M("android/content/SharedPreferences$Editor", "clear", "()Landroid/content/SharedPreferences$Editor;", Editor_self),
+    M("java/io/FileOutputStream", "<init>", "(Ljava/io/File;)V", FOS_init_file),
+    M("java/io/FileOutputStream", "<init>", "(Ljava/io/File;Z)V", FOS_init_file_append),
+    M("java/io/FileOutputStream", "<init>", "(Ljava/lang/String;)V", FOS_init_path),
+    M("java/io/FileOutputStream", "<init>", "(Ljava/lang/String;Z)V", FOS_init_path_append),
+    M("java/io/FileOutputStream", "write", "([BII)V", FOS_write_range),
+    M("java/io/FileOutputStream", "write", "([B)V", FOS_write_all),
+    M("java/io/FileOutputStream", "write", "(I)V", FOS_write_byte),
+    M("java/io/FileOutputStream", "close", "()V", FOS_close),
+    M("java/io/FileOutputStream", "flush", "()V", FOS_flush),
+    M("java/io/File", "setReadOnly", "()Z", File_setReadOnly),
     M("android/content/SharedPreferences$Editor", "putInt", "(Ljava/lang/String;I)Landroid/content/SharedPreferences$Editor;", Editor_self),
     M("android/content/SharedPreferences$Editor", "putString", "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/SharedPreferences$Editor;", Editor_self),
     M("android/content/SharedPreferences$Editor", "putBoolean", "(Ljava/lang/String;Z)Landroid/content/SharedPreferences$Editor;", Editor_self),

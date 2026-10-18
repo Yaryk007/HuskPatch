@@ -30,6 +30,13 @@ struct StoreView: View {
             .huskSearchable(text: $searchText, prompt: "Search Google Play")
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    if !manager.downloadProgress.isEmpty {
+                        Button { Router.shared.showDownloads = true } label: {
+                            Label("\(manager.downloadProgress.count) Downloading", systemImage: "arrow.down.circle")
+                                .labelStyle(.titleAndIcon)
+                                .font(.subheadline.weight(.semibold))
+                        }
+                    }
                     if manager.isSignedIn {
                         Menu {
                             if let s = manager.session {
@@ -285,17 +292,22 @@ struct StoreView: View {
 
         return Group {
             if isDownloading || progress != nil {
-                ZStack {
-                    Circle()
-                        .stroke(Color(uiColor: .tertiarySystemFill), lineWidth: 3)
-                    Circle()
-                        .trim(from: 0, to: progress ?? 0.05)
-                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                    ProgressView()
-                        .scaleEffect(0.6)
+                Button {
+                    manager.cancelDownload(app.id)
+                } label: {
+                    ZStack {
+                        Circle()
+                            .stroke(Color(uiColor: .tertiarySystemFill), lineWidth: 3)
+                        Circle()
+                            .trim(from: 0, to: progress ?? 0.05)
+                            .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                        Image(systemName: "stop.fill").font(.system(size: 10)).foregroundStyle(Color.accentColor)
+                    }
+                    .frame(width: 32, height: 32)
                 }
-                .frame(width: 32, height: 32)
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Stop Download")
             } else {
                 Button {
                     manager.downloadAndInstall(app: app)
@@ -432,9 +444,12 @@ struct PlayAppDetailSheet: View {
             if isDownloading || progress != nil {
                 HStack(spacing: 8) {
                     ProgressView()
-                    Text("Downloading…")
+                    Text(progress.map { "Downloading… \(Int($0 * 100))%" } ?? "Downloading…")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(Theme.textDim)
+                    Button("Cancel", role: .destructive) { manager.cancelDownload(app.id) }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.borderless)
                 }
             } else {
                 Button {

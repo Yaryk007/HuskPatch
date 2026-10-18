@@ -60,6 +60,7 @@ static struct {
     char *(*get_clipboard)(void);
     void (*share)(const char *utf8);
     void (*orientation)(int android_orientation);
+    void (*pick_documents)(const char *mime_types, int multiple);
 } g_java_host;
 
 static unsigned long engine_frames(void);
@@ -373,6 +374,7 @@ static void *launch_thread(void *arg)
                 .density = g_java_density, .metal_layer = A.layer, .angle_egl = A.angle, .angle_gles = NULL,
                 .framework_res = fwres, .show_keyboard = g_java_host.keyboard, .set_clipboard = g_java_host.set_clipboard,
                 .get_clipboard = g_java_host.get_clipboard, .share = g_java_host.share, .set_orientation = g_java_host.orientation,
+                .pick_documents = g_java_host.pick_documents,
                 .insets = { g_java_insets[0], g_java_insets[1], g_java_insets[2], g_java_insets[3] }, .night_mode = g_java_night,
             };
             ok = tl_javaapp_start(&cfg);
@@ -544,6 +546,8 @@ void husk_java_set_night_mode(int night) { g_java_night = night != 0; }
 void husk_java_insert_text(const char *utf8) { if (java_running()) tl_javaapp_text(utf8); }
 void husk_java_delete_backward(void) { if (java_running()) tl_javaapp_text_delete(); }
 void husk_java_text_action(void) { if (java_running()) tl_javaapp_text_action(); }
+void husk_java_set_document_picker(void (*pick)(const char *mime_types, int multiple)) { g_java_host.pick_documents = pick; }
+void husk_java_documents_picked(const char *const *paths, int n) { if (java_running()) tl_javaapp_documents_picked(paths, n); }
 void husk_java_keyboard_closed(void) { if (java_running()) tl_javaapp_keyboard_closed(); }
 void husk_java_back(void) { if (atomic_load(&A.state) == HUSK_UNITY_RUNNING && A.engine == ENGINE_JAVA) tl_javaapp_back(); }
 void tl_web_attach(void *screen_view, void *container, float scale, bool fresh);

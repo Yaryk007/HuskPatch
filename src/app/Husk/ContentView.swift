@@ -59,11 +59,11 @@ struct ContentView: View {
                 } else if material3 {
                     // HuskPatch: Android 16 style -- Material's own navigation bar instead of UIKit's
                     // (Liquid Glass on iOS 26), which cannot be restyled into one.
-                    Material3Tabs(selection: $router.tab,
+                    Material3Tabs(selection: tabSelection,
                                   home: HomeView(), library: LibraryScreen(), store: StoreView(),
                                   settings: SettingsTab())
                 } else {
-                    TabView(selection: $router.tab) {
+                    TabView(selection: tabSelection) {
                         HomeView()
                             .tabItem { Label("Home", systemImage: "house.fill") }
                             .tag(HuskTab.home)
@@ -242,6 +242,20 @@ struct ContentView: View {
             // foreground is the moment worth re-checking, not first launch.
             if phase == .active { evaluate() }
         }
+    }
+
+    /// The selected tab. Choosing the tab already shown takes Home or the Library back to its top, as a tab bar does.
+    private var tabSelection: Binding<HuskTab> {
+        Binding(get: { router.tab }, set: { tab in
+            if tab == router.tab {
+                switch tab {
+                case .home: router.home = []
+                case .library: router.library = []
+                default: break
+                }
+            }
+            router.tab = tab
+        })
     }
 
     /// Every package Husk holds, from both sides: what the picture index is read for.

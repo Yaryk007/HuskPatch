@@ -25,6 +25,8 @@ enum LibraryRoute: Hashable {
     @Published var home: [LibraryRoute] = []
     @Published var library: [LibraryRoute] = []
     @Published var libraryFilter: LibraryFilter = .all
+    /// The platform chips on Home and in the Library: one choice, shared by both.
+    @Published var platform: PlatformFilter = .all
     /// Downloads, as a sheet: Home's Downloads tile opens it.
     @Published var showDownloads = false
     /// Android's storage, as a sheet over whatever is showing.

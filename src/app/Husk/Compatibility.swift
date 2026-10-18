@@ -160,7 +160,8 @@ final class CompatibilityStore: ObservableObject {
         return png.count <= 60_000 ? png.base64EncodedString() : nil
     }
 
-    func send(package: String, name: String, isGame: Bool, status: Status, notes: String, author: String, iconPath: String? = nil) async throws {
+    func send(package: String, name: String, isGame: Bool, status: Status, notes: String, author: String, iconPath: String? = nil,
+              attachLog: Bool = false) async throws {
         var body: [String: String] = [
             "package": package, "name": name, "type": isGame ? "game" : "app", "status": status.rawValue,
             "device": Self.device, "ios": UIDevice.current.systemVersion, "build": Self.build, "jit": Self.jitMethod,
@@ -168,6 +169,7 @@ final class CompatibilityStore: ObservableObject {
         ]
         if body["author"]?.isEmpty == true { body["author"] = nil }
         if entry(package)?.icon == nil, let icon = Self.iconPNG(iconPath) { body["icon"] = icon }
+        if attachLog, let log = Self.logTail() { body["log"] = log }
         let payload = try JSONSerialization.data(withJSONObject: body)
         let (data, http) = try await call("api/reports") {
             $0.httpMethod = "POST"
@@ -182,6 +184,19 @@ final class CompatibilityStore: ObservableObject {
         HuskLog.log("compat", "reported \(package): \(status.rawValue)")
         markAsked(package)
         await refresh(force: true)
+    }
+
+    /// The end of Husk's log, as the log export shares it (husk.log): at most the last 400,000 bytes, cut on a character boundary.
+    static func logTail(limit: Int = 400_000) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: HuskLog.logFileURL) else { return nil }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > UInt64(limit) ? size - UInt64(limit) : 0)
+        guard let data = try? handle.readToEnd(), !data.isEmpty else { return nil }
+        var start = data.startIndex
+        // Not inside a UTF-8 sequence: skip continuation bytes (10xxxxxx).
+        while start < data.endIndex, data[start] & 0xC0 == 0x80 { start += 1 }
+        return String(decoding: data[start...], as: UTF8.self)
     }
 
     // Ask once per game per Husk build: a new build can change how a game runs.
@@ -255,6 +270,7 @@ struct CompatReportSheet: View {
     @State private var sending = false
     @State private var error: String?
     @State private var sent = false
+    @AppStorage("husk.compatAttachLog") private var attachLog = true
 
     var body: some View {
         NavigationStack {
@@ -289,6 +305,11 @@ struct CompatReportSheet: View {
                     Text("Your Name")
                 } footer: {
                     Text("Sent with it: \(CompatibilityStore.device), iOS \(UIDevice.current.systemVersion), Husk build \(CompatibilityStore.build), JIT from \(CompatibilityStore.jitMethod). It shows on antiweb.lol for everyone.")
+                }
+                Section {
+                    Toggle("Attach my log", isOn: $attachLog)
+                } footer: {
+                    Text("Your Husk log helps the developer see what went wrong. Only moderators can read it.")
                 }
                 if let error {
                     Section { Text(error).foregroundStyle(.red) }
@@ -326,7 +347,8 @@ struct CompatReportSheet: View {
         Task {
             do {
                 try await CompatibilityStore.shared.send(package: subject.package, name: subject.name, isGame: subject.isGame,
-                                                         status: status, notes: notes, author: author, iconPath: subject.iconPath)
+                                                         status: status, notes: notes, author: author, iconPath: subject.iconPath,
+                                                         attachLog: attachLog)
                 sent = true
                 try? await Task.sleep(nanoseconds: 600_000_000)
                 dismiss()

@@ -46,6 +46,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Fi
     final Rect mSelectorRect = new Rect();
     int mSelectorPosition = INVALID_POSITION;
     boolean mDrawSelectorOnTop, mStackFromBottom, mSmoothScrollbarEnabled = true, mFastScrollEnabled, mTextFilterEnabled, mScrollingCacheEnabled;
+    boolean mIsChildViewEnabled = true;   // AppCompat's DropDownListView reads it by reflection
     int mTranscriptMode, mCacheColorHint;
     int mChoiceMode = CHOICE_MODE_NONE;
     SparseBooleanArray mCheckStates;

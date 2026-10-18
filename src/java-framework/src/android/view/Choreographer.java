@@ -16,7 +16,7 @@ public final class Choreographer {
     @SuppressWarnings("unchecked")
     private final ArrayList<Object[]>[] mQueues = new ArrayList[5];   /* {callback (Runnable or FrameCallback), token, dueNanos} */
     private boolean mScheduled;
-    private long mLastFrame;
+    private long mLastFrameTimeNanos;
     private final Runnable mDoFrame = this::doFrame;
 
     private Choreographer(Looper l) { mHandler = new Handler(l); for (int i = 0; i < 5; i++) mQueues[i] = new ArrayList<>(); }
@@ -33,8 +33,8 @@ public final class Choreographer {
     public static Choreographer getMainThreadInstance() { if (sMain == null) sMain = new Choreographer(Looper.getMainLooper()); return sMain; }
     public static long getFrameDelay() { return 16; }
     public static void setFrameDelay(long d) {}
-    public long getFrameTime() { return mLastFrame / 1_000_000L; }
-    public long getFrameTimeNanos() { return mLastFrame; }
+    public long getFrameTime() { return mLastFrameTimeNanos / 1_000_000L; }
+    public long getFrameTimeNanos() { return mLastFrameTimeNanos; }
     public long getFrameIntervalNanos() { return FRAME_NS; }
 
     private synchronized void add(int type, Object cb, Object token, long delayMs) {
@@ -44,7 +44,7 @@ public final class Choreographer {
     private void schedule() {
         if (mScheduled) return;
         mScheduled = true;
-        long now = System.nanoTime(), next = Math.max(now, mLastFrame + FRAME_NS);
+        long now = System.nanoTime(), next = Math.max(now, mLastFrameTimeNanos + FRAME_NS);
         mHandler.postDelayed(mDoFrame, Math.max(0, (next - now) / 1_000_000L));
     }
     public void postCallback(int type, Runnable r, Object token) { add(type, r, token, 0); }
@@ -61,7 +61,7 @@ public final class Choreographer {
     private void doFrame() {
         long now = System.nanoTime();
         synchronized (this) { mScheduled = false; }
-        mLastFrame = now;
+        mLastFrameTimeNanos = now;
         boolean later = false;
         for (int type = 0; type < 5; type++) {
             ArrayList<Object[]> run = new ArrayList<>();

@@ -27,7 +27,7 @@ public final class Broadcasts {
             boolean match = i.getComponent() != null && c.name.equals(i.getComponent().getClassName());
             for (Manifest.Filter f : c.filters) if (f.actions.contains(i.getAction())) match = true;
             if (!match) continue;
-            try { targets.add((BroadcastReceiver) Class.forName(c.name).newInstance()); } catch (Throwable t) { android.util.Log.w("Husk", "receiver " + c.name + ": " + t); }
+            try { targets.add((BroadcastReceiver) Class.forName(c.name, true, AppRunner.classLoader()).newInstance()); } catch (Throwable t) { android.util.Log.w("Husk", "receiver " + c.name + ": " + t); }
         }
         Handler h = new Handler(Looper.getMainLooper());
         for (BroadcastReceiver r : targets) h.post(() -> r.onReceive(ctx, i));

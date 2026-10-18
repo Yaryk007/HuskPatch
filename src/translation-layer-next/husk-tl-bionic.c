@@ -191,6 +191,14 @@ static int bionic___system_property_get(const char *name, char *value)
         return (int)strlen(value);
     }
     const char *v = name ? tl_sysprop(name) : NULL;
+    /* TL_SYSPROPS="key=value;key=value" (host tests): properties an app reads for its own debugging (debug.mono.log) */
+    static __thread char over[92];
+    const char *env = name ? getenv("TL_SYSPROPS") : NULL;
+    for (const char *p = env; p && *p; ) {
+        const char *end = strchr(p, ';'); size_t l = end ? (size_t)(end - p) : strlen(p), nl = strlen(name);
+        if (l > nl && !strncmp(p, name, nl) && p[nl] == '=') { snprintf(over, sizeof(over), "%.*s", (int)(l - nl - 1), p + nl + 1); v = over; break; }
+        p = end ? end + 1 : NULL;
+    }
     if (!value) return 0;
     if (!v) { value[0] = 0; return 0; }
     snprintf(value, 92, "%s", v);
@@ -691,7 +699,10 @@ static void *bionic_dlsym(void *handle, const char *name)
     } else if ((sysh *)handle >= g_sys_handle && (sysh *)handle < g_sys_handle + 16) {
         r = tl_bionic_find(name);
     } else {
-        r = tl_ld_sym((tl_lib *)handle, name);
+        /* the library, then what it needs, breadth-first, as bionic's dlsym: .NET asks libicui18n for ucurr_forLocale, which
+           libicuuc (its dependency) defines */
+        void *tl_ld_sym_deep(tl_lib *lib, const char *name, tl_lib **found_in);
+        r = tl_ld_sym_deep((tl_lib *)handle, name, NULL);
     }
     if (getenv("TL_DL_TRACE")) tl_log_line("dl: dlsym(%s) -> %s", name, r ? "found" : "missing");
     if (!r) dl_fail("undefined symbol: %s", name);

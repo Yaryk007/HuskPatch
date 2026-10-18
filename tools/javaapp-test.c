@@ -6,7 +6,7 @@
  *
  * Environment: TL_JNI_TRACE=1|2, TL_VERBOSE=0..2, TL_DATA=<dir> (kept between runs), TL_PACKAGE, TL_AUDIO=1,
  * TL_CTL=<file> (lines "tap X Y", "hold X Y MS", "swipe X1 Y1 X2 Y2 MS", "wait MS", "shot PNG" (+ PNG.web.png of a web view), "js CODE", "key CODE", "pause",
- * "resume", "quit"), TL_FRAMES=<n> (save every nth frame; default every frame, latest only).
+ * "resume", "stacks" (every thread's frames), "quit"), TL_FRAMES=<n> (save every nth frame; default every frame, latest only).
  */
 #include <mach/mach.h>
 #include <pthread.h>
@@ -100,6 +100,36 @@ static void on_crash(int sig, siginfo_t *info, void *uctx)
     _exit(139);
 }
 
+/* ctl "stacks": every other thread stopped for a moment and its frame-pointer chain printed (host and guest code named) */
+static void dump_stacks(void)
+{
+    thread_act_array_t th; mach_msg_type_number_t n;
+    if (task_threads(mach_task_self(), &th, &n) != KERN_SUCCESS) return;
+    thread_act_t me = mach_thread_self();
+    for (mach_msg_type_number_t i = 0; i < n; i++) {
+        if (th[i] == me) continue;
+        char tn[64] = ""; pthread_t pt = pthread_from_mach_thread_np(th[i]); if (pt) pthread_getname_np(pt, tn, sizeof(tn));
+        if (thread_suspend(th[i]) != KERN_SUCCESS) continue;
+        arm_thread_state64_t st; mach_msg_type_number_t cnt = ARM_THREAD_STATE64_COUNT;
+        if (thread_get_state(th[i], ARM_THREAD_STATE64, (thread_state_t)&st, &cnt) == KERN_SUCCESS) {
+            fprintf(stderr, "--- thread %u '%s'\n", i, tn);
+            describe("pc", (void *)arm_thread_state64_get_pc(st));
+            describe("lr", (void *)arm_thread_state64_get_lr(st));
+            uintptr_t fp = arm_thread_state64_get_fp(st);
+            for (int k = 0; k < 24 && fp && (fp & 7) == 0; k++) {
+                uint64_t fr[2];
+                if (!safe_read(fp, fr, sizeof(fr))) break;
+                describe("frame", (void *)fr[1]);
+                fp = fr[0];
+            }
+        }
+        thread_resume(th[i]);
+    }
+    for (mach_msg_type_number_t i = 0; i < n; i++) mach_port_deallocate(mach_task_self(), th[i]);
+    vm_deallocate(mach_task_self(), (vm_address_t)th, n * sizeof(*th));
+    fflush(stderr);
+}
+
 static const char *g_frame_dir;
 bool tl_web_tap(float px, float py);
 void tl_web_snapshot(const char *png);
@@ -146,6 +176,7 @@ static void *control_thread(void *arg)
             else if (!strncmp(line, "del", 3)) tl_javaapp_text_delete();
             else if (!strncmp(line, "enter", 5)) tl_javaapp_text_action();
             else if (!strncmp(line, "back", 4)) tl_javaapp_back();
+            else if (!strncmp(line, "stacks", 6)) dump_stacks();
             else if (!strncmp(line, "pause", 5)) tl_javaapp_set_paused(true);
             else if (!strncmp(line, "resume", 6)) tl_javaapp_set_paused(false);
             else if (!strncmp(line, "quit", 4)) {

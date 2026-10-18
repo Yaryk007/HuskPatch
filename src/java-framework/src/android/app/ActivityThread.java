@@ -4,9 +4,48 @@ package android.app;
  *  friends): one per process, answering from what AppRunner set up. */
 public final class ActivityThread {
     private static final ActivityThread sCurrent = new ActivityThread();
+    /* What packers and plugin loaders walk by reflection (AOSP's names): the APK record by package, the bound app's data, the
+       first Application and all of them. AppRunner fills them in at launch; a loader shell may change them. */
+    static volatile ActivityThread sCurrentActivityThread = sCurrent;
+    final android.util.ArrayMap<String, java.lang.ref.WeakReference<LoadedApk>> mPackages = new android.util.ArrayMap<>();
+    final android.util.ArrayMap<String, java.lang.ref.WeakReference<LoadedApk>> mResourcePackages = new android.util.ArrayMap<>();
+    AppBindData mBoundApplication;
+    Application mInitialApplication;
+    final java.util.ArrayList<Application> mAllApplications = new java.util.ArrayList<>();
+    Instrumentation mInstrumentation = new Instrumentation();
+    final android.util.ArrayMap<Object, Object> mProviderMap = new android.util.ArrayMap<>();
+
+    static final class AppBindData {
+        LoadedApk info;
+        String processName;
+        android.content.pm.ApplicationInfo appInfo;
+        java.util.List<android.content.pm.ProviderInfo> providers = new java.util.ArrayList<>();
+        android.content.ComponentName instrumentationName;
+        android.content.res.Configuration config;
+        boolean restrictedBackupMode, persistent;
+    }
+
+    /** Husk: the app's Application was made (AppRunner.run). */
+    public static void huskBind(Application app) {
+        ActivityThread t = sCurrent;
+        LoadedApk apk = LoadedApk.self();
+        apk.huskSetApplication(app);
+        AppBindData d = new AppBindData();
+        d.info = apk;
+        d.appInfo = apk.getApplicationInfo();
+        d.processName = apk.getPackageName();
+        t.mBoundApplication = d;
+        t.mInitialApplication = app;
+        t.mPackages.put(apk.getPackageName(), new java.lang.ref.WeakReference<>(apk));
+        t.mResourcePackages.put(apk.getPackageName(), new java.lang.ref.WeakReference<>(apk));
+        t.huskAddApplication(app);
+    }
+    public Application huskInitialApplication() { return mInitialApplication; }
+    public void huskAddApplication(Application app) { synchronized (mAllApplications) { if (!mAllApplications.contains(app)) mAllApplications.add(app); } }
 
     public static ActivityThread currentActivityThread() { return sCurrent; }
     public static Application currentApplication() { return husk.AppRunner.application(); }
+    public Instrumentation getInstrumentation() { return mInstrumentation; }
     public static String currentPackageName() { Application a = currentApplication(); return a != null ? a.getPackageName() : null; }
     public static String currentOpPackageName() { return currentPackageName(); }
     public static String currentProcessName() { return currentPackageName(); }
@@ -56,9 +95,8 @@ public final class ActivityThread {
     public android.app.Activity getActivity(android.os.IBinder p0) { return null; }
     public android.app.ActivityThread.ActivityClientRecord getActivityClient(android.os.IBinder p0) { return null; }
     public java.util.concurrent.Executor getExecutor() { return null; }
-    public android.app.Instrumentation getInstrumentation() { return null; }
     public android.app.Activity getLastCreatedActivity() { return null; }
-    public android.app.LoadedApk getPackageInfoNoCheck(android.content.pm.ApplicationInfo p0) { return null; }
+    public android.app.LoadedApk getPackageInfoNoCheck(android.content.pm.ApplicationInfo p0) { return LoadedApk.self(); }
     public java.lang.String getProfileFilePath() { return null; }
     public android.content.Context getSystemUiContext() { return null; }
     public android.content.Context getSystemUiContext(int p0) { return null; }
@@ -85,7 +123,7 @@ public final class ActivityThread {
     public boolean isInDensityCompatMode() { return false; }
     public boolean isProfiling() { return false; }
     public void onNewSceneTransitionInfo(android.os.IBinder p0, android.app.ActivityOptions.SceneTransitionInfo p1) {}
-    public android.app.LoadedApk peekPackageInfo(java.lang.String p0, boolean p1) { return null; }
+    public android.app.LoadedApk peekPackageInfo(java.lang.String p0, boolean p1) { return LoadedApk.self().getPackageName().equals(p0) ? LoadedApk.self() : null; }
     public void performRestartActivity(android.app.ActivityThread.ActivityClientRecord p0, boolean p1) {}
     public boolean performResumeActivity(android.app.ActivityThread.ActivityClientRecord p0, boolean p1, java.lang.String p2) { return false; }
     public void registerSplashScreenManager(android.window.SplashScreen.SplashScreenManagerGlobal p0) {}

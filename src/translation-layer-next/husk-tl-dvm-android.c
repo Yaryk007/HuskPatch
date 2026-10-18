@@ -459,6 +459,11 @@ void tl_javaapp_text(const char *utf8) { if (utf8 && *utf8) text_push("t", utf8)
 void tl_javaapp_text_delete(void) { text_push("d", NULL); }
 void tl_javaapp_text_action(void) { text_push("e", NULL); }
 void tl_javaapp_keyboard_closed(void) { text_push("h", NULL); }
+void tl_javaapp_documents_picked(const char *const *paths, int n)
+{
+    for (int i = 0; i < n; i++) if (paths[i] && *paths[i]) text_push("f", paths[i]);
+    text_push("F", NULL);
+}
 void tl_javaapp_set_insets(int l, int t, int r, int b, int ime)
 {
     A.insets[0] = l; A.insets[1] = t; A.insets[2] = r; A.insets[3] = b; A.insets[4] = ime;
@@ -490,6 +495,7 @@ NAT(N_getClipboard)
     return true;
 }
 NAT(N_share) { (void)self; (void)ret; const char *t = tl_jni_string(a[0].l); tl_log_line("javaapp: share %.80s", t ? t : ""); if (A.cfg.share && t) A.cfg.share(t); return true; }
+/* HuskPatch: upstream's pickDocuments(String, boolean) is not registered; husk.Documents uses the broker version above. */
 NAT(N_setOrientation) { (void)self; (void)ret; if (A.cfg.set_orientation) A.cfg.set_orientation(a[0].i); return true; }
 NAT(N_nightMode) { (void)self; (void)a; jvalue v; v.j = A.cfg.night_mode ? 1 : 0; *ret = v; return true; }
 NAT(N_insets)

@@ -51,7 +51,7 @@ jobs:
       - name: Java runtime and Android system files from the official release
         env:
           GH_TOKEN: ${{ github.token }}
-          HUSK_RUNTIME_TAG: "2.0"
+          HUSK_RUNTIME_TAG: "3.0"
         run: |
           gh release download "$HUSK_RUNTIME_TAG" -R Leviidev/Husk -p Husk.ipa -D "$RUNNER_TEMP"
           mkdir -p build "$RUNNER_TEMP/official"

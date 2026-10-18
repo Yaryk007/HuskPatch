@@ -226,14 +226,16 @@ static bool open_platform(size_t host_bytes, char *err, size_t errlen)
         snprintf(err, errlen, "mmap of %zu MiB failed: %s", (size * 2) >> 20, strerror(errno));
         return false;
     }
-    uint8_t *rw = base;
+    /* the executable view first and the writable one after it, as on a phone: code that decodes its own adrp to find a slot
+     * (Mono's PLT entries, tramp-arm64.c) takes the displacement as positive */
+    uint8_t *rw = base + size;
     if (mprotect(rw, size, PROT_READ | PROT_WRITE) != 0) {
         snprintf(err, errlen, "mprotect(RW) failed: %s", strerror(errno));
         munmap(base, size * 2);
         return false;
     }
 #if defined(__APPLE__)
-    mach_vm_address_t alias = (mach_vm_address_t)(uintptr_t)(base + size);
+    mach_vm_address_t alias = (mach_vm_address_t)(uintptr_t)base;
     vm_prot_t cur, max;
     kern_return_t kr = mach_vm_remap(mach_task_self(), &alias, size, 0, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE,
                                      mach_task_self(), (mach_vm_address_t)(uintptr_t)rw, FALSE,

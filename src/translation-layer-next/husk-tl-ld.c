@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "husk-tl-internal.h"
 #include "husk-tl-a64.h"
@@ -46,7 +47,7 @@ enum {
 
 /* ----------------------------------------------------------------- libs */
 
-#define MAX_LIBS 96
+#define MAX_LIBS 512                  /* .NET for Android apps load one library per assembly (osu!: 231) */
 #define MAX_DEPS 48
 
 struct tl_lib {
@@ -219,6 +220,24 @@ static bool fetch_from_apks(const char *name, uint8_t **out, size_t *len)
         return true;
     }
     return false;
+}
+
+/* A library's bytes from the APKs written to dest (the native library directory's empty stand-in for it): an app that reads one of
+ * its libraries as a file (.NET for Android maps its assembly store, libassembly-store.so, from there) gets what Android's
+ * installer would have extracted. */
+bool tl_ld_extract_lib(const char *name, const char *dest)
+{
+    uint8_t *data; size_t n;
+    if (!fetch_from_apks(name, &data, &n)) return false;
+    char tmp[1400]; snprintf(tmp, sizeof(tmp), "%s.husk-tmp", dest);
+    FILE *f = fopen(tmp, "wb");
+    bool ok = f && fwrite(data, 1, n, f) == n;
+    if (f) ok = fclose(f) == 0 && ok;
+    free(data);
+    if (ok) ok = rename(tmp, dest) == 0;
+    if (!ok) unlink(tmp);
+    tl_log_line("ld: %s extracted to the library directory (%zu bytes)%s", name, n, ok ? "" : ": FAILED");
+    return ok;
 }
 
 /* ------------------------------------------------------------- hashing */
@@ -1887,6 +1906,45 @@ static tl_lib *map_library(const char *name, uint8_t *file, size_t flen)
 
 /* ------------------------------------------------------------------ loading */
 
+/*
+ * A .NET (Mono) AOT image keeps its data tables (the metadata blob, method info, unwind info) in .text beside the code, and a
+ * table word can look like an adr or adrp that reaches writable data: rewriting it corrupts the table (Mono then fails decoding
+ * unwind info or class references). Its MonoAotFileInfo says where the code is: the JIT-compiled methods, the PLT and the
+ * trampoline blocks. Only those are patched. Field indexes (u64 words) are those of MonoAotFileInfo in .NET 8-10.
+ */
+static void mono_aot_code_only(tl_lib *L)
+{
+    const elf_sym *s = lib_find(L, "mono_aot_file_info");
+    if (!s) return;
+    uint64_t off = s->st_value - L->base_vaddr;
+    if (off + 38 * 8 > L->npages * PAGE) return;
+    const uint64_t *f = (const uint64_t *)(L->rw + off);
+    uint64_t lo = (uint64_t)(uintptr_t)L->rx, hi = lo + L->npages * PAGE;
+    #define VA(p) ((p) - lo + L->base_vaddr)
+    #define OK(p) ((p) >= lo && (p) < hi)
+    uint64_t js = f[6], je = f[7], plt = f[34], plte = f[35];
+    if (!OK(js) || !OK(je) || js >= je || (plt && (!OK(plt) || !OK(plte) || plt > plte))) {
+        tl_log_line("ld: %s: a Mono AOT image whose file info does not look as expected; patched as any library", L->name);
+        return;
+    }
+    struct { uint64_t start, end; } r[16]; int n = 0;
+    r[n].start = VA(js); r[n].end = VA(je); n++;
+    if (plt && plte > plt) { r[n].start = VA(plt); r[n].end = VA(plte); n++; }
+    for (int k = 26; k <= 31; k++) {                    /* trampoline blocks: each up to the next table the file info names */
+        uint64_t t = f[k];
+        if (!t || !OK(t)) continue;
+        uint64_t end = hi;
+        for (int j = 1; j <= 37; j++) if (OK(f[j]) && f[j] > t && f[j] < end) end = f[j];
+        r[n].start = VA(t); r[n].end = VA(end); n++;
+    }
+    #undef VA
+    #undef OK
+    L->ncode = n;
+    for (int i = 0; i < n; i++) { L->code[i].start = r[i].start; L->code[i].end = r[i].end; }
+    tl_log_line("ld: %s: Mono AOT image: patching only its code (%d ranges, %.1f of %.1f MiB)", L->name, n,
+                (double)(r[0].end - r[0].start) / 1048576.0, (double)(L->npages * PAGE) / 1048576.0);
+}
+
 static bool relocate(tl_lib *L)
 {
     size_t count = 0;
@@ -1910,6 +1968,7 @@ static bool relocate(tl_lib *L)
         }
     }
     size_t t = 0, a = 0, ad = 0, sv = 0;
+    mono_aot_code_only(L);
     patch_image(L, &t, &a, &ad, &sv);
     tl_xmem_flush(L->rx, (L->npages + L->nstub) * PAGE);
     L->state = 2;

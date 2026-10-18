@@ -84,6 +84,10 @@ void husk_java_insert_text(const char *utf8);
 void husk_java_delete_backward(void);
 void husk_java_text_action(void);
 void husk_java_keyboard_closed(void);
+/* The system's file picker for a Java app: the app asks with MIME types (comma-separated) and whether several files may be
+   picked; the host shows its document picker and answers with the paths of copies it made in the app's folder (n = 0: cancelled). */
+void husk_java_set_document_picker(void (*pick)(const char *mime_types, int multiple));
+void husk_java_documents_picked(const char *const *paths, int n);
 void husk_java_key(int android_keycode, int down);
 /* A Java app's WebViews are WKWebViews in a container the host puts right under the app's screen view, the same size, at the screen's
    scale (surface pixels per point). fresh: a new app (1), or the running one shown on a new screen view (0: its pages move over).

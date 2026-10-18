@@ -3,6 +3,7 @@ import SwiftUI
 import UIKit
 import QuartzCore
 import AVFoundation
+import UniformTypeIdentifiers
 
 /// The engines the native runtime drives. Both draw into a CAMetalLayer through ANGLE, and both are one game per
 /// process: an engine cannot be unloaded once it has started.
@@ -515,6 +516,52 @@ final class TLUnityUIView: UIView, UIKeyInput {
         }, { orientation in
             HuskLog.log("tl", "java: the app asks for orientation \(orientation)")
         })
+        husk_java_set_document_picker { mimeTypes, multiple in
+            let types = TLUnityUIView.contentTypes(mimeTypes.map { String(cString: $0) } ?? "*/*")
+            DispatchQueue.main.async {
+                HuskFilePicker.present(types: types, multiple: multiple != 0, onPick: { urls in
+                    // copies in a folder of their own: the app reads them by path, long after the picker's access ends
+                    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("picked/\(UUID().uuidString)", isDirectory: true)
+                    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    var paths: [String] = []
+                    for url in urls {
+                        let scoped = url.startAccessingSecurityScopedResource()
+                        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                        let dest = dir.appendingPathComponent(url.lastPathComponent)
+                        do { try FileManager.default.copyItem(at: url, to: dest); paths.append(dest.path) }
+                        catch { HuskLog.log("tl", "java: could not copy the picked \(url.lastPathComponent): \(error.localizedDescription)") }
+                    }
+                    TLUnityUIView.answerDocumentPicker(paths)
+                }, onCancel: { TLUnityUIView.answerDocumentPicker([]) })
+            }
+        }
+    }
+
+    /// The picker's answer to the Java app (no paths: it was cancelled).
+    private static func answerDocumentPicker(_ paths: [String]) {
+        let c = paths.map { strdup($0) }
+        defer { c.forEach { free($0) } }
+        var ptrs = c.map { UnsafePointer<CChar>($0) }
+        ptrs.withUnsafeMutableBufferPointer { husk_java_documents_picked($0.baseAddress, Int32(paths.count)) }
+    }
+
+    /// The document types for an intent's MIME types ("image/*,application/pdf"); anything unknown opens the picker to all files.
+    private static func contentTypes(_ mimeTypes: String) -> [UTType] {
+        var types: [UTType] = []
+        for m in mimeTypes.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces).lowercased() }) {
+            switch m {
+            case "*/*", "": return [.item]
+            case "image/*": types.append(.image)
+            case "video/*": types.append(.movie)
+            case "audio/*": types.append(.audio)
+            case "text/*": types.append(.text)
+            case "application/*": types.append(.data)
+            default:
+                guard let t = UTType(mimeType: m) else { return [.item] }
+                types.append(t)
+            }
+        }
+        return types.isEmpty ? [.item] : types
     }
 
     /// A Flutter app closed itself (back on its first screen): whatever shows it closes.

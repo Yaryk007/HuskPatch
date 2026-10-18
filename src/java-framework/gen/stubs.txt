@@ -111,7 +111,6 @@ android.app.ForegroundServiceTypeException
 android.app.GameManager
 android.app.GameState
 android.app.GrammaticalInflectionManager
-android.app.Instrumentation
 android.app.InvalidForegroundServiceTypeException
 android.app.LocaleConfig
 android.app.LocaleManager
@@ -682,7 +681,6 @@ android.security.KeyChain
 android.security.KeyChainAliasCallback
 android.security.KeyChainException
 android.security.KeyStoreException
-android.security.NetworkSecurityPolicy
 android.security.identity.AccessControlProfile
 android.security.identity.AccessControlProfileId
 android.security.identity.AlreadyPersonalizedException

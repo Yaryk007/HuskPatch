@@ -19,6 +19,11 @@ public final class ContextImpl extends Context {
     private static AssetManager sAssets;
     private static Resources sResources;
     private final Resources mResources;
+    /* AOSP's names, read by packers and loader shells: the APK record, the process's ActivityThread and a loader of the context's own */
+    final android.app.LoadedApk mPackageInfo = android.app.LoadedApk.self();
+    final android.app.ActivityThread mMainThread = android.app.ActivityThread.currentActivityThread();
+    private ClassLoader mClassLoader;
+    private final String mBasePackageName = Native.packageName(), mOpPackageName = mBasePackageName;
     private Resources.Theme mTheme;
     private int mThemeId;
 
@@ -60,7 +65,7 @@ public final class ContextImpl extends Context {
         }
         return mTheme;
     }
-    @Override public ClassLoader getClassLoader() { return AppRunner.classLoader(); }
+    @Override public ClassLoader getClassLoader() { return mClassLoader != null ? mClassLoader : AppRunner.classLoader(); }
     @Override public String getPackageName() { return Native.packageName(); }
     @Override public ApplicationInfo getApplicationInfo() { return ApplicationInfo.self(); }
     @Override public String getPackageResourcePath() { return getApplicationInfo().sourceDir; }

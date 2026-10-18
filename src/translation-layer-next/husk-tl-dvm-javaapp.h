@@ -31,6 +31,9 @@ typedef struct tl_javaapp_config {
     char *(*get_clipboard)(void);
     void (*share)(const char *utf8);
     void (*set_orientation)(int android_orientation);
+    /* the system's file picker: MIME types comma-separated, as the intent gives them (any type, images, "application/pdf"); the host shows its document
+       picker, copies what was picked into the app's folder and answers with tl_javaapp_documents_picked */
+    void (*pick_documents)(const char *mime_types, int multiple);
     int insets[4];                   /* left, top, right, bottom: the screen's notch and home indicator, in pixels */
     bool night_mode;                 /* the phone is in dark mode: the app's configuration says UI_MODE_NIGHT_YES */
 } tl_javaapp_config;
@@ -47,6 +50,8 @@ void tl_javaapp_text(const char *utf8);
 void tl_javaapp_text_delete(void);
 void tl_javaapp_text_action(void);
 void tl_javaapp_keyboard_closed(void);
+/* The file picker closed: the copies of the n picked files (n = 0: the user cancelled). */
+void tl_javaapp_documents_picked(const char *const *paths, int n);
 /* The screen's insets changed (rotation), or the keyboard now covers ime_bottom pixels of it. */
 void tl_javaapp_set_insets(int left, int top, int right, int bottom, int ime_bottom);
 /* HuskPatch: the window is now w x h pixels; the app lays out again at that size. */

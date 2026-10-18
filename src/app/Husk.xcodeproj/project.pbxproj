@@ -175,6 +175,7 @@
 		E8F0828C2C030D26E891E528 /* HuskDownloadActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25DB1D606431C481B06C7337 /* HuskDownloadActivity.swift */; };
 		EA48FA05D5B2D1C216C8D67E /* husk-tl-jni-http.c in Sources */ = {isa = PBXBuildFile; fileRef = 411E4F9A6C6D4F737E8611B9 /* husk-tl-jni-http.c */; };
 		EADD1EF85B20E4623B582BBF /* husk-tl-jni-godot.c in Sources */ = {isa = PBXBuildFile; fileRef = 9C254830956F062F72F2EF2D /* husk-tl-jni-godot.c */; };
+		EB8EFC5D9D14857E465AC451 /* ConsoleUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0C4510348B108461AB073C /* ConsoleUI.swift */; };
 		EBA260CEB1E1AD0D117CE0D5 /* husk-tl-unity.c in Sources */ = {isa = PBXBuildFile; fileRef = 2C2AAB4C0C1CD9F4CC69E4E8 /* husk-tl-unity.c */; };
 		EBC8548011E6708CF09F8386 /* TLAppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EBCB1A1B865B14C76096042 /* TLAppSettings.swift */; };
 		EBDBC46EF4E65E1DA2342F6B /* DiscoverTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48DA17A30AE793049F358717 /* DiscoverTab.swift */; };
@@ -334,6 +335,7 @@
 		5894E74BA308222C01AEE311 /* JITSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JITSetupView.swift; sourceTree = "<group>"; };
 		5AC541CFA6D712D1A5F2E66B /* HuskDownloadsWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = HuskDownloadsWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5BE31DC5ACA28C0133F828FA /* husk-tl-load.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "husk-tl-load.c"; sourceTree = "<group>"; };
+		5C0C4510348B108461AB073C /* ConsoleUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleUI.swift; sourceTree = "<group>"; };
 		5D01B6F6F9B57E73E4B319F2 /* SaveBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveBackup.swift; sourceTree = "<group>"; };
 		5EB0AF32D5E40E753DDD85DA /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		5EBCB1A1B865B14C76096042 /* TLAppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TLAppSettings.swift; sourceTree = "<group>"; };
@@ -518,6 +520,7 @@
 				E37298010F80517A3057579E /* BundleUnpacker.swift */,
 				71DD2E2A2A0B0AB86EE783DD /* Compat15.swift */,
 				3BDB1E8EEE64E1BBF7D72E2B /* Compatibility.swift */,
+				5C0C4510348B108461AB073C /* ConsoleUI.swift */,
 				6CAD18BA88F03D63EF1F5DF2 /* ContentView.swift */,
 				BD3B1227581E9D6E7C9DCC3E /* CrashReport.swift */,
 				48DA17A30AE793049F358717 /* DiscoverTab.swift */,
@@ -1049,6 +1052,7 @@
 				7FA5D73DC2780CACC7399534 /* BundleUnpacker.swift in Sources */,
 				F3989017EF86D4BD0D4D6DDA /* Compat15.swift in Sources */,
 				13EEBA67589844DCF50836CF /* Compatibility.swift in Sources */,
+				EB8EFC5D9D14857E465AC451 /* ConsoleUI.swift in Sources */,
 				4E1329C07A116B3BE1FDFA7A /* ContentView.swift in Sources */,
 				BE7E302D6F02165C04588DA1 /* CrashReport.swift in Sources */,
 				EBDBC46EF4E65E1DA2342F6B /* DiscoverTab.swift in Sources */,

@@ -20,7 +20,7 @@ public final class Services {
     private static Service create(Manifest.Component c) throws Exception {
         Service s = sRunning.get(c.name);
         if (s == null) {
-            s = (Service) Class.forName(c.name).newInstance();
+            s = (Service) Class.forName(c.name, true, AppRunner.classLoader()).newInstance();
             s.huskAttach(AppRunner.application() != null ? AppRunner.application() : ContextImpl.app());
             sRunning.put(c.name, s);
             s.onCreate();

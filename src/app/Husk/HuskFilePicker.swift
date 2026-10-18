@@ -14,16 +14,18 @@ enum HuskFilePicker {
     private static var live: Coordinator?
 
     static func present(types: [UTType] = [.item], multiple: Bool = true,
-                        onPick: @escaping ([URL]) -> Void, onFail: ((String) -> Void)? = nil) {
-        guard live == nil else { return }
+                        onPick: @escaping ([URL]) -> Void, onFail: ((String) -> Void)? = nil,
+                        onCancel: (() -> Void)? = nil) {
+        guard live == nil else { onCancel?(); return }
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
         picker.allowsMultipleSelection = multiple
-        let coordinator = Coordinator(onPick: onPick)
+        let coordinator = Coordinator(onPick: onPick, onCancel: onCancel)
         picker.delegate = coordinator
         live = coordinator
         guard let top = topController() else {
             live = nil
             onFail?("There is no screen to show the file picker on.")
+            onCancel?()
             return
         }
         HuskLog.log("ui", "file picker: presenting from \(type(of: top))")
@@ -40,17 +42,19 @@ enum HuskFilePicker {
 
     private final class Coordinator: NSObject, UIDocumentPickerDelegate {
         let onPick: ([URL]) -> Void
-        init(onPick: @escaping ([URL]) -> Void) { self.onPick = onPick }
+        let onCancel: (() -> Void)?
+        init(onPick: @escaping ([URL]) -> Void, onCancel: (() -> Void)?) { self.onPick = onPick; self.onCancel = onCancel }
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             HuskLog.log("ui", "file picker: \(urls.count) picked: " + urls.map(\.lastPathComponent).joined(separator: ", "))
             HuskFilePicker.live = nil
-            if !urls.isEmpty { onPick(urls) }
+            if !urls.isEmpty { onPick(urls) } else { onCancel?() }
         }
 
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
             HuskLog.log("ui", "file picker: cancelled")
             HuskFilePicker.live = nil
+            onCancel?()
         }
     }
 }

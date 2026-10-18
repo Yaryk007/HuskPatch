@@ -877,9 +877,19 @@ private final class FileStreamer: NSObject, URLSessionDataDelegate {
         let streamer = FileStreamer(handle: handle)
         let session = URLSession(configuration: .default, delegate: streamer, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate(); try? handle.close() }
-        return try await withCheckedThrowingContinuation { continuation in
-            streamer.continuation = continuation
-            session.dataTask(with: request).resume()
+        do {
+            // Cancelling the download's Task (the Store's stop button) cancels the transfer
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    streamer.continuation = continuation
+                    session.dataTask(with: request).resume()
+                }
+            } onCancel: {
+                session.invalidateAndCancel()
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
         }
     }
 

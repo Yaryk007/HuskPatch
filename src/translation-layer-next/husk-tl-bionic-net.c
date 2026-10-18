@@ -594,8 +594,12 @@ static int b_getifaddrs(guest_ifaddrs **out)
 }
 static void b_freeifaddrs(guest_ifaddrs *g) { while (g) { guest_ifaddrs *n = g->next; free(g); g = n; } }
 
+/* The same 16 bytes on both sides */
+static const struct in6_addr g_in6addr_any = IN6ADDR_ANY_INIT, g_in6addr_loopback = IN6ADDR_LOOPBACK_INIT;
+
 const tl_bionic_entry tl_tab_net[] = {
     TL_WRAP("getifaddrs", b_getifaddrs), TL_WRAP("freeifaddrs", b_freeifaddrs),
+    TL_DATA("in6addr_any", &g_in6addr_any), TL_DATA("in6addr_loopback", &g_in6addr_loopback),
     TL_WRAP("socket", b_socket), TL_WRAP("socketpair", b_socketpair), TL_WRAP("bind", b_bind), TL_WRAP("connect", b_connect),
     TL_WRAP("listen", b_listen), TL_WRAP("accept", b_accept), TL_WRAP("accept4", b_accept4), TL_WRAP("send", b_send),
     TL_WRAP("recv", b_recv), TL_WRAP("sendto", b_sendto), TL_WRAP("__sendto_chk", b___sendto_chk), TL_WRAP("recvfrom", b_recvfrom), TL_WRAP("__recvfrom_chk", b___recvfrom_chk), TL_WRAP("sendmsg", b_sendmsg),

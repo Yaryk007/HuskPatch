@@ -14,8 +14,8 @@
       "name": "Husk",
       "bundleIdentifier": "com.husk.app",
       "developerName": "Leviidev",
-      "subtitle": "Android apps and games on your iPhone.",
-      "localizedDescription": "Husk runs Android apps and games on iPhone. Its Translation Layer runs games made with Unity, Unreal, Godot, cocos2d-x, SDL and more natively, and a full Android system is there for everything else. Husk needs JIT: StikDebug, its built-in StikJIT, TrollStore or a jailbreak.",
+      "subtitle": "Android apps and PS4 games on your iPhone.",
+      "localizedDescription": "Husk runs Android apps and games, and PlayStation 4 games, on iPhone. Its Translation Layer runs games made with Unity, Unreal, Godot, Flutter, cocos2d-x, SDL and more natively, a full Android system is there for everything else, and its PS4 layer plays fake packages and game folders (iOS 17.4+). Husk needs JIT: StikDebug, its built-in StikJIT, TrollStore or a jailbreak.",
       "iconURL": "https://raw.githubusercontent.com/Leviidev/Husk/main/src/app/Husk/Assets.xcassets/AppIcon.appiconset/Icon-Default.png",
       "tintColor": "#5865F2",
       "category": "games",
@@ -29,6 +29,24 @@
         "https://raw.githubusercontent.com/Leviidev/Husk/main/Screenshots/settings.png"
       ],
       "versions": [
+        {
+          "version": "3.0.0",
+          "buildVersion": "129",
+          "date": "2026-10-17T21:30:11Z",
+          "localizedDescription": "## Welcome to Husk 3.0.\nThe biggest Husk release yet: a new console-style look, PlayStation 4 games, and hundreds more Android games.\n## A new Husk\n- Console-style home screen and a new library\n- Light and dark mode\n- An iOS-style setup on your first 3.0 launch\n## PlayStation 4 games (iOS 17.4+, JIT)\n- Add fake packages (.pkg) or game folders with the + button\n- Tested: Bloodborne, Minecraft PS4 Edition, Sonic Mania\n- Shaders kept between launches\n## Android\n- 366 newly working games (488 working in all), see antiweb.lol\n- Unofficial ports: Sonic Robo Blast 2, Ring Racers, NetHack, PokeWilds, Unciv\n- Flutter, Godot 4 and Python games\n## Also\n- Reports can attach your Husk log\n- Runs on iOS 15.5 and later\n- Lots of fixes\n## Known issues\n- Bloodborne runs, but well below full speed\n## Links:\n- Discord: https://discord.gg/xApMHWAzkh\n- X Profile: https://x.com/leviidev01\n- Compatibility list: https://antiweb.lol",
+          "downloadURL": "https://github.com/Leviidev/Husk/releases/download/3.0/Husk.ipa",
+          "size": 140126095,
+          "minOSVersion": "15.5"
+        },
+        {
+          "version": "2.0.0",
+          "buildVersion": "109",
+          "date": "2026-10-11T22:41:49Z",
+          "localizedDescription": "## Welcome to Husk 2.0.\r\nI’ve been working hard over the past few days, and I’m glad to say, Husk 2.0 is out! You’ll enjoy it, a lot.\r\n## What’s new?\r\n- Christmas Decoration\r\n- In-app help feature\r\n- Window manager\r\n- New UI\r\n- Removed downloads tab\r\n## New App Support\r\n- Over 150+ games and apps, now running on Husk.\r\n## Notes:\r\nThank you all for the continuous support, It’s been a good few months, and I’m just amazed at how big Husk got. Thank you so much, and enjoy Husk 2.0. There is more to come.\r\n## Links:\r\n- Discord: https://discord.gg/xApMHWAzkh\r\n- X Profile: https://x.com/leviidev01\r\n- Discord User: @leviidev",
+          "downloadURL": "https://github.com/Leviidev/Husk/releases/download/2.0/Husk.ipa",
+          "size": 110921859,
+          "minOSVersion": "16.0"
+        },
         {
           "version": "1.0.1",
           "date": "2026-10-09T01:17:20Z",
@@ -56,7 +74,7 @@
         {
           "version": "0.8.1",
           "date": "2026-10-07T11:26:52Z",
-          "localizedDescription": "## What\u2019s new?\r\n- TrollStore/Dopamine JIT support (beta)\r\n- Per-app settings for Translation Layer Games\r\n- UI Revamp\r\n- Bug fixes\r\n## Notes:\r\nIf a game is failing to launch now, but it ran in the previous release, clear the data for the app in app settings. Your GlobalSave file may have nothing in it.",
+          "localizedDescription": "## What’s new?\r\n- TrollStore/Dopamine JIT support (beta)\r\n- Per-app settings for Translation Layer Games\r\n- UI Revamp\r\n- Bug fixes\r\n## Notes:\r\nIf a game is failing to launch now, but it ran in the previous release, clear the data for the app in app settings. Your GlobalSave file may have nothing in it.",
           "downloadURL": "https://github.com/Leviidev/Husk/releases/download/0.8.1/Husk.ipa",
           "size": 46728037,
           "minOSVersion": "16.4"
@@ -72,7 +90,7 @@
         {
           "version": "0.7.0",
           "date": "2026-10-06T03:36:02Z",
-          "localizedDescription": "## What\u2019s new?\r\n* Built-in StikJIT: pair on the device and enable JIT without a second app by @danperks in https://github.com/Leviidev/Husk/pull/37\r\n* Wi-Fi support for all games\r\n* UI Revamp: Now fully built with Swift\r\n* Moved Translation layer to the main 4 tabs, replacing the Discover tab\r\n## New game support\r\n* Beach Buggy Racing 2 - 60 FPS\r\n## New Contributors\r\n* @danperks made their first contribution in https://github.com/Leviidev/Husk/pull/37\r\n**Full Changelog**: https://github.com/Leviidev/Husk/compare/0.6.1...0.7.0\r\nDiscord server: https://discord.gg/xApMHWAzkh",
+          "localizedDescription": "## What’s new?\r\n* Built-in StikJIT: pair on the device and enable JIT without a second app by @danperks in https://github.com/Leviidev/Husk/pull/37\r\n* Wi-Fi support for all games\r\n* UI Revamp: Now fully built with Swift\r\n* Moved Translation layer to the main 4 tabs, replacing the Discover tab\r\n## New game support\r\n* Beach Buggy Racing 2 - 60 FPS\r\n## New Contributors\r\n* @danperks made their first contribution in https://github.com/Leviidev/Husk/pull/37\r\n**Full Changelog**: https://github.com/Leviidev/Husk/compare/0.6.1...0.7.0\r\nDiscord server: https://discord.gg/xApMHWAzkh",
           "downloadURL": "https://github.com/Leviidev/Husk/releases/download/0.7.0/Husk.ipa",
           "size": 44993209,
           "minOSVersion": "16.4"
@@ -80,7 +98,7 @@
         {
           "version": "0.6.1",
           "date": "2026-10-05T11:16:32Z",
-          "localizedDescription": "## What\u2019s new?\r\n- WiFi support for Unity Games\r\n- Geometry Dash support\r\n- Minecraft Support\r\n## Notes\r\nThis release only edits the Android Translation Layer. The fully emulated android OS has not been changed this build.",
+          "localizedDescription": "## What’s new?\r\n- WiFi support for Unity Games\r\n- Geometry Dash support\r\n- Minecraft Support\r\n## Notes\r\nThis release only edits the Android Translation Layer. The fully emulated android OS has not been changed this build.",
           "downloadURL": "https://github.com/Leviidev/Husk/releases/download/0.6.1/Husk.ipa",
           "size": 40885768,
           "minOSVersion": "16.4"
@@ -104,7 +122,7 @@
         {
           "version": "0.5.0",
           "date": "2026-10-01T23:46:10Z",
-          "localizedDescription": "## What's Changed\r\n* Fix guest seed packaging and snapshot preservation by @creeper4004 in https://github.com/Leviidev/Husk/pull/29\r\n* Add a light mode (Settings \u203a Appearance) by @hernan0078 in https://github.com/Leviidev/Husk/pull/30\r\n* Fixed UI bugs by @Leviidev \r\n\r\n## New Contributors\r\n* @creeper4004 made their first contribution in https://github.com/Leviidev/Husk/pull/29\r\n* @hernan0078 made their first contribution in https://github.com/Leviidev/Husk/pull/30\r\n\r\n**Full Changelog**: https://github.com/Leviidev/Husk/compare/0.4.1...0.5.0",
+          "localizedDescription": "## What's Changed\r\n* Fix guest seed packaging and snapshot preservation by @creeper4004 in https://github.com/Leviidev/Husk/pull/29\r\n* Add a light mode (Settings › Appearance) by @hernan0078 in https://github.com/Leviidev/Husk/pull/30\r\n* Fixed UI bugs by @Leviidev \r\n\r\n## New Contributors\r\n* @creeper4004 made their first contribution in https://github.com/Leviidev/Husk/pull/29\r\n* @hernan0078 made their first contribution in https://github.com/Leviidev/Husk/pull/30\r\n\r\n**Full Changelog**: https://github.com/Leviidev/Husk/compare/0.4.1...0.5.0",
           "downloadURL": "https://github.com/Leviidev/Husk/releases/download/0.5.0/Husk.ipa",
           "size": 40279923,
           "minOSVersion": "16.4"
