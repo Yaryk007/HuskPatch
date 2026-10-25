@@ -57,7 +57,7 @@
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>3.2.0</string>
+	<string>3.3.0</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -70,7 +70,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>131</string>
+	<string>132</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>stikjit</string>
@@ -96,6 +96,8 @@
 	<string>An Android app you run in HuskPatch asked for the microphone, and you allowed it in Android's permission dialog.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>An Android app you run in HuskPatch asked for your location, and you allowed it in Android's permission dialog.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Android OS mode's media widget shows and controls what is playing in Music.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Android OS mode's Camera saves the photos you take to your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

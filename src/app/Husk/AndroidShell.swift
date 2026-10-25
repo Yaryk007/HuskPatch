@@ -124,7 +124,7 @@ final class AndroidShellState: ObservableObject {
     @Published var open: ShellApp?
     @Published var drawer = false
     @Published var recents = false
-    @Published private(set) var recentApps: [ShellApp] = []
+    @Published var recentApps: [ShellApp] = []
     /// Where Settings and the Play Store are, so Android's back goes back a page in them before it leaves them.
     @Published var settingsPath = NavigationPath()
     @Published var storePath = NavigationPath()
@@ -142,6 +142,20 @@ final class AndroidShellState: ObservableObject {
     @Published var powerMenu = false
     @Published var blackout: Blackout?
     enum Blackout { case off, restarting }
+
+    // Android 16 (Android16*.swift): pulled part-way, the shade and the drawer follow the finger (0...1)
+    @Published var shadePeek: CGFloat = 0
+    @Published var drawerPeek: CGFloat = 0
+    /// Where the icon that opened the app is, so the app grows out of it and shrinks back into it.
+    @Published var launchOrigin: CGPoint?
+    /// "Phone is starting…", split screen and the app picking its other half, the notification prompt.
+    @Published var starting = false
+    @Published var split: SplitPair?
+    @Published var splitPicking: ShellApp?
+    @Published var notificationPrompt: AndroidSystemApp?
+    /// Each app's picture as it was last left, for recents; and the apps started since HuskPatch opened (no splash again).
+    var snapshots: [String: UIImage] = [:]
+    var warmApps: Set<String> = []
 
     func powerOff() {
         withAnimation(.easeOut(duration: 0.25)) { blackout = .off; open = nil; drawer = false; recents = false }
@@ -162,11 +176,11 @@ final class AndroidShellState: ObservableObject {
 
     func openShade(expanded: Bool = false) {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { shade = true; shadeExpanded = expanded }
+        withAnimation(AndroidMotion.spatial) { shade = true; shadeExpanded = expanded }
     }
 
     func closeShade() {
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) { shade = false; shadeExpanded = false }
+        withAnimation(AndroidMotion.spatial) { shade = false; shadeExpanded = false; shadePeek = 0 }
     }
 
     /// The game or app on the translation layer that is open now, if one is.
@@ -177,13 +191,18 @@ final class AndroidShellState: ObservableObject {
 
     func launch(_ app: ShellApp) {
         if case .item(.game(let g)) = app, !canRun(g) { return }
+        TouchTracker.install()
+        if open != app { captureSnapshot() }
         recentApps.removeAll { $0 == app }
         recentApps.insert(app, at: 0)
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+        withAnimation(AndroidMotion.spatial) {
             drawer = false
+            drawerPeek = 0
             recents = false
+            split = nil
             open = app
         }
+        if case .system(let a) = app { askNotificationsIfNeeded(a) }
     }
 
     /// Whether an app on the translation layer can be opened now: JIT is on, and no other app's engine is loaded.
@@ -212,7 +231,10 @@ final class AndroidShellState: ObservableObject {
     }
 
     func home() {
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { open = nil; drawer = false; recents = false; shade = false; shadeExpanded = false }
+        captureSnapshot()
+        withAnimation(AndroidMotion.spatial) {
+            open = nil; split = nil; splitPicking = nil; drawer = false; drawerPeek = 0; recents = false; shade = false; shadeExpanded = false
+        }
     }
 
     /// Android's back: into the app first, when it has a back of its own (an Android app's activities, a Flutter or web
@@ -222,6 +244,9 @@ final class AndroidShellState: ObservableObject {
         if !recents, !drawer, open == .settings, !settingsPath.isEmpty { settingsPath.removeLast(); return }
         if !recents, !drawer, open == .playStore, !storePath.isEmpty { storePath.removeLast(); return }
         if !recents, !drawer, case .system? = open, let appBack, appBack() { return }
+        // split screen: back leaves the split, keeping the top app
+        if !recents, !drawer, split != nil { withAnimation(AndroidMotion.spatial) { split = nil }; return }
+        if recents, splitPicking != nil { withAnimation(AndroidMotion.spatial) { splitPicking = nil }; return }
         if !recents, !drawer, let g = openGame {
             if g.report?.webKind != nil, let web = WebAppRuntime.runtime(for: g) { web.back(); return }
             switch g.screenEngine {
@@ -230,24 +255,28 @@ final class AndroidShellState: ObservableObject {
             default: break
             }
         }
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+        if !recents, !drawer, open != nil { captureSnapshot() }
+        withAnimation(AndroidMotion.spatial) {
             if recents { recents = false } else if drawer { drawer = false } else { open = nil }
         }
     }
 
     func toggleRecents() {
-        withAnimation(.spring(response: 0.36, dampingFraction: 0.84)) { recents.toggle(); drawer = false }
+        if !recents { captureSnapshot() }
+        withAnimation(AndroidMotion.spatial) { recents.toggle(); drawer = false; splitPicking = nil }
     }
 
     func forget(_ app: ShellApp) {
-        withAnimation(.snappy) {
+        snapshots[app.id] = nil
+        withAnimation(AndroidMotion.spatial) {
             recentApps.removeAll { $0 == app }
-            if open == app { open = nil }
+            if open == app { open = nil; split = nil }
         }
     }
 
     func clearRecents() {
-        withAnimation(.snappy) { recentApps.removeAll(); open = nil; recents = false }
+        snapshots.removeAll()
+        withAnimation(AndroidMotion.spatial) { recentApps.removeAll(); open = nil; split = nil; recents = false }
     }
 }
 
@@ -262,6 +291,16 @@ struct AndroidShellView: View {
     @AppStorage(Android13.key) private var a13 = false
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Where the app being opened grows from: the icon tapped, or the middle of the screen.
+    private var launchAnchor: UnitPoint {
+        guard let o = shell.launchOrigin else { return .center }
+        let b = UIScreen.main.bounds
+        return UnitPoint(x: o.x / max(b.width, 1), y: o.y / max(b.height, 1))
+    }
+
+    /// How far the drawer is out: open, or following the finger.
+    private var drawerReveal: CGFloat { shell.drawer ? 1 : shell.drawerPeek }
+
     var body: some View {
         ZStack {
             AndroidWallpaper()
@@ -269,27 +308,40 @@ struct AndroidShellView: View {
             VStack(spacing: 0) {
                 ZStack {
                     Group {
-                        if a13 { Android13HomeScreen() } else { AndroidHomeScreen() }
+                        if a13 { Android13HomeScreen() } else { Android16HomeScreen() }
                     }
-                        .opacity(shell.drawer || shell.open != nil ? 0 : 1)
-                        .scaleEffect(shell.open != nil ? 0.94 : 1)
+                        // Android 16's depth: the home screen sinks back and blurs as the drawer comes up or an app opens,
+                        // and grows into place when the phone is unlocked
+                        .opacity(shell.open != nil ? 0 : 1 - Double(drawerReveal) * (a13 ? 1 : 0.6))
+                        .blur(radius: a13 ? 0 : drawerReveal * 14)
+                        .scaleEffect(shell.locked ? 0.88 : shell.open != nil ? 0.92 : 1 - drawerReveal * 0.06)
+                        .animation(AndroidMotion.spatial, value: shell.locked)
 
-                    if shell.drawer {
+                    if shell.drawer || shell.drawerPeek > 0 {
                         AndroidAppDrawer()
+                            .offset(y: shell.drawer ? 0 : (1 - shell.drawerPeek) * UIScreen.main.bounds.height * 0.6)
+                            .opacity(shell.drawer ? 1 : Double(min(1, shell.drawerPeek * 2)))
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                             .zIndex(1)
                     }
 
-                    if let app = shell.open {
+                    if let pair = shell.split {
+                        AndroidSplitView(pair: pair)
+                            .transition(.opacity.combined(with: .scale(scale: 0.94)))
+                            .zIndex(2)
+                    } else if let app = shell.open {
                         AndroidAppContainer(app: app)
                             .id(app.id)
-                            .transition(.scale(scale: 0.88).combined(with: .opacity))
+                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                            .transition(.asymmetric(
+                                insertion: .scale(scale: 0.12, anchor: launchAnchor).combined(with: .opacity),
+                                removal: .scale(scale: 0.12, anchor: launchAnchor).combined(with: .opacity)))
                             .zIndex(2)
                     }
 
                     if shell.recents {
                         Group {
-                            if a13 { Android13Recents() } else { AndroidRecents() }
+                            if a13 { Android13Recents() } else { Android16Recents() }
                         }
                             .transition(.opacity)
                             .zIndex(3)
@@ -324,24 +376,36 @@ struct AndroidShellView: View {
                 .zIndex(4)
             }
 
-            if shell.shade {
+            if shell.shade || shell.shadePeek > 0 {
                 Group {
                     if a13 { Android13Shade() } else { AndroidShade() }
                 }
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(a13 ? .move(edge: .top).combined(with: .opacity) : .opacity)
                     .zIndex(5)
+            }
+
+            if let app = shell.notificationPrompt, !shell.locked {
+                NotificationPermissionDialog(app: app)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .zIndex(7)
             }
 
             if let notice = shell.notice {
                 AndroidAlertDialog(icon: "exclamationmark.triangle", title: "Can't open this app", message: notice) {
-                    withAnimation(.snappy) { shell.notice = nil }
+                    withAnimation(AndroidMotion.fade) { shell.notice = nil }
                 }
                 .zIndex(8)
             }
 
+            if shell.starting && !shell.locked {
+                PhoneStartingView()
+                    .transition(.opacity)
+                    .zIndex(9)
+            }
+
             if shell.locked {
                 AndroidLockScreen()
-                    .transition(.move(edge: .top))
+                    .transition(.move(edge: .top).combined(with: .opacity))
                     .zIndex(10)
             }
 
@@ -356,10 +420,12 @@ struct AndroidShellView: View {
             }
         }
         .statusBarHidden(true)
-        .animation(.snappy, value: shell.notice)
+        .animation(AndroidMotion.fade, value: shell.notice)
+        .animation(AndroidMotion.spatial, value: shell.split)
         .onReceive(NotificationCenter.default.publisher(for: TLUnityUIView.appClosedItself)) { _ in
             if shell.openGame != nil { shell.home() }
         }
+        .onAppear { TouchTracker.install() }
         .onChange(of: scenePhase) { phase in
             // A phone locks when it is put away: so does this, when HuskPatch goes to the background.
             if phase == .background, AndroidLock.showsLockScreen { shell.locked = true }
@@ -444,109 +510,17 @@ struct LineageWallpaper: View {
     }
 }
 
-/// LineageOS 22's default wallpaper: near black at the top and the bottom, and between them a broad teal sweep that rises
-/// from the left edge to the upper right, brightest along its crest. Its own colours, not the palette's, as a picture is.
+/// LineageOS's default wallpaper (22 and 23 keep 20's): the picture itself, a teal sweep across the dark.
 struct Lineage22Wallpaper: View {
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width, h = geo.size.height
-            ZStack {
-                LinearGradient(colors: [Color(red: 0.04, green: 0.07, blue: 0.08), Color(red: 0.03, green: 0.11, blue: 0.12),
-                                        Color(red: 0.02, green: 0.06, blue: 0.07)],
-                               startPoint: .top, endPoint: .bottom)
-                // the sweep: a wide band, turned, its light falling off to the dark on both sides
-                LinearGradient(stops: [.init(color: .clear, location: 0),
-                                       .init(color: Color(red: 0.05, green: 0.36, blue: 0.38), location: 0.32),
-                                       .init(color: Color(red: 0.16, green: 0.62, blue: 0.6), location: 0.5),
-                                       .init(color: Color(red: 0.07, green: 0.4, blue: 0.42), location: 0.66),
-                                       .init(color: .clear, location: 1)],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(width: w * 2.2, height: h * 0.62)
-                    .rotationEffect(.degrees(-24))
-                    .offset(x: w * 0.1, y: -h * 0.02)
-                    .blur(radius: 18)
-                // the crest's glow at the upper right, and the dark wedge over the top left
-                RadialGradient(colors: [Color(red: 0.3, green: 0.78, blue: 0.74).opacity(0.5), .clear],
-                               center: UnitPoint(x: 0.85, y: 0.22), startRadius: 0, endRadius: w * 0.7)
-                LinearGradient(colors: [Color.black.opacity(0.75), .clear], startPoint: .topLeading, endPoint: UnitPoint(x: 0.6, y: 0.35))
-                LinearGradient(colors: [.clear, Color.black.opacity(0.7)], startPoint: UnitPoint(x: 0.5, y: 0.62), endPoint: .bottom)
-            }
-            .frame(width: w, height: h)
-            .clipped()
-        }
-        .ignoresSafeArea()
-    }
+    var body: some View { Lineage20Wallpaper() }
 }
 
 // MARK: - home screen
 
-private struct AndroidHomeScreen: View {
-    @ObservedObject private var shell = AndroidShellState.shared
-    @ObservedObject private var store = TranslationLayerStore.shared
-    @ObservedObject private var host = AndroidHost.shared
-    @ObservedObject private var jit = JITCoordinator.shared
-
-    /// The home screen's grid: Play Store and Settings, then what Home shows -- the most recent first, then more, to fill
-    /// four rows.
-    private var homeItems: [ShellApp] {
-        let all = Launcher.byRecent(Launcher.items(store: store, host: host))
-        let lead = all.first { $0.lastUsed != nil } ?? all.first
-        let items = lead.map { [$0] + all.filter { $0 != lead } } ?? []
-        return [.playStore, .settings] + items.prefix(14).map(ShellApp.item)
-    }
-
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
-
-    var body: some View {
-        VStack(spacing: 0) {
-            AndroidClockWidget()
-                .padding(.top, 44)
-
-            if !Launcher.jitOn {
-                Button { jit.enable() } label: {
-                    Label(jit.busy ? (jit.status ?? "Turning JIT on…") : "JIT is off — tap to turn on", systemImage: "bolt.fill")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .padding(.horizontal, 16).padding(.vertical, 10)
-                        .background(Color(uiColor: Material3.surfaceContainerHigh), in: Capsule())
-                        .foregroundStyle(Color(uiColor: Material3.onSurface))
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 16)
-            }
-
-            Spacer(minLength: 12)
-
-            LazyVGrid(columns: columns, spacing: 18) {
-                ForEach(homeItems) { app in
-                    AndroidAppIconButton(app: app)
-                }
-            }
-            .padding(.horizontal, 16)
-
-            Spacer(minLength: 16)
-
-            // The dock: five icons straight on the wallpaper, as Trebuchet draws it on LineageOS 22. No search bar, no
-            // drawer button: the drawer is a swipe up.
-            HStack {
-                ForEach(AndroidSystemApp.dock) { a in
-                    AndroidAppIconButton(app: .system(a), showsLabel: false, size: 54)
-                }
-            }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 14)
-        }
-        .contentShape(Rectangle())
-        // Swiping up anywhere on the home screen opens the drawer, as on Android.
-        .gesture(DragGesture(minimumDistance: 30).onEnded { v in
-            if v.translation.height < -80 { withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { shell.drawer = true } }
-            else if v.translation.height > 80 { shell.openShade() }
-        })
-    }
-}
-
 /// The clock widget at the top of the home screen (DeskClock's digital clock): the time large and thin in the wallpaper's
 /// light tone, the date under it. Tapping it opens Clock.
-private struct AndroidClockWidget: View {
+struct AndroidClockWidget: View {
+    var large = true
     @ObservedObject private var shell = AndroidShellState.shared
 
     var body: some View {
@@ -554,7 +528,7 @@ private struct AndroidClockWidget: View {
             Button { shell.launch(.system(.clock)) } label: {
                 VStack(spacing: 2) {
                     Text(AndroidClockFace.time(context.date))
-                        .font(.system(size: 84, weight: .regular, design: .rounded))
+                        .font(.system(size: large ? 84 : 52, weight: .regular, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(Color(uiColor: AndroidClockFace.ink))
                     Text(context.date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
@@ -599,7 +573,10 @@ struct AndroidAppIconButton: View {
     @ObservedObject private var shell = AndroidShellState.shared
 
     var body: some View {
-        Button { shell.launch(app) } label: {
+        Button {
+            shell.launchOrigin = TouchTracker.last
+            shell.launch(app)
+        } label: {
             VStack(spacing: 6) {
                 AndroidAppIcon(app: app, size: size)
                 if showsLabel {
@@ -692,6 +669,7 @@ private struct AndroidAppDrawer: View {
     @ObservedObject private var store = TranslationLayerStore.shared
     @ObservedObject private var host = AndroidHost.shared
     @State private var query = ""
+    @State private var pull: CGFloat = 0
 
     /// Everything in the Library, and the two system apps and Android, by name.
     private var apps: [ShellApp] {
@@ -712,26 +690,43 @@ private struct AndroidAppDrawer: View {
         }
     }
 
+    /// Android 16's drawer: a translucent sheet over the blurred home screen, its handle, the search field, five columns
+    /// (seven in landscape), and a line when a search finds nothing. Pulled down, it follows the finger and goes.
     private var drawer16: some View {
-        VStack(spacing: 0) {
-            Capsule().fill(Color(uiColor: Material3.onSurfaceVariant).opacity(0.4))
-                .frame(width: 36, height: 4)
-                .padding(.top, 10)
-            Material3SearchBar(text: $query, prompt: "Search apps")
-            ScrollView {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 20) {
-                    ForEach(apps) { AndroidAppIconButton(app: $0, size: 54) }
+        GeometryReader { geo in
+            let land = geo.size.width > geo.size.height
+            VStack(spacing: 0) {
+                Capsule().fill(Color(uiColor: Material3.onSurfaceVariant).opacity(0.5))
+                    .frame(width: 36, height: 4)
+                    .padding(.top, 10)
+                    .padding(.bottom, 4)
+                Material3SearchBar(text: $query, prompt: "Search apps")
+                ScrollView {
+                    if apps.isEmpty {
+                        Text("No apps found for \u{201C}\(query)\u{201D}")
+                            .font(.system(size: 15, design: .rounded))
+                            .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(24)
+                    }
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: land ? 7 : 5), spacing: 22) {
+                        ForEach(apps) { AndroidAppIconButton(app: $0, size: 52) }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 24)
+                .scrollDismissesKeyboard(.immediately)
             }
-            .scrollDismissesKeyboard(.immediately)
+            .background(Color(uiColor: Material3.surfaceContainer).opacity(0.86), in: UnevenRoundedRectangleCompat(top: 28))
+            .offset(y: max(0, pull))
+            .gesture(DragGesture(minimumDistance: 20)
+                .onChanged { pull = $0.translation.height }
+                .onEnded { v in
+                    if v.translation.height > 120 || v.predictedEndTranslation.height > 400 { shell.back() }
+                    withAnimation(AndroidMotion.spatial) { pull = 0 }
+                })
         }
-        .background(Color(uiColor: Material3.surfaceContainer).opacity(0.97),
-                    in: UnevenRoundedRectangleCompat(top: 28))
-        .gesture(DragGesture(minimumDistance: 40).onEnded { v in
-            if v.translation.height > 120 { shell.back() }
-        })
     }
 }
 
@@ -750,10 +745,30 @@ private struct UnevenRoundedRectangleCompat: Shape {
 /// game or app on the translation layer runs straight away, full screen over the status bar, with the buttons kept under
 /// it: leaving it (back, home, or the app closing) returns to the launcher, and the app waits, paused, to be opened again.
 /// Apps in Emulation open their page, since Android has to be started for them.
-private struct AndroidAppContainer: View {
+struct AndroidAppContainer: View {
     let app: ShellApp
+    @State private var splash = false
 
     var body: some View {
+        content
+            .overlay {
+                if splash { AndroidSplash(app: app).transition(.opacity) }
+            }
+            .onAppear {
+                // Android 12+'s splash: shown while an app starts cold (not again until HuskPatch is opened anew)
+                let shell = AndroidShellState.shared
+                if case .item(.game) = app { return }
+                guard !shell.warmApps.contains(app.id) else { return }
+                shell.warmApps.insert(app.id)
+                splash = true
+                Task {
+                    try? await Task.sleep(nanoseconds: 450_000_000)
+                    withAnimation(.easeOut(duration: 0.25)) { splash = false }
+                }
+            }
+    }
+
+    @ViewBuilder private var content: some View {
         switch app {
         case .item(.game(let g)):
             // Edge to edge: under the status bar and, in landscape, past the notch and the rounded corners, as an Android game
@@ -779,63 +794,6 @@ private struct AndroidAppContainer: View {
 }
 
 // MARK: - recents
-
-private struct AndroidRecents: View {
-    @ObservedObject private var shell = AndroidShellState.shared
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.35).ignoresSafeArea()
-                .onTapGesture { shell.back() }
-            if shell.recentApps.isEmpty {
-                Text("No recent items")
-                    .font(.system(size: 16, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white)
-            } else {
-                VStack(spacing: 18) {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 18) {
-                            ForEach(shell.recentApps) { app in RecentCard(app: app) }
-                        }
-                        .padding(.horizontal, 40)
-                    }
-                    Button("Clear all") { shell.clearRecents() }
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .padding(.horizontal, 20).padding(.vertical, 10)
-                        .background(Color(uiColor: Material3.surfaceContainerHigh), in: Capsule())
-                        .foregroundStyle(Color(uiColor: Material3.onSurface))
-                }
-            }
-        }
-    }
-}
-
-/// A card in recents: tap to open, swipe up to close.
-private struct RecentCard: View {
-    let app: ShellApp
-    @ObservedObject private var shell = AndroidShellState.shared
-    @State private var drag: CGFloat = 0
-
-    var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                AndroidAppIcon(app: app, size: 26)
-                Text(app.title).font(.system(size: 14, weight: .semibold, design: .rounded)).foregroundStyle(.white)
-            }
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(uiColor: Material3.surfaceContainer))
-                .overlay(AndroidAppIcon(app: app, size: 72))
-                .frame(width: 210, height: 380)
-        }
-        .offset(y: drag)
-        .opacity(1 - Double(min(abs(drag) / 300, 0.8)))
-        .onTapGesture { shell.launch(app) }
-        .gesture(DragGesture().onChanged { drag = min(0, $0.translation.height) }.onEnded { v in
-            if v.translation.height < -140 { shell.forget(app) }
-            withAnimation(.spring) { drag = 0 }
-        })
-    }
-}
 
 // MARK: - navigation buttons
 
@@ -987,9 +945,17 @@ private struct AndroidShadePull: View {
                 .frame(height: 34)
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 10, coordinateSpace: .global).onEnded { v in
-                    if v.translation.height > 40 { shell.openShade(expanded: v.translation.height > 260) }
-                })
+                .gesture(DragGesture(minimumDistance: 6, coordinateSpace: .global)
+                    .onChanged { v in if !Android13.isOn { shell.shadePeek = min(1, max(0, v.translation.height / 320)) } }
+                    .onEnded { v in
+                        let dy = v.translation.height
+                        if dy > 40 || v.predictedEndTranslation.height > 220 {
+                            shell.openShade(expanded: dy > 330)
+                            shell.shadePeek = 0
+                        } else {
+                            withAnimation(AndroidMotion.spatial) { shell.shadePeek = 0 }
+                        }
+                    })
                 .ignoresSafeArea(edges: .top)
             Spacer()
         }

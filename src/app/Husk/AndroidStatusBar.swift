@@ -17,6 +17,10 @@ struct AndroidStatusBar: View {
     /// The lock screen: its own clock is the big one, so the bar's left side is empty, as Android's keyguard has it.
     var hidesClock = false
     @StateObject private var status = DeviceStatus()
+    @ObservedObject private var shell = AndroidShellState.shared
+
+    /// The icons of the notifications waiting, for Android 16's status bar.
+    private var waiting: [String] { shell.notifications.map(\.icon) }
     @Environment(\.colorScheme) private var scheme
 
     private var ink: Color {
@@ -66,6 +70,8 @@ struct AndroidStatusBar: View {
         .padding(.top, 8)
     }
 
+    /// Android 16 (LineageOS 23): the clock and the icons of what is waiting on the left; the connection and the battery --
+    /// green with a bolt while charging -- on the right.
     private func android16(_ now: Date) -> some View {
         let fg = ink
         return HStack(spacing: 6) {
@@ -73,18 +79,14 @@ struct AndroidStatusBar: View {
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .opacity(hidesClock ? 0 : 1)
+            if !hidesClock {
+                ForEach(Array(waiting.prefix(3).enumerated()), id: \.offset) { _, icon in
+                    Image(systemName: icon).font(.system(size: 11, weight: .semibold))
+                }
+            }
             Spacer(minLength: 0)
             connection(fg, size: 13)
-            ZStack(alignment: .leading) {
-                Capsule().fill(fg.opacity(0.35))
-                Capsule().fill(fg).frame(width: 30 * max(status.level, 0.08))
-                Text(status.charging ? "⚡︎" : "\(Int((status.level * 100).rounded()))")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(uiColor: Material3.surface))
-                    .frame(width: 30)
-            }
-            .frame(width: 30, height: 15)
-            .clipShape(Capsule())
+            Android16Battery(level: status.level, charging: status.charging)
         }
         .foregroundStyle(fg)
         .padding(.horizontal, 26)

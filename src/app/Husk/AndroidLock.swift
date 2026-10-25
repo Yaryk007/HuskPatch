@@ -272,8 +272,11 @@ struct AndroidLockScreen: View {
     private func unlock() {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         AndroidLockGuard.shared.succeeded()
+        let first = !AndroidLock.unlockedSinceLaunch
         AndroidLock.unlockedSinceLaunch = true
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) { shell.locked = false; drag = 0; bouncer = false }
+        withAnimation(AndroidMotion.spatial) { shell.locked = false; drag = 0; bouncer = false }
+        // the first unlock after HuskPatch opened (or a restart): Android 16 is still starting its apps
+        if first && !Android13.isOn { shell.showStarting() }
     }
 }
 
@@ -332,9 +335,18 @@ struct AndroidBouncer: View {
             let wait = guardState.secondsLeft(context.date)
             VStack(spacing: 18) {
                 Spacer(minLength: 40)
-                Image(systemName: "lock.fill").font(.system(size: 22, weight: .semibold))
+                if Android13.isOn || title != nil {
+                    Image(systemName: "lock.fill").font(.system(size: 22, weight: .semibold))
+                }
                 Text(title ?? defaultTitle)
                     .font(.system(size: 26, weight: .regular, design: .rounded))
+                // Android 16, before the first unlock since a restart: why the secret is asked for even with a fingerprint
+                if title == nil && !Android13.isOn && !AndroidLock.unlockedSinceLaunch {
+                    Text(restartLine)
+                        .font(.system(size: 15, design: .rounded))
+                        .multilineTextAlignment(.center)
+                        .opacity(0.85)
+                }
                 Text(wait.map { "Try again in \($0) seconds" } ?? message ?? " ")
                     .font(.system(size: 14, weight: .medium, design: .rounded))
                     .foregroundStyle(message != nil || wait != nil ? Color(uiColor: Material3.error) : .clear)
@@ -368,9 +380,17 @@ struct AndroidBouncer: View {
 
     private var defaultTitle: String {
         switch kind {
-        case .pin: return "Enter PIN"
+        case .pin: return Android13.isOn ? "Enter PIN" : "Enter your PIN"
         case .pattern: return "Draw your pattern"
-        default: return "Enter password"
+        default: return Android13.isOn ? "Enter password" : "Enter your password"
+        }
+    }
+
+    private var restartLine: String {
+        switch kind {
+        case .pin: return "PIN required after device restarts"
+        case .pattern: return "Pattern required after device restarts"
+        default: return "Password required after device restarts"
         }
     }
 

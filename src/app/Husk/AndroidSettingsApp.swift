@@ -23,7 +23,7 @@ struct AndroidSettingsApp: View {
 enum AndroidSettingsRoute: Hashable {
     case network, connected, apps, appInfo(String), specialAccess(AndroidSpecialAccess), display, wallpaper, system, navigation,
          jit, performance, library, discover, emulator, input, savedMachine, about, legal,
-         security, screenLock, fingerprint, testing, developer
+         security, screenLock, fingerprint, testing, developer, updates, gestures
 
     /// The pages HuskPatch already had are pushed with their own (Material-styled) navigation bar; the Android pages draw theirs.
     @MainActor @ViewBuilder var destination: some View {
@@ -54,6 +54,8 @@ enum AndroidSettingsRoute: Hashable {
         case .fingerprint: AndroidFingerprintPage().toolbar(.hidden, for: .navigationBar)
         case .testing: AndroidTestingPage(onBack: AndroidSettingsRoute.pop).toolbar(.hidden, for: .navigationBar)
         case .developer: AndroidDeveloperOptionsPage().toolbar(.hidden, for: .navigationBar)
+        case .updates: AndroidSystemUpdatesPage().toolbar(.hidden, for: .navigationBar)
+        case .gestures: AndroidGesturesPage().toolbar(.hidden, for: .navigationBar)
         }
     }
 
@@ -64,7 +66,7 @@ enum AndroidSettingsRoute: Hashable {
 }
 
 /// A row that opens a page.
-private struct SettingsLink: View {
+struct SettingsLink: View {
     let route: AndroidSettingsRoute
     let icon: String
     let tint: UIColor
@@ -430,8 +432,10 @@ private struct AndroidOSSystemPage: View {
                                  summary: a13 ? "Android 13 look on" : nil)
                 }
             }
-            AndroidSettingsGroup(header: "Gestures") {
-                SettingsLink(route: .navigation, icon: "hand.draw.fill", tint: .systemGray, title: "Navigation mode", summary: navigation.title)
+            AndroidSettingsGroup {
+                SettingsLink(route: .gestures, icon: "hand.draw.fill", tint: .systemGray, title: "Gestures", summary: navigation.title)
+                SettingsLink(route: .updates, icon: "arrow.triangle.2.circlepath.circle.fill", tint: .systemTeal, title: "System updates",
+                             summary: "LineageOS 23.2 · HuskPatch \(Bundle.main.version)")
             }
             AndroidSettingsGroup(header: "Multitasking") {
                 AndroidSettingsRow(icon: "macwindow.on.rectangle", tint: .systemPurple, title: "Open apps in windows",
