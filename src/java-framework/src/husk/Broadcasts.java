@@ -11,11 +11,7 @@ public final class Broadcasts {
     private Broadcasts() {}
     public static Intent register(BroadcastReceiver r, IntentFilter f) {
         synchronized (sReceivers) { sReceivers.add(new Object[] { r, f }); }
-        if (f != null && f.hasAction(Intent.ACTION_BATTERY_CHANGED)) {
-            Intent b = new Intent(Intent.ACTION_BATTERY_CHANGED);
-            b.putExtra("level", 100); b.putExtra("scale", 100); b.putExtra("status", 5); b.putExtra("plugged", 0); b.putExtra("present", true);
-            return b;
-        }
+        if (f != null && f.hasAction(Intent.ACTION_BATTERY_CHANGED)) return android.os.BatteryManager.huskStickyIntent();
         return null;
     }
     public static void unregister(BroadcastReceiver r) { synchronized (sReceivers) { for (int i = sReceivers.size() - 1; i >= 0; i--) if (sReceivers.get(i)[0] == r) sReceivers.remove(i); } }

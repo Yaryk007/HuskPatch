@@ -18,6 +18,7 @@
 
 #if TARGET_OS_IOS
 #import <CoreMotion/CoreMotion.h>
+#import <UIKit/UIKit.h>
 #endif
 
 #include "husk-tl-dvm-internal.h"
@@ -160,11 +161,48 @@ NAT(N_read)
     return true;
 }
 
+/* The battery, as BatteryManager and ACTION_BATTERY_CHANGED give it: UIDevice's level and state, read on the main thread (UIKit) and kept
+ * here; the first read turns monitoring on and answers unknown (-1) until the main thread has looked. Not on a Mac (host tests). */
+static _Atomic int g_battery = -1;
+#if TARGET_OS_IOS
+static void battery_update(void)
+{
+    UIDevice *d = UIDevice.currentDevice;
+    float level = d.batteryLevel;
+    if (level < 0) return;
+    int pct = (int)(level * 100 + 0.5f), status, plugged;
+    if (pct < 1) pct = 1;                  /* 0% reads as dead to games */
+    switch (d.batteryState) {
+    case UIDeviceBatteryStateCharging: status = 2; plugged = 1; break;
+    case UIDeviceBatteryStateFull: status = 5; plugged = 1; break;
+    case UIDeviceBatteryStateUnplugged: status = 3; plugged = 0; break;
+    default: status = 1; plugged = 0; break;
+    }
+    atomic_store(&g_battery, pct | status << 8 | plugged << 16);
+}
+#endif
+NAT(N_battery)
+{
+    (void)self; (void)a;
+#if TARGET_OS_IOS
+    static atomic_flag started = ATOMIC_FLAG_INIT;
+    if (!atomic_flag_test_and_set(&started)) dispatch_async(dispatch_get_main_queue(), ^{
+        UIDevice.currentDevice.batteryMonitoringEnabled = YES;
+        battery_update();
+        for (NSNotificationName n in @[ UIDeviceBatteryLevelDidChangeNotification, UIDeviceBatteryStateDidChangeNotification ])
+            [NSNotificationCenter.defaultCenter addObserverForName:n object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { (void)note; battery_update(); }];
+    });
+#endif
+    jvalue v; v.j = 0; v.i = atomic_load(&g_battery); *ret = v;
+    return true;
+}
+
 static const struct { const char *name, *sig; dvm_native_fn fn; } k_sensors[] = {
     { "available", "(I)Z", N_available },
     { "start", "(II)V", N_start },
     { "stop", "(I)V", N_stop },
     { "read", "(I[F)J", N_read },
+    { "battery", "()I", N_battery },
     { NULL, NULL, NULL },
 };
 dvm_native_fn tl_sensors_native(const char *name, const char *sig);

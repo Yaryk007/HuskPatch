@@ -5,6 +5,7 @@
  * linking calls.
  */
 #define _DARWIN_C_SOURCE
+#include <CoreFoundation/CoreFoundation.h>
 #include "husk-tl-bionic.h"
 
 #include <crt_externs.h>
@@ -125,8 +126,34 @@ static const struct { const char *k, *v; } k_props[] = {
     { "ro.system.build.version.sdk", "34" }, { "ro.product.first_api_level", "34" },
 };
 
+/* persist.sys.timezone and persist.sys.locale follow the phone's own (Java's TimeZone already does), so native code and Java agree */
+static char g_host_tz[96], g_host_locale[48];
+static void host_props_fill(void)
+{
+    CFTimeZoneRef tz = CFTimeZoneCopySystem();
+    if (tz) { CFStringRef n = CFTimeZoneGetName(tz); if (n) CFStringGetCString(n, g_host_tz, sizeof(g_host_tz), kCFStringEncodingUTF8); CFRelease(tz); }
+    CFArrayRef langs = CFLocaleCopyPreferredLanguages();
+    if (langs) {
+        if (CFArrayGetCount(langs) > 0) CFStringGetCString((CFStringRef)CFArrayGetValueAtIndex(langs, 0), g_host_locale, sizeof(g_host_locale), kCFStringEncodingUTF8);
+        CFRelease(langs);
+    }
+}
+static const char *host_prop(const char *name)
+{
+    if (strncmp(name, "persist.sys.", 12) && strcmp(name, "ro.product.locale")) return NULL;
+    if (getenv("HXT_NOTZ") && !strcmp(name, "persist.sys.timezone")) return NULL;
+    if (getenv("HXT_NOLOC") && strcmp(name, "persist.sys.timezone")) return NULL;
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, host_props_fill);
+    if (!strcmp(name, "persist.sys.timezone")) return g_host_tz[0] ? g_host_tz : NULL;
+    if (!strcmp(name, "persist.sys.locale") || !strcmp(name, "ro.product.locale")) return g_host_locale[0] ? g_host_locale : NULL;
+    return NULL;
+}
+
 const char *tl_sysprop(const char *name)
 {
+    const char *h = host_prop(name);
+    if (h) return h;
     for (size_t i = 0; i < sizeof(k_props) / sizeof(k_props[0]); i++) if (!strcmp(k_props[i].k, name)) return k_props[i].v;
     return NULL;
 }

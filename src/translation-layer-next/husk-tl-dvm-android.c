@@ -10,6 +10,7 @@
 #include "husk-tl-dvm-javaapp.h"
 #include "husk-tl-dvm-gl.h"
 
+#include <CoreFoundation/CoreFoundation.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -498,6 +499,18 @@ NAT(N_share) { (void)self; (void)ret; const char *t = tl_jni_string(a[0].l); tl_
 /* HuskPatch: upstream's pickDocuments(String, boolean) is not registered; husk.Documents uses the broker version above. */
 NAT(N_setOrientation) { (void)self; (void)ret; if (A.cfg.set_orientation) A.cfg.set_orientation(a[0].i); return true; }
 NAT(N_nightMode) { (void)self; (void)a; jvalue v; v.j = A.cfg.night_mode ? 1 : 0; *ret = v; return true; }
+/* 24-hour time as the phone's region and Settings > General > Date & Time choose it: the locale's hour pattern ("j") has no am/pm */
+NAT(N_is24Hour)
+{
+    (void)self; (void)a;
+    bool h24 = true;
+    CFLocaleRef loc = CFLocaleCopyCurrent();
+    CFStringRef f = loc ? CFDateFormatterCreateDateFormatFromTemplate(NULL, CFSTR("j"), 0, loc) : NULL;
+    if (f) { h24 = CFStringFind(f, CFSTR("a"), 0).location == kCFNotFound; CFRelease(f); }
+    if (loc) CFRelease(loc);
+    jvalue v; v.j = h24; *ret = v;
+    return true;
+}
 NAT(N_insets)
 {
     (void)self; (void)a;
@@ -562,6 +575,7 @@ static const struct { const char *name, *sig; dvm_native_fn fn; } k_native[] = {
     { "setOrientation", "(I)V", N_setOrientation },
     { "insets", "()[I", N_insets },
     { "nightMode", "()Z", N_nightMode },
+    { "is24Hour", "()Z", N_is24Hour },
     { NULL, NULL, NULL },
 };
 

@@ -38,6 +38,7 @@ public final class Native {
     public static native void setOrientation(int androidOrientation);
     public static native int[] insets();
     public static native boolean nightMode();                // the phone is in dark mode                     // left, top, right, bottom of the screen the app must keep clear
+    public static native boolean is24Hour();                 // the phone's clock shows 24-hour time
     public static native void vibrate(long ms);
     public static native void openUrl(String url);
     public static native void exit();

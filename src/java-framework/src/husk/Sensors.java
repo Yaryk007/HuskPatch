@@ -6,4 +6,5 @@ public final class Sensors {
     public static native void start(int type, int periodUs);
     public static native void stop(int type);
     public static native long read(int type, float[] values);   // the latest sample's time (ns), 0 when none
+    public static native int battery();                          // level 0-100 | BatteryManager status << 8 | plugged << 16; -1 when unknown
 }

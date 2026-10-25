@@ -1,7 +1,8 @@
 package android.text.format;
 public class DateFormat {
-    public static boolean is24HourFormat(android.content.Context c) { return true; }
-    public static java.text.DateFormat getTimeFormat(android.content.Context c) { return new java.text.SimpleDateFormat("HH:mm"); }
+    public static boolean is24HourFormat(android.content.Context c) { return husk.Native.is24Hour(); }
+    public static boolean is24HourFormat(android.content.Context c, int userHandle) { return husk.Native.is24Hour(); }
+    public static java.text.DateFormat getTimeFormat(android.content.Context c) { return new java.text.SimpleDateFormat(husk.Native.is24Hour() ? "HH:mm" : "h:mm a"); }
     public static java.text.DateFormat getDateFormat(android.content.Context c) { return java.text.DateFormat.getDateInstance(java.text.DateFormat.SHORT); }
     public static java.text.DateFormat getLongDateFormat(android.content.Context c) { return java.text.DateFormat.getDateInstance(java.text.DateFormat.LONG); }
     public static java.text.DateFormat getMediumDateFormat(android.content.Context c) { return java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM); }
@@ -33,7 +34,6 @@ public class DateFormat {
     public static java.lang.String getTimeFormatString(android.content.Context p0, int p1) { return null; }
     public static boolean hasDesignator(java.lang.CharSequence p0, char p1) { return false; }
     public static boolean hasSeconds(java.lang.CharSequence p0) { return false; }
-    public static boolean is24HourFormat(android.content.Context p0, int p1) { return false; }
     public static boolean is24HourLocale(java.util.Locale p0) { return false; }
     // ---- end of generated members
 }
