@@ -31,7 +31,7 @@ struct AndroidPlayStore: View {
                     .safeAreaInset(edge: .bottom, spacing: 0) { PlayNavigationBar(tab: $tab) }
                 }
             }
-            .background(Color(uiColor: Material3.surface).ignoresSafeArea())
+            .background(Color(uiColor: PlayColors.background).ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: PlayAPI.PlayApp.self) { PlayAppPage(app: $0) }
         }
@@ -51,6 +51,19 @@ struct AndroidPlayStore: View {
 }
 
 // MARK: - pieces
+
+/// Google Play's own colours, not the wallpaper's: its green for Install and the chosen tab, white (or Google's near
+/// black) behind everything.
+enum PlayColors {
+    static let green = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.37, green: 0.82, blue: 0.62, alpha: 1)
+                                                                  : UIColor(red: 0.004, green: 0.53, blue: 0.37, alpha: 1) }
+    static let onGreen = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.0, green: 0.22, blue: 0.14, alpha: 1) : .white }
+    static let greenContainer = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.06, green: 0.3, blue: 0.21, alpha: 1)
+                                                                           : UIColor(red: 0.84, green: 0.95, blue: 0.89, alpha: 1) }
+    static let background = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.075, green: 0.075, blue: 0.08, alpha: 1) : .white }
+    static let bar = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.12, green: 0.12, blue: 0.125, alpha: 1)
+                                                               : UIColor(red: 0.94, green: 0.96, blue: 0.98, alpha: 1) }
+}
 
 /// An app's icon from Play, in the store's rounded square.
 struct PlayIcon: View {
@@ -81,43 +94,19 @@ private struct PlayAvatar: View {
     var body: some View {
         let s = manager.session
         Circle()
-            .fill(Color(uiColor: Material3.primary))
+            .fill(Color(uiColor: PlayColors.green))
             .frame(width: size, height: size)
             .overlay {
                 if s?.isAnonymous == false, let c = s?.email.first {
                     Text(String(c).uppercased())
                         .font(.system(size: size * 0.45, weight: .medium, design: .rounded))
-                        .foregroundStyle(Color(uiColor: Material3.onPrimary))
+                        .foregroundStyle(Color(uiColor: PlayColors.onGreen))
                 } else {
                     Image(systemName: "person.fill")
                         .font(.system(size: size * 0.45))
-                        .foregroundStyle(Color(uiColor: Material3.onPrimary))
+                        .foregroundStyle(Color(uiColor: PlayColors.onGreen))
                 }
             }
-    }
-}
-
-/// Play's triangle, in its four colours.
-private struct PlayLogo: View {
-    var size: CGFloat = 64
-    var body: some View {
-        PlayLogoShape()
-            .fill(AngularGradient(colors: [Color(red: 0.0, green: 0.82, blue: 1.0), Color(red: 0.0, green: 0.94, blue: 0.46),
-                                           Color(red: 1.0, green: 0.82, blue: 0.0), Color(red: 1.0, green: 0.2, blue: 0.33),
-                                           Color(red: 0.0, green: 0.82, blue: 1.0)], center: .init(x: 0.35, y: 0.5)))
-            .frame(width: size * 0.9, height: size)
-    }
-}
-
-private struct PlayLogoShape: Shape {
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: r.minX + r.width * 0.06, y: r.minY))
-        p.addQuadCurve(to: CGPoint(x: r.maxX, y: r.midY), control: CGPoint(x: r.maxX * 0.9, y: r.minY + r.height * 0.32))
-        p.addQuadCurve(to: CGPoint(x: r.minX + r.width * 0.06, y: r.maxY), control: CGPoint(x: r.maxX * 0.9, y: r.maxY - r.height * 0.32))
-        p.addQuadCurve(to: CGPoint(x: r.minX + r.width * 0.06, y: r.minY), control: CGPoint(x: r.minX - r.width * 0.04, y: r.midY))
-        p.closeSubpath()
-        return p
     }
 }
 
@@ -161,7 +150,7 @@ private struct PlayNavigationBar: View {
                     VStack(spacing: 4) {
                         ZStack {
                             Capsule()
-                                .fill(Color(uiColor: Material3.secondaryContainer))
+                                .fill(Color(uiColor: PlayColors.greenContainer))
                                 .frame(width: selected ? 64 : 24, height: 32)
                                 .opacity(selected ? 1 : 0)
                             Image(systemName: selected && t != .search ? icon(t) + ".fill" : icon(t))
@@ -182,7 +171,7 @@ private struct PlayNavigationBar: View {
         }
         .padding(.top, 10)
         .padding(.bottom, 6)
-        .background(Color(uiColor: Material3.surfaceContainer))
+        .background(Color(uiColor: PlayColors.bar))
     }
 }
 
@@ -269,7 +258,7 @@ private struct PlayHomePage: View {
                         .padding(.horizontal, 14)
                         .frame(height: 32)
                         .foregroundStyle(Color(uiColor: on ? Material3.onPrimaryContainer : Material3.onSurfaceVariant))
-                        .background(on ? Color(uiColor: Material3.secondaryContainer) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                        .background(on ? Color(uiColor: PlayColors.greenContainer) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(uiColor: Material3.outlineVariant), lineWidth: on ? 0 : 1))
                     }
                     .buttonStyle(.plain)
@@ -318,7 +307,7 @@ private struct PlayHomePage: View {
         VStack(alignment: .leading, spacing: 10) {
             AsyncImage(url: URL(string: app.screenshotURLs.first ?? app.iconURL ?? "")) { phase in
                 if let image = phase.image { image.resizable().aspectRatio(contentMode: .fill) }
-                else { Color(uiColor: Material3.primaryContainer) }
+                else { Color(uiColor: PlayColors.greenContainer) }
             }
             .frame(height: 190)
             .frame(maxWidth: .infinity)
@@ -450,7 +439,7 @@ private struct PlayInstallButton: View {
         let progress = manager.downloadProgress[app.id]
         if progress != nil || manager.installingPackages.contains(app.id) {
             VStack(alignment: .leading, spacing: 6) {
-                ProgressView(value: progress ?? 0.05).tint(Color(uiColor: Material3.primary))
+                ProgressView(value: progress ?? 0.05).tint(Color(uiColor: PlayColors.green))
                 if !compact {
                     Text("Downloading… \(Int((progress ?? 0) * 100))%").font(.system(size: 13, design: .rounded))
                         .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
@@ -468,11 +457,11 @@ private struct PlayInstallButton: View {
     private func label(_ text: String) -> some View {
         Text(text)
             .font(.system(size: compact ? 14 : 15, weight: .medium, design: .rounded))
-            .foregroundStyle(Color(uiColor: Material3.onPrimary))
+            .foregroundStyle(Color(uiColor: PlayColors.onGreen))
             .padding(.horizontal, compact ? 18 : 0)
             .frame(maxWidth: compact ? nil : .infinity)
             .frame(height: compact ? 34 : 44)
-            .background(Color(uiColor: Material3.primary), in: Capsule())
+            .background(Color(uiColor: PlayColors.green), in: Capsule())
     }
 }
 
@@ -507,7 +496,7 @@ private struct PlayAppPage: View {
                             Text(app.title).font(.system(size: 22, weight: .medium, design: .rounded))
                                 .foregroundStyle(Color(uiColor: Material3.onSurface)).lineLimit(2)
                             Text(app.developer).font(.system(size: 15, weight: .medium, design: .rounded))
-                                .foregroundStyle(Color(uiColor: Material3.primary)).lineLimit(1)
+                                .foregroundStyle(Color(uiColor: PlayColors.green)).lineLimit(1)
                             if !app.isFree {
                                 Text(app.formattedPrice).font(.system(size: 13, design: .rounded))
                                     .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
@@ -560,7 +549,7 @@ private struct PlayAppPage: View {
                 .padding(.bottom, 32)
             }
         }
-        .background(Color(uiColor: Material3.surface).ignoresSafeArea())
+        .background(Color(uiColor: PlayColors.background).ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
     }
 
@@ -704,11 +693,11 @@ private struct PlayYouPage: View {
                                 }
                                 Spacer()
                                 Text("Open").font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundStyle(Color(uiColor: Material3.primary))
+                                    .foregroundStyle(Color(uiColor: PlayColors.green))
                             }
                             .padding(.horizontal, 16)
                             .frame(minHeight: 64)
-                            .background(Color(uiColor: Material3.surfaceContainer))
+                            .background(Color(uiColor: PlayColors.bar))
                         }
                         .buttonStyle(AndroidRippleStyle())
                     }
@@ -743,7 +732,7 @@ private struct PlaySignInPage: View {
     var body: some View {
         VStack(spacing: 18) {
             Spacer()
-            PlayLogo(size: 72)
+            GooglePlayLogo().frame(width: 64, height: 70)
             Text("Google Play").font(.system(size: 28, design: .rounded))
                 .foregroundStyle(Color(uiColor: Material3.onSurface))
             Text("Sign in to find the latest Android apps and games, or browse with a guest account.")
@@ -758,15 +747,15 @@ private struct PlaySignInPage: View {
                 VStack(spacing: 10) {
                     Button { showSignIn = true } label: {
                         Text("Sign in").font(.system(size: 16, weight: .medium, design: .rounded))
-                            .foregroundStyle(Color(uiColor: Material3.onPrimary))
+                            .foregroundStyle(Color(uiColor: PlayColors.onGreen))
                             .frame(maxWidth: .infinity).frame(height: 48)
-                            .background(Color(uiColor: Material3.primary), in: Capsule())
+                            .background(Color(uiColor: PlayColors.green), in: Capsule())
                     }
                     Button { Task { await manager.signInAsGuest() } } label: {
                         Text("Use a guest account").font(.system(size: 16, weight: .medium, design: .rounded))
                             .foregroundStyle(Color(uiColor: Material3.onPrimaryContainer))
                             .frame(maxWidth: .infinity).frame(height: 48)
-                            .background(Color(uiColor: Material3.secondaryContainer), in: Capsule())
+                            .background(Color(uiColor: PlayColors.greenContainer), in: Capsule())
                     }
                 }
                 .buttonStyle(.plain)

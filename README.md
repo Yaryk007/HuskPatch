@@ -2,7 +2,7 @@
 
 The text bellow is not what huskpatch was used to be, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed, thank you guys for the support, i might still make updates but i will focus on my other projects more.
 
-> **HuskPatch 3.3.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (Husk 3.0 and after: Compatibility
+> **HuskPatch 3.4.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (Husk 3.0 and after: Compatibility
 > List, Godot 4, OBB expansion files, CJK fonts, .NET for Android, battery/clock/locale following the phone...) with these additions:
 >
 > - **Android OS mode** (Settings › Appearance › Android OS): HuskPatch's interface replaced by LineageOS 22's (Android
@@ -25,6 +25,12 @@ The text bellow is not what huskpatch was used to be, it was a fork of husk to f
 >     menu (App info, Split screen, Screenshot, Clear) and real split screen; apps that grow out of their icon with a
 >     splash; "Phone is starting…" after the first unlock; the notification permission prompt; System updates (checks
 >     HuskPatch's releases) and Gestures in Settings; the shade and drawer follow your finger.
+>   - **Make it yours** (3.4): colours from the wallpaper as on Android (tonal spot by default; vibrant or monochrome),
+>     your own photo as the wallpaper, icon shapes (circle, squircle, rounded square, teardrop, square); arrange the home
+>     screen -- hold an app to move it, drop it on another for a folder, on the dock, or on Remove; "Add to Home screen"
+>     from the drawer; 4 or 5 columns, 4 to 6 rows -- edit Quick Settings (reorder, remove, add, large or icon tiles),
+>     status bar options (battery %, seconds, notification icons). Google Play looks like Google Play. Apps open out
+>     of their icon as on Android 16, and the shade and drawer open from easier swipes.
 >   - **Android 13 look** (developer toggle: tap Build number seven times, then Settings › System › Developer options,
 >     or Settings › Testing): LineageOS 20 copied from the real thing -- its wallpaper and Monet colours, its app icons,
 >     lock screen, shade and Quick Settings (pill tiles, brightness slider, pages of tiles, power menu with Power off,

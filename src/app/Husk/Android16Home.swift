@@ -50,22 +50,205 @@ struct HomeWidgetItem: Codable, Identifiable, Equatable {
     }
 }
 
-/// The widgets on the home screen, kept in the preferences.
+/// An app or a folder of apps on the home screen. Apps are kept by their ShellApp id.
+struct HomeEntry: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var app: String?
+    var folder: Folder?
+
+    struct Folder: Codable, Equatable {
+        var name: String
+        var apps: [String]
+    }
+
+    static func app(_ id: String) -> HomeEntry { HomeEntry(app: id) }
+}
+
+/// What is on the home screen -- each page's widgets and apps (and folders), the dock, the grid's size -- kept in the
+/// preferences as it is arranged.
 @MainActor
 final class HomeLayout: ObservableObject {
     static let shared = HomeLayout()
-    private static let key = "huskpatch.home.widgets"
+    private static let widgetsKey = "huskpatch.home.widgets"
+    private static let appsKey = "huskpatch.home.apps"
+    private static let dockKey = "huskpatch.home.dock"
+    private static let seenKey = "huskpatch.home.seen"
+    static let columnsKey = "huskpatch.home.columns"
+    static let rowsKey = "huskpatch.home.rows"
+    static let addNewKey = "huskpatch.home.addNew"
 
-    @Published var widgets: [HomeWidgetItem] {
-        didSet { if let d = try? JSONEncoder().encode(widgets) { UserDefaults.standard.set(d, forKey: Self.key) } }
-    }
+    @Published var widgets: [HomeWidgetItem] { didSet { save(widgets, Self.widgetsKey) } }
+    @Published var pageApps: [[HomeEntry]] { didSet { save(pageApps, Self.appsKey) } }
+    @Published var dock: [String] { didSet { save(dock, Self.dockKey) } }
 
     init() {
-        widgets = UserDefaults.standard.data(forKey: Self.key).flatMap { try? JSONDecoder().decode([HomeWidgetItem].self, from: $0) }
+        let d = UserDefaults.standard
+        widgets = d.data(forKey: Self.widgetsKey).flatMap { try? JSONDecoder().decode([HomeWidgetItem].self, from: $0) }
             ?? [HomeWidgetItem(kind: .clock, page: 0, cols: 4, rows: 2), HomeWidgetItem(kind: .media, page: 1, cols: 4, rows: 1)]
+        pageApps = d.data(forKey: Self.appsKey).flatMap { try? JSONDecoder().decode([[HomeEntry]].self, from: $0) }
+            ?? [[.app(ShellApp.playStore.id)], [.app(ShellApp.system(.files).id), .app(ShellApp.system(.clock).id), .app(ShellApp.settings.id)]]
+        dock = d.data(forKey: Self.dockKey).flatMap { try? JSONDecoder().decode([String].self, from: $0) }
+            ?? AndroidSystemApp.dock.map { ShellApp.system($0).id }
     }
 
-    var pages: Int { max(2, (widgets.map(\.page).max() ?? 0) + 1) }
+    private func save<T: Encodable>(_ value: T, _ key: String) {
+        if let data = try? JSONEncoder().encode(value) { UserDefaults.standard.set(data, forKey: key) }
+    }
+
+    var columns: Int { min(5, max(4, UserDefaults.standard.object(forKey: Self.columnsKey) as? Int ?? 4)) }
+    var rows: Int { min(6, max(4, UserDefaults.standard.object(forKey: Self.rowsKey) as? Int ?? 5)) }
+
+    var pages: Int { max(2, (widgets.map(\.page).max() ?? 0) + 1, pageApps.count) }
+
+    func apps(on page: Int) -> [HomeEntry] { page < pageApps.count ? pageApps[page] : [] }
+
+    /// How many apps fit on a page: the grid's rows, less the rows its widgets take.
+    func capacity(of page: Int) -> Int {
+        let widgetRows = widgets.filter { $0.page == page }.reduce(0) { $0 + $1.rows }
+        return max(columns, (rows - widgetRows) * columns)
+    }
+
+    private func ensurePage(_ page: Int) {
+        while pageApps.count <= page { pageApps.append([]) }
+    }
+
+    func contains(_ app: String) -> Bool {
+        dock.contains(app) || pageApps.contains { $0.contains { $0.app == app || ($0.folder?.apps.contains(app) ?? false) } }
+    }
+
+    /// Put an app on the first page with room (as installing an app or "Add to Home screen" does).
+    func addToHome(_ app: String) {
+        guard !contains(app) else { return }
+        var page = 0
+        while apps(on: page).count >= capacity(of: page) { page += 1 }
+        ensurePage(page)
+        withAnimation(AndroidMotion.spatial) { pageApps[page].append(.app(app)) }
+    }
+
+    /// Apps installed since the home screen last looked go on it, as Android's "Add new apps to Home screen" does.
+    func addNewApps(_ all: [ShellApp]) {
+        let d = UserDefaults.standard
+        let seen = Set(d.stringArray(forKey: Self.seenKey) ?? [])
+        let ids = all.compactMap { app -> String? in if case .item = app { return app.id }; return nil }
+        if seen.isEmpty {
+            // first time: the most recent apps, as the old home screen had them
+            for id in ids.prefix(11) { addToHome(id) }
+        } else if d.object(forKey: Self.addNewKey) as? Bool ?? true {
+            for id in ids where !seen.contains(id) { addToHome(id) }
+        }
+        d.set(Array(seen.union(ids)), forKey: Self.seenKey)
+    }
+
+    /// Take an entry (or an app out of a folder) off the home screen.
+    func remove(entry id: UUID) {
+        withAnimation(AndroidMotion.spatial) {
+            for p in pageApps.indices { pageApps[p].removeAll { $0.id == id } }
+        }
+    }
+
+    func removeFromDock(_ app: String) { withAnimation(AndroidMotion.spatial) { dock.removeAll { $0 == app } } }
+
+    func removeFromFolder(_ folderID: UUID, app: String) {
+        for p in pageApps.indices {
+            guard let i = pageApps[p].firstIndex(where: { $0.id == folderID }), var folder = pageApps[p][i].folder else { continue }
+            folder.apps.removeAll { $0 == app }
+            withAnimation(AndroidMotion.spatial) {
+                if folder.apps.count <= 1 {
+                    // a folder of one is just that app
+                    pageApps[p][i] = folder.apps.first.map { HomeEntry.app($0) } ?? pageApps[p][i]
+                    if folder.apps.isEmpty { pageApps[p].remove(at: i) }
+                } else {
+                    pageApps[p][i].folder = folder
+                }
+                pageApps[p].insert(.app(app), at: min(i + 1, pageApps[p].count))
+            }
+            return
+        }
+    }
+
+    func rename(_ folderID: UUID, to name: String) {
+        for p in pageApps.indices {
+            if let i = pageApps[p].firstIndex(where: { $0.id == folderID }) { pageApps[p][i].folder?.name = name }
+        }
+    }
+
+    /// Where an entry is.
+    func locate(_ id: UUID) -> (page: Int, index: Int)? {
+        for p in pageApps.indices { if let i = pageApps[p].firstIndex(where: { $0.id == id }) { return (p, i) } }
+        return nil
+    }
+
+    /// Move an entry to a place on a page.
+    func move(_ id: UUID, to page: Int, index: Int) {
+        guard let from = locate(id) else { return }
+        ensurePage(page)
+        withAnimation(AndroidMotion.spatial) {
+            let entry = pageApps[from.page].remove(at: from.index)
+            pageApps[page].insert(entry, at: min(max(0, index), pageApps[page].count))
+        }
+    }
+
+    /// Drop an app onto another app or a folder: a new folder, or one more app in it.
+    func merge(_ id: UUID, into target: UUID) {
+        guard id != target, let from = locate(id), let to = locate(target) else { return }
+        let moving = pageApps[from.page][from.index]
+        let movingApps = moving.app.map { [$0] } ?? moving.folder?.apps ?? []
+        withAnimation(AndroidMotion.spatial) {
+            var t = pageApps[to.page][to.index]
+            if var folder = t.folder {
+                folder.apps += movingApps
+                t.folder = folder
+            } else if let app = t.app {
+                t = HomeEntry(id: t.id, folder: .init(name: "Folder", apps: [app] + movingApps))
+            }
+            pageApps[to.page][to.index] = t
+            if let again = locate(id) { pageApps[again.page].remove(at: again.index) }
+        }
+    }
+
+    /// An app from the page into the dock, at a place (the dock holds five).
+    func moveToDock(_ id: UUID, index: Int) {
+        guard let from = locate(id), let app = pageApps[from.page][from.index].app else { return }
+        withAnimation(AndroidMotion.spatial) {
+            pageApps[from.page].remove(at: from.index)
+            dock.insert(app, at: min(max(0, index), dock.count))
+            if dock.count > 5 {
+                // the last one goes back to the page
+                let out = dock.removeLast()
+                pageApps[from.page].insert(.app(out), at: min(from.index, pageApps[from.page].count))
+            }
+        }
+    }
+
+    /// An app from the dock onto a page.
+    func moveFromDock(_ app: String, to page: Int, index: Int) {
+        ensurePage(page)
+        withAnimation(AndroidMotion.spatial) {
+            dock.removeAll { $0 == app }
+            pageApps[page].insert(.app(app), at: min(max(0, index), pageApps[page].count))
+        }
+    }
+
+    func moveInDock(_ app: String, to index: Int) {
+        guard let from = dock.firstIndex(of: app) else { return }
+        withAnimation(AndroidMotion.spatial) {
+            dock.remove(at: from)
+            dock.insert(app, at: min(max(0, index), dock.count))
+        }
+    }
+
+    func reset() {
+        let d = UserDefaults.standard
+        for key in [Self.widgetsKey, Self.appsKey, Self.dockKey, Self.seenKey] { d.removeObject(forKey: key) }
+        let fresh = HomeLayout()
+        withAnimation(AndroidMotion.spatial) {
+            widgets = fresh.widgets
+            pageApps = fresh.pageApps
+            dock = fresh.dock
+        }
+    }
+
+    // MARK: widgets
 
     func add(_ kind: HomeWidgetItem.Kind, page: Int) {
         // a full page (four rows of widgets) puts the new one on the next
@@ -84,6 +267,14 @@ final class HomeLayout: ObservableObject {
             widgets[i].cols = min(4, max(widgets[i].kind.minCols, cols))
             widgets[i].rows = min(4, max(1, rows))
         }
+    }
+}
+
+extension AndroidShellState {
+    /// Every app the shell knows: the library's, Android, and the system apps.
+    static func catalog(store: TranslationLayerStore, host: AndroidHost) -> [ShellApp] {
+        Launcher.items(store: store, host: host).map(ShellApp.item) + [.item(.android), .settings, .playStore]
+            + AndroidSystemApp.allCases.map(ShellApp.system)
     }
 }
 
@@ -280,42 +471,52 @@ struct Android16HomeScreen: View {
     @ObservedObject private var jit = JITCoordinator.shared
     @AppStorage(HomeSettings.swipeDownKey) private var swipeDown = true
     @AppStorage(HomeSettings.doubleTapKey) private var doubleTap = true
+    @AppStorage(HomeLayout.columnsKey) private var columns = 4
 
     @State private var page = 0
     @State private var dragX: CGFloat = 0
     @State private var axis: Axis?
-    @State private var touch: CGPoint = .zero
     @State private var menuAt: CGPoint?
     @State private var picker = false
     @State private var settings = false
     @State private var editing: UUID?
     @State private var dotsVisible = false
+    /// An app being moved (held, then dragged), where the finger is, and over which part of the screen.
+    @State private var dragging: HomeDrag?
+    /// The menu of an app held without moving; a folder that is open.
+    @State private var iconMenu: IconMenuTarget?
+    @State private var openFolder: UUID?
+    @State private var gridFrames: [Int: CGRect] = [:]
 
-    /// The first page's apps: Play Store and what Home shows, most recent first.
-    private var firstPageApps: [ShellApp] {
-        let all = Launcher.byRecent(Launcher.items(store: store, host: host))
-        let lead = all.first { $0.lastUsed != nil } ?? all.first
-        let items = lead.map { [$0] + all.filter { $0 != lead } } ?? []
-        return [.playStore] + items.prefix(11).map(ShellApp.item)
-    }
-
-    private func apps(on page: Int) -> [ShellApp] {
-        switch page {
-        case 0: return firstPageApps
-        case 1: return [.system(.files), .system(.clock), .settings]
-        default: return []
-        }
+    private var catalog: [String: ShellApp] {
+        Dictionary(AndroidShellState.catalog(store: store, host: host).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
     }
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width, h = geo.size.height
             let land = w > h
+            let apps = catalog
             ZStack(alignment: .top) {
+                // the empty wallpaper: long-press for the menu, double-tap to sleep, tap to leave editing
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        if doubleTap, editing == nil, menuAt == nil { shell.powerOff() }
+                    }
+                    .onTapGesture { dismissAll() }
+                    .onLongPressGesture(minimumDuration: 0.45) {
+                        guard editing == nil, dragging == nil else { return }
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        let origin = geo.frame(in: .global).origin
+                        let at = TouchTracker.last.map { CGPoint(x: $0.x - origin.x, y: $0.y - origin.y) } ?? CGPoint(x: w / 2, y: h / 2)
+                        withAnimation(AndroidMotion.bouncy) { menuAt = at }
+                    }
+
                 // the pages, side by side
                 HStack(spacing: 0) {
                     ForEach(0..<layout.pages, id: \.self) { p in
-                        pageView(p, width: w, land: land)
+                        pageView(p, width: w, land: land, apps: apps)
                             .frame(width: w)
                     }
                 }
@@ -326,17 +527,47 @@ struct Android16HomeScreen: View {
                 VStack(spacing: 10) {
                     Spacer()
                     pageDots
-                    dock(land: land)
+                    dock(land: land, width: w, apps: apps)
                 }
 
-                if editing != nil {
+                if editing != nil || dragging != nil {
                     Text("✕  Remove")
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 20).frame(height: 44)
+                        .background((dragging?.overRemove ?? false) ? Color.red.opacity(0.55) : Color.clear, in: Capsule())
                         .overlay(Capsule().stroke(Color.white.opacity(0.9), lineWidth: 2))
                         .padding(.top, 34)
                         .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+
+                // the app being moved, under the finger
+                if let d = dragging, let app = apps[d.app] {
+                    AndroidAppIcon(app: app, size: 62)
+                        .scaleEffect(1.12)
+                        .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
+                        .position(d.location)
+                        .allowsHitTesting(false)
+                        .zIndex(5)
+                }
+
+                if let target = iconMenu, let app = apps[target.app] {
+                    IconMenu(target: target, app: app, size: geo.size) { action in
+                        withAnimation(AndroidMotion.spatialFast) { iconMenu = nil }
+                        switch action {
+                        case .info: openInfo(app)
+                        case .remove:
+                            if let id = target.entry { layout.remove(entry: id) } else { layout.removeFromDock(target.app) }
+                        }
+                    } dismiss: { withAnimation(AndroidMotion.spatialFast) { iconMenu = nil } }
+                    .transition(.scale(scale: 0.85, anchor: UnitPoint(x: target.at.x / max(w, 1), y: target.at.y / max(h, 1))).combined(with: .opacity))
+                    .zIndex(4)
+                }
+
+                if let id = openFolder, let loc = layout.locate(id), let folder = layout.pageApps[loc.page][loc.index].folder {
+                    FolderPanel(id: id, folder: folder, apps: apps) { withAnimation(AndroidMotion.spatial) { openFolder = nil } }
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                        .zIndex(6)
                 }
 
                 if let at = menuAt {
@@ -355,21 +586,10 @@ struct Android16HomeScreen: View {
                     .zIndex(2)
                 }
             }
+            .coordinateSpace(name: "home")
             .contentShape(Rectangle())
-            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { touch = $0.startLocation })
-            .gesture(pageDrag(width: w, height: h))
-            .onLongPressGesture(minimumDuration: 0.45) {
-                guard editing == nil else { return }
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                withAnimation(AndroidMotion.bouncy) { menuAt = touch }
-            }
-            .onTapGesture(count: 2) {
-                if doubleTap, editing == nil, menuAt == nil { shell.powerOff() }
-            }
-            .onTapGesture {
-                if editing != nil { withAnimation(AndroidMotion.spatial) { editing = nil } }
-                if menuAt != nil { withAnimation(AndroidMotion.spatialFast) { menuAt = nil } }
-            }
+            // swipes anywhere -- over icons and widgets too -- move between pages, open the drawer or the shade
+            .simultaneousGesture(pageDrag(width: w, height: h))
             .overlay {
                 if picker {
                     WidgetPicker(page: page) { withAnimation(AndroidMotion.spatial) { picker = false } }
@@ -381,7 +601,23 @@ struct Android16HomeScreen: View {
                 }
             }
             .onChange(of: layout.pages) { n in if page >= n { page = n - 1 } }
+            .onAppear { layout.addNewApps(AndroidShellState.catalog(store: store, host: host)) }
+            .onChange(of: store.apps.count) { _ in layout.addNewApps(AndroidShellState.catalog(store: store, host: host)) }
         }
+    }
+
+    private func dismissAll() {
+        withAnimation(AndroidMotion.spatial) {
+            editing = nil
+            menuAt = nil
+            iconMenu = nil
+        }
+    }
+
+    private func openInfo(_ app: ShellApp) {
+        if case .item(.game(let g)) = app { shell.settingsPath.append(AndroidSettingsRoute.appInfo(g.id)) }
+        else { shell.settingsPath.append(AndroidSettingsRoute.apps) }
+        shell.launch(.settings)
     }
 
     private var pageDots: some View {
@@ -391,22 +627,28 @@ struct Android16HomeScreen: View {
                     .frame(width: p == page ? 14 : 6, height: 6)
             }
         }
-        .opacity(dotsVisible || editing != nil ? 1 : 0)
+        .opacity(dotsVisible || editing != nil || dragging != nil ? 1 : 0)
         .animation(AndroidMotion.spatial, value: page)
         .animation(AndroidMotion.fade, value: dotsVisible)
     }
 
-    private func dock(land: Bool) -> some View {
+    private func dock(land: Bool, width: CGFloat, apps: [String: ShellApp]) -> some View {
         HStack {
-            ForEach(AndroidSystemApp.dock) { a in
-                AndroidAppIconButton(app: .system(a), showsLabel: false, size: 54)
+            ForEach(layout.dock, id: \.self) { id in
+                if let app = apps[id] {
+                    HomeIcon(app: app, showsLabel: false, size: 54, hidden: dragging?.app == id && dragging?.entry == nil,
+                             onLongPress: { at in showMenu(HomeDrag(app: id, entry: nil, location: at)) },
+                             onDrag: { at in drag(HomeDrag(app: id, entry: nil, location: at)) },
+                             onDrop: drop)
+                        .frame(maxWidth: .infinity)
+                }
             }
         }
         .padding(.horizontal, land ? 120 : 18)
         .padding(.bottom, 14)
     }
 
-    private func pageView(_ p: Int, width: CGFloat, land: Bool) -> some View {
+    private func pageView(_ p: Int, width: CGFloat, land: Bool, apps: [String: ShellApp]) -> some View {
         let col = (width - 24) / 4
         let row: CGFloat = land ? 70 : 96
         let widgets = layout.widgets.filter { $0.page == p }
@@ -428,19 +670,107 @@ struct Android16HomeScreen: View {
                 .buttonStyle(.plain)
             }
             Spacer(minLength: 8)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: land ? 6 : 4), spacing: 18) {
-                ForEach(apps(on: p)) { AndroidAppIconButton(app: $0) }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: land ? columns + 2 : columns), spacing: 18) {
+                ForEach(layout.apps(on: p)) { entry in
+                    entryView(entry, apps: apps)
+                }
             }
             .padding(.horizontal, 12)
+            .background(GeometryReader { g in
+                Color.clear
+                    .onAppear { gridFrames[p] = g.frame(in: .named("home")) }
+                    .onChange(of: g.frame(in: .named("home"))) { gridFrames[p] = $0 }
+            })
             .padding(.bottom, 110)
         }
         .padding(.top, land ? 30 : 46)
     }
 
+    @ViewBuilder
+    private func entryView(_ entry: HomeEntry, apps: [String: ShellApp]) -> some View {
+        let size: CGFloat = columns >= 5 ? 50 : 58
+        if let folder = entry.folder {
+            FolderIcon(folder: folder, apps: apps, size: size)
+                .opacity(dragging?.entry == entry.id ? 0.25 : 1)
+                .onTapGesture { withAnimation(AndroidMotion.bouncy) { openFolder = entry.id } }
+                .gesture(holdThenDrag { phase, at in
+                    let d = HomeDrag(app: folder.apps.first ?? "", entry: entry.id, location: at)
+                    switch phase {
+                    case .held: showMenu(d)
+                    case .moved: drag(d)
+                    case .ended: drop()
+                    }
+                })
+        } else if let id = entry.app, let app = apps[id] {
+            HomeIcon(app: app, showsLabel: true, size: size, hidden: dragging?.entry == entry.id,
+                     onLongPress: { at in showMenu(HomeDrag(app: id, entry: entry.id, location: at)) },
+                     onDrag: { at in drag(HomeDrag(app: id, entry: entry.id, location: at)) },
+                     onDrop: drop)
+        }
+    }
+
+    private func showMenu(_ d: HomeDrag) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        withAnimation(AndroidMotion.bouncy) { iconMenu = IconMenuTarget(app: d.app, entry: d.entry, at: d.location) }
+    }
+
+    private func drag(_ d: HomeDrag) {
+        if iconMenu != nil { withAnimation(AndroidMotion.fade) { iconMenu = nil } }
+        var next = d
+        next.overRemove = d.location.y < 110
+        dragging = next
+    }
+
+    /// Where the app was let go: Remove, the dock, onto another app (a folder), or a place in this page's grid.
+    private func drop() {
+        guard let d = dragging else { return }
+        defer { withAnimation(AndroidMotion.spatial) { dragging = nil } }
+        let screen = UIScreen.main.bounds.size
+        if d.location.y < 110 {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            if let id = d.entry { layout.remove(entry: id) } else { layout.removeFromDock(d.app) }
+            return
+        }
+        if d.location.y > screen.height - 170 {
+            let slot = Int(d.location.x / (screen.width / CGFloat(max(1, layout.dock.count + (d.entry == nil ? 0 : 1)))))
+            if let id = d.entry {
+                if layout.apps(on: page).first(where: { $0.id == id })?.app != nil { layout.moveToDock(id, index: slot) }
+            } else {
+                layout.moveInDock(d.app, to: slot)
+            }
+            return
+        }
+        guard let grid = gridFrames[page] else { return }
+        let entries = layout.apps(on: page)
+        let cols = CGFloat(columns)
+        let cellW = grid.width / cols
+        let rowsUsed = max(1, Int(ceil(Double(entries.count) / Double(columns))))
+        let cellH = max(80, grid.height / CGFloat(rowsUsed))
+        let local = CGPoint(x: d.location.x - grid.minX, y: d.location.y - grid.minY)
+        let colIdx = min(max(0, Int(local.x / cellW)), columns - 1)
+        let rowIdx = max(0, Int(local.y / cellH))
+        let index = min(rowIdx * columns + colIdx, entries.count)
+        // onto another app or folder (near its middle): a folder
+        if index < entries.count, entries[index].id != d.entry {
+            let centre = CGPoint(x: grid.minX + (CGFloat(colIdx) + 0.5) * cellW, y: grid.minY + (CGFloat(rowIdx) + 0.42) * cellH)
+            if hypot(d.location.x - centre.x, d.location.y - centre.y) < cellW * 0.3 {
+                if let id = d.entry {
+                    layout.merge(id, into: entries[index].id)
+                } else {
+                    layout.moveFromDock(d.app, to: page, index: entries.count)
+                    if let added = layout.apps(on: page).last?.id { layout.merge(added, into: entries[index].id) }
+                }
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                return
+            }
+        }
+        if let id = d.entry { layout.move(id, to: page, index: index) } else { layout.moveFromDock(d.app, to: page, index: index) }
+    }
+
     private func pageDrag(width w: CGFloat, height h: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 16)
             .onChanged { v in
-                guard editing == nil else { return }
+                guard editing == nil, dragging == nil, iconMenu == nil else { return }
                 if axis == nil {
                     axis = abs(v.translation.width) > abs(v.translation.height) ? .horizontal : .vertical
                     if axis == .horizontal { withAnimation(AndroidMotion.fade) { dotsVisible = true } }
@@ -458,7 +788,7 @@ struct Android16HomeScreen: View {
             }
             .onEnded { v in
                 defer { axis = nil }
-                guard editing == nil else { return }
+                guard editing == nil, dragging == nil, let axis else { return }
                 if axis == .horizontal {
                     let travel = v.predictedEndTranslation.width
                     var next = page
@@ -485,6 +815,224 @@ struct Android16HomeScreen: View {
                     }
                 }
             }
+    }
+}
+
+/// An app being moved on the home screen.
+struct HomeDrag {
+    var app: String
+    var entry: UUID?
+    var location: CGPoint
+    var overRemove = false
+}
+
+struct IconMenuTarget: Equatable {
+    var app: String
+    var entry: UUID?
+    var at: CGPoint
+}
+
+enum HoldPhase { case held, moved, ended }
+
+/// Hold, then (optionally) drag: what moves an app on Android's home screen. `held` once the hold is long enough, `moved`
+/// with every move after it, `ended` when the finger lifts. Locations are in the home screen's space.
+func holdThenDrag(_ handler: @escaping (HoldPhase, CGPoint) -> Void) -> some Gesture {
+    LongPressGesture(minimumDuration: 0.38)
+        .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("home")))
+        .onChanged { value in
+            if case .second(true, let drag?) = value {
+                if hypot(drag.translation.width, drag.translation.height) > 8 { handler(.moved, drag.location) }
+                else if drag.translation == .zero { handler(.held, drag.location) }
+            }
+        }
+        .onEnded { value in
+            if case .second(true, let drag) = value { handler(.ended, drag?.location ?? .zero) }
+        }
+}
+
+/// An app on the home screen or in the dock: tap to open; hold for its menu; hold and drag to move it.
+private struct HomeIcon: View {
+    let app: ShellApp
+    let showsLabel: Bool
+    let size: CGFloat
+    let hidden: Bool
+    let onLongPress: (CGPoint) -> Void
+    let onDrag: (CGPoint) -> Void
+    let onDrop: () -> Void
+    @ObservedObject private var shell = AndroidShellState.shared
+    @State private var held = false
+
+    var body: some View {
+        VStack(spacing: 6) {
+            AndroidAppIcon(app: app, size: size)
+            if showsLabel {
+                Text(app.title)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
+                    .lineLimit(1)
+                    .frame(maxWidth: size + 18)
+            }
+        }
+        .scaleEffect(held ? 1.08 : 1)
+        .opacity(hidden ? 0.25 : 1)
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            shell.launchOrigin = TouchTracker.last
+            shell.launch(app)
+        }
+        .gesture(holdThenDrag { phase, at in
+            switch phase {
+            case .held:
+                withAnimation(AndroidMotion.bouncy) { held = true }
+                onLongPress(at)
+            case .moved:
+                held = false
+                onDrag(at)
+            case .ended:
+                withAnimation(AndroidMotion.spatial) { held = false }
+                onDrop()
+            }
+        })
+        .onChange(of: hidden) { h in if !h { withAnimation(AndroidMotion.spatial) { held = false } } }
+        .onDisappear { held = false }
+        .accessibilityLabel(app.title)
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// A folder on the home screen: up to four of its apps, small, on a round plate, its name under it.
+private struct FolderIcon: View {
+    let folder: HomeEntry.Folder
+    let apps: [String: ShellApp]
+    let size: CGFloat
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                Circle().fill(Color(uiColor: Material3.surfaceContainerHigh).opacity(0.92))
+                LazyVGrid(columns: [GridItem(.fixed(size * 0.3), spacing: 4), GridItem(.fixed(size * 0.3), spacing: 4)], spacing: 4) {
+                    ForEach(folder.apps.prefix(4), id: \.self) { id in
+                        if let app = apps[id] { AndroidAppIcon(app: app, size: size * 0.3).shadow(radius: 0) }
+                    }
+                }
+            }
+            .frame(width: size, height: size)
+            Text(folder.name)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
+                .lineLimit(1)
+                .frame(maxWidth: size + 18)
+        }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+    }
+}
+
+/// An open folder: its name (tap to rename) over its apps; hold an app to take it out.
+private struct FolderPanel: View {
+    let id: UUID
+    let folder: HomeEntry.Folder
+    let apps: [String: ShellApp]
+    let close: () -> Void
+    @ObservedObject private var layout = HomeLayout.shared
+    @ObservedObject private var shell = AndroidShellState.shared
+    @State private var name = ""
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.3).ignoresSafeArea().onTapGesture { commit(); close() }
+            VStack(spacing: 18) {
+                TextField("Folder", text: $name)
+                    .font(.system(size: 22, weight: .regular, design: .rounded))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(Color(uiColor: Material3.onSurface))
+                    .submitLabel(.done)
+                    .onSubmit(commit)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 18) {
+                    ForEach(folder.apps, id: \.self) { appID in
+                        if let app = apps[appID] {
+                            VStack(spacing: 6) {
+                                AndroidAppIcon(app: app, size: 54)
+                                Text(app.title).font(.system(size: 12, weight: .medium, design: .rounded))
+                                    .foregroundStyle(Color(uiColor: Material3.onSurface))
+                                    .lineLimit(1)
+                            }
+                            .onTapGesture {
+                                commit()
+                                close()
+                                shell.launchOrigin = TouchTracker.last
+                                shell.launch(app)
+                            }
+                            .onLongPressGesture {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                layout.removeFromFolder(id, app: appID)
+                                if folder.apps.count <= 2 { close() }
+                            }
+                        }
+                    }
+                }
+                Text("Hold an app to take it out of the folder")
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+            }
+            .padding(22)
+            .frame(maxWidth: 360)
+            .background(Color(uiColor: Material3.surfaceContainerHigh), in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+            .padding(.horizontal, 20)
+        }
+        .onAppear { name = folder.name }
+    }
+
+    private func commit() {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        if !n.isEmpty, n != folder.name { layout.rename(id, to: n) }
+    }
+}
+
+/// The menu of an app held on the home screen: App info and Remove.
+private struct IconMenu: View {
+    enum Action { case info, remove }
+    let target: IconMenuTarget
+    let app: ShellApp
+    let size: CGSize
+    let pick: (Action) -> Void
+    let dismiss: () -> Void
+
+    var body: some View {
+        let menuW: CGFloat = 220, menuH: CGFloat = 2 * 52 + 12
+        let x = min(max(target.at.x - menuW / 2, 12), size.width - menuW - 12)
+        let above = target.at.y - menuH - 50
+        let y = above > 40 ? above : target.at.y + 50
+        ZStack(alignment: .topLeading) {
+            Color.black.opacity(0.001).onTapGesture(perform: dismiss)
+            VStack(spacing: 0) {
+                row("info.circle", "App info", .info)
+                row("xmark", "Remove", .remove)
+            }
+            .padding(.vertical, 6)
+            .frame(width: menuW)
+            .background(Color(uiColor: Material3.surfaceContainerHigh), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+            .offset(x: x, y: y)
+        }
+    }
+
+    private func row(_ icon: String, _ title: String, _ action: Action) -> some View {
+        Button { pick(action) } label: {
+            HStack(spacing: 14) {
+                Image(systemName: icon).font(.system(size: 17)).frame(width: 22)
+                Text(title).font(.system(size: 16, weight: .medium, design: .rounded))
+                Spacer()
+            }
+            .foregroundStyle(Color(uiColor: Material3.onSurface))
+            .padding(.horizontal, 18)
+            .frame(height: 52)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(AndroidRippleStyle())
     }
 }
 
@@ -658,6 +1206,10 @@ struct HomeSettings: View {
     let close: () -> Void
     @AppStorage(swipeDownKey) private var swipeDown = true
     @AppStorage(doubleTapKey) private var doubleTap = true
+    @AppStorage(HomeLayout.columnsKey) private var columns = 4
+    @AppStorage(HomeLayout.rowsKey) private var rows = 5
+    @AppStorage(HomeLayout.addNewKey) private var addNew = true
+    @State private var confirmReset = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -668,21 +1220,62 @@ struct HomeSettings: View {
                 Text("Home settings").font(.system(size: 26, design: .rounded))
                     .foregroundStyle(Color(uiColor: Material3.onSurface))
                     .padding(.horizontal, 24).padding(.vertical, 16)
-                AndroidSettingsGroup {
-                    AndroidSettingsRow(icon: "arrow.down.to.line", title: "Swipe down for notifications",
-                                       summary: "On the home screen, pull down anywhere to open the shade") {
-                        Toggle("", isOn: $swipeDown).labelsHidden().toggleStyle(Material3SwitchStyle())
+                ScrollView {
+                    AndroidSettingsGroup(header: "App grid") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Columns").font(.system(size: 15, weight: .medium, design: .rounded))
+                            ExpressiveSegmentedButtons(selection: $columns, options: [
+                                .init(value: 4, label: "4"), .init(value: 5, label: "5"),
+                            ])
+                            Text("Rows").font(.system(size: 15, weight: .medium, design: .rounded))
+                            ExpressiveSegmentedButtons(selection: $rows, options: [
+                                .init(value: 4, label: "4"), .init(value: 5, label: "5"), .init(value: 6, label: "6"),
+                            ])
+                        }
+                        .foregroundStyle(Color(uiColor: Material3.onSurface))
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(uiColor: Material3.surfaceContainerHigh))
                     }
-                    AndroidSettingsRow(icon: "hand.tap", title: "Double tap to sleep",
-                                       summary: "Double-tap an empty part of the home screen to turn the screen off") {
-                        Toggle("", isOn: $doubleTap).labelsHidden().toggleStyle(Material3SwitchStyle())
+                    AndroidSettingsGroup {
+                        AndroidSettingsRow(icon: "plus.app", title: "Add new apps to Home screen",
+                                           summary: "Apps you install appear on the home screen too") {
+                            Toggle("", isOn: $addNew).labelsHidden().toggleStyle(Material3SwitchStyle())
+                        }
+                        AndroidSettingsRow(icon: "arrow.down.to.line", title: "Swipe down for notifications",
+                                           summary: "On the home screen, pull down anywhere to open the shade") {
+                            Toggle("", isOn: $swipeDown).labelsHidden().toggleStyle(Material3SwitchStyle())
+                        }
+                        AndroidSettingsRow(icon: "hand.tap", title: "Double tap to sleep",
+                                           summary: "Double-tap an empty part of the home screen to turn the screen off") {
+                            Toggle("", isOn: $doubleTap).labelsHidden().toggleStyle(Material3SwitchStyle())
+                        }
+                        Button { confirmReset = true } label: {
+                            AndroidSettingsRow(icon: "arrow.counterclockwise", tint: Material3.error, title: "Reset home screen",
+                                               summary: "Put apps, folders, the dock and widgets back as they were")
+                        }
+                        .buttonStyle(AndroidRippleStyle())
                     }
+                    Text("Hold an app to move it, drop it on another app to make a folder, or on Remove. Hold the wallpaper for widgets.")
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+                        .padding(.horizontal, 8)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 30)
             }
+            .frame(maxHeight: 640)
             .background(Color(uiColor: Material3.surfaceContainer), in: StackedCorners(top: 28, bottom: 0))
             .ignoresSafeArea(edges: .bottom)
+            .overlay {
+                if confirmReset {
+                    ConfirmDialog(title: "Reset the home screen?", confirm: "Reset") {
+                        HomeLayout.shared.reset()
+                        confirmReset = false
+                        close()
+                    } cancel: { confirmReset = false }
+                }
+            }
         }
     }
 }

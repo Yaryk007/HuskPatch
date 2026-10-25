@@ -18,6 +18,13 @@ struct AndroidStatusBar: View {
     var hidesClock = false
     @StateObject private var status = DeviceStatus()
     @ObservedObject private var shell = AndroidShellState.shared
+    @AppStorage(AndroidStatusBar.percentKey) private var percent = false
+    @AppStorage(AndroidStatusBar.secondsKey) private var seconds = false
+    @AppStorage(AndroidStatusBar.iconsKey) private var icons = true
+
+    static let percentKey = "huskpatch.statusbar.percent"
+    static let secondsKey = "huskpatch.statusbar.seconds"
+    static let iconsKey = "huskpatch.statusbar.icons"
 
     /// The icons of the notifications waiting, for Android 16's status bar.
     private var waiting: [String] { shell.notifications.map(\.icon) }
@@ -75,11 +82,11 @@ struct AndroidStatusBar: View {
     private func android16(_ now: Date) -> some View {
         let fg = ink
         return HStack(spacing: 6) {
-            Text(time(now))
+            Text(seconds ? now.formatted(.dateTime.hour().minute().second()) : time(now))
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .opacity(hidesClock ? 0 : 1)
-            if !hidesClock {
+            if !hidesClock && icons {
                 ForEach(Array(waiting.prefix(3).enumerated()), id: \.offset) { _, icon in
                     Image(systemName: icon).font(.system(size: 11, weight: .semibold))
                 }
@@ -87,6 +94,9 @@ struct AndroidStatusBar: View {
             Spacer(minLength: 0)
             connection(fg, size: 13)
             Android16Battery(level: status.level, charging: status.charging)
+            if percent {
+                Text("\(Int((status.level * 100).rounded()))%").font(.system(size: 14, weight: .semibold, design: .rounded))
+            }
         }
         .foregroundStyle(fg)
         .padding(.horizontal, 26)

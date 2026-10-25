@@ -435,3 +435,37 @@ final class TouchTracker: UIGestureRecognizer {
         state = .failed
     }
 }
+
+// MARK: - opening an app
+
+/// Android 16's app launch: the app's window grows out of the icon that was tapped -- icon-sized and round at first, its
+/// corners squaring off as it fills the screen -- and shrinks back into it when the app is closed. The splash (its icon)
+/// is what shows while it is small, so it reads as the icon itself opening.
+struct LaunchMorph: ViewModifier, Animatable {
+    var progress: CGFloat
+    let anchor: UnitPoint
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let p = min(max(progress, 0), 1)
+        content
+            .clipShape(RoundedRectangle(cornerRadius: 28 + (1 - p) * 190, style: .continuous))
+            .scaleEffect(0.13 + 0.87 * p, anchor: anchor)
+            .opacity(Double(min(1, p * 3.5)))
+    }
+}
+
+extension AnyTransition {
+    static func androidLaunch(from anchor: UnitPoint) -> AnyTransition {
+        .modifier(active: LaunchMorph(progress: 0, anchor: anchor), identity: LaunchMorph(progress: 1, anchor: anchor))
+    }
+}
+
+extension AndroidMotion {
+    /// An app opening or closing: a little longer and softer than other movement, as Android's window animations are.
+    static let launch = Animation.spring(response: 0.5, dampingFraction: 0.88)
+}

@@ -21,6 +21,8 @@ struct AndroidShade: View {
     @State private var dialog: Dialog?
     @State private var silentHidden = false
     @State private var toast: String?
+    @State private var editingTiles = false
+    @ObservedObject private var qs = QSTileStore.shared
 
     enum Dialog: Identifiable { case internet, cast; var id: Int { self == .internet ? 0 : 1 } }
 
@@ -64,6 +66,12 @@ struct AndroidShade: View {
                 .offset(y: shell.shade ? min(0, drag) : -(1 - CGFloat(reveal)) * 260)
                 .opacity(min(1, reveal * 1.4))
 
+                if editingTiles {
+                    QSEditView(all: allTiles) { withAnimation(AndroidMotion.spatial) { editingTiles = false } }
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(1)
+                }
+
                 if let dialog {
                     ShadeDialogView(dialog: dialog, status: status) { withAnimation(AndroidMotion.fade) { self.dialog = nil } }
                         .transition(.opacity.combined(with: .scale(scale: 0.92)))
@@ -104,55 +112,62 @@ struct AndroidShade: View {
 
     // MARK: tiles
 
-    private var bigTiles: [AndroidQSTile] {
-        [
-            AndroidQSTile(icon: status.wifi ? "wifi" : status.cellular ? "cellularbars" : "network.slash", title: "Internet",
-                          subtitle: status.wifi ? "Wi-Fi" : status.cellular ? "Mobile data" : "Not connected",
-                          on: status.wifi || status.cellular, detail: true) { withAnimation(AndroidMotion.fade) { dialog = .internet } },
-            AndroidQSTile(icon: "personalhotspot.slash", title: "Bluetooth", subtitle: "Off", detail: true) { openIOSSettings() },
-            AndroidQSTile(icon: shell.doNotDisturb ? "moon.fill" : "minus.circle", title: "Modes",
-                          subtitle: shell.doNotDisturb ? "Do Not Disturb" : "Off", on: shell.doNotDisturb) { shell.doNotDisturb.toggle() },
-            AndroidQSTile(icon: "rectangle.on.rectangle", title: "Cast", subtitle: "Not connected", detail: true) {
-                withAnimation(AndroidMotion.fade) { dialog = .cast }
-            },
-        ]
-    }
-
-    private var smallTiles: [AndroidQSTile] {
+    /// Every tile, by its key (QSTileStore keeps which are shown, in what order, at what size).
+    private var allTiles: [String: AndroidQSTile] {
         let offline = !status.wifi && !status.cellular
         let next = AndroidAlarms.load().filter(\.on).compactMap { AndroidAlarms.next($0) }.min()
-        return [
-            AndroidQSTile(icon: "airplane", title: "Airplane mode", subtitle: offline ? "On" : "Off", on: offline) { openIOSSettings() },
-            AndroidQSTile(icon: "lock.rotation", title: "Auto-rotate", subtitle: "On", on: true) { openIOSSettings() },
-            AndroidQSTile(icon: "battery.25", title: "Battery Saver",
-                          subtitle: ProcessInfo.processInfo.isLowPowerModeEnabled ? "On" : "Off",
-                          on: ProcessInfo.processInfo.isLowPowerModeEnabled) { openIOSSettings() },
-            AndroidQSTile(icon: "alarm", title: "Alarm",
-                          subtitle: next.map { $0.formatted(.dateTime.weekday(.abbreviated).hour().minute()) } ?? "No alarm set",
-                          on: next != nil) { shell.closeShade(); shell.launch(.system(.clock)) },
-            AndroidQSTile(icon: "flashlight.on.fill", title: "Flashlight", subtitle: torch.on ? "On" : "Off",
-                          on: torch.on, unavailable: !torch.available) { torch.toggle() },
-            AndroidQSTile(icon: "circle.lefthalf.filled", title: "Dark theme", subtitle: dark ? "On" : "Off", on: dark) {
+        let tiles: [(String, AndroidQSTile)] = [
+            ("internet", AndroidQSTile(icon: status.wifi ? "wifi" : status.cellular ? "cellularbars" : "network.slash", title: "Internet",
+                                       subtitle: status.wifi ? "Wi-Fi" : status.cellular ? "Mobile data" : "Not connected",
+                                       on: status.wifi || status.cellular, detail: true) { withAnimation(AndroidMotion.fade) { dialog = .internet } }),
+            ("bluetooth", AndroidQSTile(icon: "personalhotspot.slash", title: "Bluetooth", subtitle: "Off", detail: true) { openIOSSettings() }),
+            ("modes", AndroidQSTile(icon: shell.doNotDisturb ? "moon.fill" : "minus.circle", title: "Modes",
+                                    subtitle: shell.doNotDisturb ? "Do Not Disturb" : "Off", on: shell.doNotDisturb) { shell.doNotDisturb.toggle() }),
+            ("cast", AndroidQSTile(icon: "rectangle.on.rectangle", title: "Cast", subtitle: "Not connected", detail: true) {
+                withAnimation(AndroidMotion.fade) { dialog = .cast }
+            }),
+            ("airplane", AndroidQSTile(icon: "airplane", title: "Airplane mode", subtitle: offline ? "On" : "Off", on: offline) { openIOSSettings() }),
+            ("rotate", AndroidQSTile(icon: "lock.rotation", title: "Auto-rotate", subtitle: "On", on: true) { openIOSSettings() }),
+            ("battery", AndroidQSTile(icon: "battery.25", title: "Battery Saver",
+                                      subtitle: ProcessInfo.processInfo.isLowPowerModeEnabled ? "On" : "Off",
+                                      on: ProcessInfo.processInfo.isLowPowerModeEnabled) { openIOSSettings() }),
+            ("alarm", AndroidQSTile(icon: "alarm", title: "Alarm",
+                                    subtitle: next.map { $0.formatted(.dateTime.weekday(.abbreviated).hour().minute()) } ?? "No alarm set",
+                                    on: next != nil) { shell.closeShade(); shell.launch(.system(.clock)) }),
+            ("flashlight", AndroidQSTile(icon: "flashlight.on.fill", title: "Flashlight", subtitle: torch.on ? "On" : "Off",
+                                         on: torch.on, unavailable: !torch.available) { torch.toggle() }),
+            ("dark", AndroidQSTile(icon: "circle.lefthalf.filled", title: "Dark theme", subtitle: dark ? "On" : "Off", on: dark) {
                 let next: Theme.Appearance = dark ? .light : .dark
                 appearance = next.rawValue
                 Theme.apply(next)
                 Material3.exportDynamicColors()
-            },
-            AndroidQSTile(icon: "bolt.fill", title: "JIT", subtitle: Launcher.jitOn ? "On" : "Off", on: Launcher.jitOn) {
+            }),
+            ("jit", AndroidQSTile(icon: "bolt.fill", title: "JIT", subtitle: Launcher.jitOn ? "On" : "Off", on: Launcher.jitOn) {
                 if !Launcher.jitOn { JITCoordinator.shared.enable() }
-            },
-            AndroidQSTile(icon: navigation == .gestures ? "hand.draw" : "rectangle.split.3x1", title: "Navigation",
-                          subtitle: navigation == .gestures ? "Gestures" : "3-button", on: navigation == .gestures) {
+            }),
+            ("navigation", AndroidQSTile(icon: navigation == .gestures ? "hand.draw" : "rectangle.split.3x1", title: "Navigation",
+                                         subtitle: navigation == .gestures ? "Gestures" : "3-button", on: navigation == .gestures) {
                 navigation = navigation == .gestures ? .buttons : .gestures
-            },
-            AndroidQSTile(icon: "lock.fill", title: "Screen lock", subtitle: "Lock now") {
+            }),
+            ("lock", AndroidQSTile(icon: "lock.fill", title: "Screen lock", subtitle: "Lock now") {
                 shell.closeShade(); if AndroidLock.showsLockScreen { shell.locked = true }
-            },
-            AndroidQSTile(icon: "square.grid.2x2", title: "Recent apps", subtitle: "\(shell.recentApps.count) open") {
+            }),
+            ("recents", AndroidQSTile(icon: "square.grid.2x2", title: "Recent apps", subtitle: "\(shell.recentApps.count) open") {
                 shell.closeShade(); shell.toggleRecents()
-            },
-            AndroidQSTile(icon: "house", title: "Device controls", subtitle: "Unavailable", unavailable: true) {},
+            }),
+            ("screenshot", AndroidQSTile(icon: "viewfinder", title: "Screenshot", subtitle: "Take one") {
+                shell.closeShade()
+                Task { try? await Task.sleep(nanoseconds: 450_000_000); A13Screenshot.take() }
+            }),
+            ("devices", AndroidQSTile(icon: "house", title: "Device controls", subtitle: "Unavailable", unavailable: true) {}),
         ]
+        return Dictionary(tiles, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// The tiles shown, in order, with their sizes.
+    private var shown: [(spec: QSTileSpec, tile: AndroidQSTile)] {
+        let all = allTiles
+        return qs.tiles.compactMap { spec in all[spec.id].map { (spec, $0) } }
     }
 
     private func openIOSSettings() {
@@ -184,7 +199,7 @@ struct AndroidShade: View {
                 .frame(height: 40)
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: land ? 4 : 2), spacing: 10) {
-                ForEach(bigTiles) { A16BigTile(tile: $0, showsState: false) }
+                ForEach(shown.prefix(land ? 4 : 4), id: \.spec.id) { A16BigTile(tile: $0.tile, showsState: false) }
             }
             .padding(.horizontal, 14)
             .padding(.top, 4)
@@ -302,16 +317,10 @@ struct AndroidShade: View {
                 VStack(spacing: 10) {
                     BrightnessSlider(value: $brightness)
                         .padding(.bottom, 8)
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: land ? 4 : 2), spacing: 10) {
-                        ForEach(bigTiles) { A16BigTile(tile: $0, showsState: true) }
-                    }
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: land ? 8 : 4), spacing: 12) {
-                        ForEach(smallTiles) { A16RoundTile(tile: $0) }
-                    }
-                    .padding(.top, 2)
+                    TileFlow(tiles: shown, units: land ? 8 : 4)
                     HStack {
                         Spacer()
-                        Button { show("Tiles can't be rearranged yet") } label: {
+                        Button { withAnimation(AndroidMotion.spatial) { editingTiles = true } } label: {
                             Image(systemName: "pencil").font(.system(size: 19, weight: .medium))
                                 .frame(width: 44, height: 44)
                         }
@@ -669,5 +678,168 @@ private struct Sweep: ViewModifier {
         content
             .offset(x: on ? width * 0.7 : 0)
             .onAppear { withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { on = true } }
+    }
+}
+
+// MARK: - tiles you arrange
+
+/// A tile in Quick Settings: which, and whether it is a large one (two slots, with its name) or an icon.
+struct QSTileSpec: Codable, Equatable, Identifiable {
+    var id: String
+    var large: Bool
+}
+
+/// The tiles Quick Settings shows, in order, kept as they are arranged in the editor.
+@MainActor
+final class QSTileStore: ObservableObject {
+    static let shared = QSTileStore()
+    private static let key = "huskpatch.qs.tiles"
+
+    static let defaults: [QSTileSpec] = [
+        .init(id: "internet", large: true), .init(id: "bluetooth", large: true), .init(id: "modes", large: true),
+        .init(id: "cast", large: true), .init(id: "airplane", large: false), .init(id: "rotate", large: false),
+        .init(id: "battery", large: false), .init(id: "alarm", large: false), .init(id: "flashlight", large: false),
+        .init(id: "dark", large: false), .init(id: "jit", large: false), .init(id: "navigation", large: false),
+        .init(id: "devices", large: false),
+    ]
+
+    @Published var tiles: [QSTileSpec] {
+        didSet { if let d = try? JSONEncoder().encode(tiles) { UserDefaults.standard.set(d, forKey: Self.key) } }
+    }
+
+    init() {
+        tiles = UserDefaults.standard.data(forKey: Self.key).flatMap { try? JSONDecoder().decode([QSTileSpec].self, from: $0) } ?? Self.defaults
+    }
+
+    func reset() { tiles = Self.defaults }
+}
+
+/// The tiles flowing in rows of four slots (eight in landscape): a large tile takes two, an icon tile one.
+private struct TileFlow: View {
+    let tiles: [(spec: QSTileSpec, tile: AndroidQSTile)]
+    let units: Int
+
+    private var rows: [[(spec: QSTileSpec, tile: AndroidQSTile)]] {
+        var rows: [[(spec: QSTileSpec, tile: AndroidQSTile)]] = [[]]
+        var used = 0
+        for t in tiles {
+            let w = t.spec.large ? 2 : 1
+            if used + w > units { rows.append([]); used = 0 }
+            rows[rows.count - 1].append(t)
+            used += w
+        }
+        return rows.filter { !$0.isEmpty }
+    }
+
+    var body: some View {
+        GeometryReader { g in
+            let slot = (g.size.width - CGFloat(units - 1) * 10) / CGFloat(units)
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: 10) {
+                        ForEach(row, id: \.spec.id) { t in
+                            if t.spec.large {
+                                A16BigTile(tile: t.tile, showsState: true).frame(width: slot * 2 + 10)
+                            } else {
+                                A16RoundTile(tile: t.tile).frame(width: slot)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(height: CGFloat(rows.count) * 64 + CGFloat(max(0, rows.count - 1)) * 10)
+    }
+}
+
+/// Quick Settings' editor (the pencil): the tiles shown -- drag to reorder, the minus to remove, tap the size to switch
+/// between large and icon -- and the tiles that can be added.
+private struct QSEditView: View {
+    let all: [String: AndroidQSTile]
+    let done: () -> Void
+    @ObservedObject private var store = QSTileStore.shared
+
+    private var available: [String] {
+        all.keys.filter { key in !store.tiles.contains { $0.id == key } }.sorted { (all[$0]?.title ?? "") < (all[$1]?.title ?? "") }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Button(action: done) {
+                    Image(systemName: "arrow.left").font(.system(size: 20, weight: .medium)).frame(width: 48, height: 48)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Done")
+                Text("Edit").font(.system(size: 22, design: .rounded))
+                Spacer()
+                Button("Reset") { withAnimation(AndroidMotion.spatial) { store.reset() } }
+                    .buttonStyle(.expressive(.text))
+            }
+            .foregroundStyle(Color(uiColor: Material3.onSurface))
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+
+            List {
+                Section {
+                    ForEach(store.tiles) { spec in
+                        if let tile = all[spec.id] {
+                            HStack(spacing: 14) {
+                                Image(systemName: tile.icon).font(.system(size: 17, weight: .semibold))
+                                    .frame(width: 40, height: 40)
+                                    .background(Color(uiColor: Material3.surfaceContainerHighest), in: Circle())
+                                Text(tile.title).font(.system(size: 16, design: .rounded))
+                                Spacer()
+                                Button(spec.large ? "Large" : "Icon") {
+                                    if let i = store.tiles.firstIndex(of: spec) {
+                                        withAnimation(AndroidMotion.spatial) { store.tiles[i].large.toggle() }
+                                    }
+                                }
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundStyle(Color(uiColor: Material3.onSecondaryContainer))
+                                .padding(.horizontal, 12).frame(height: 30)
+                                .background(Color(uiColor: Material3.secondaryContainer), in: Capsule())
+                                .buttonStyle(.plain)
+                            }
+                            .foregroundStyle(Color(uiColor: Material3.onSurface))
+                            .listRowBackground(Color(uiColor: Material3.surfaceContainerHigh))
+                        }
+                    }
+                    .onMove { store.tiles.move(fromOffsets: $0, toOffset: $1) }
+                    .onDelete { store.tiles.remove(atOffsets: $0) }
+                } header: {
+                    Text("Drag to rearrange").foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+                }
+                if !available.isEmpty {
+                    Section {
+                        ForEach(available, id: \.self) { key in
+                            if let tile = all[key] {
+                                Button {
+                                    withAnimation(AndroidMotion.spatial) { store.tiles.append(QSTileSpec(id: key, large: false)) }
+                                } label: {
+                                    HStack(spacing: 14) {
+                                        Image(systemName: tile.icon).font(.system(size: 17, weight: .semibold))
+                                            .frame(width: 40, height: 40)
+                                            .background(Color(uiColor: Material3.surfaceContainerHighest), in: Circle())
+                                        Text(tile.title).font(.system(size: 16, design: .rounded))
+                                        Spacer()
+                                        Image(systemName: "plus.circle.fill").font(.system(size: 22))
+                                            .foregroundStyle(Color(uiColor: Material3.primary))
+                                    }
+                                    .foregroundStyle(Color(uiColor: Material3.onSurface))
+                                }
+                                .listRowBackground(Color(uiColor: Material3.surfaceContainerHigh))
+                            }
+                        }
+                    } header: {
+                        Text("Add tiles").foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .environment(\.editMode, .constant(.active))
+        }
+        .background(Color(uiColor: Material3.surface).ignoresSafeArea())
     }
 }

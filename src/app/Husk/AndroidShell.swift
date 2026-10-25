@@ -35,11 +35,12 @@ enum AndroidOS {
     /// The wallpaper: LineageOS 22's (a teal sweep across the dark), its earlier one (orbit rings in the palette's colours),
     /// or Material's soft shapes.
     enum Wallpaper: String, CaseIterable, Identifiable {
-        case lineage22, lineage20, lineage, blobs
+        case lineage22, lineage20, lineage, blobs, custom
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .lineage22: return "LineageOS 22"
+            case .custom: return "Your photo"
+            case .lineage22: return "LineageOS"
             case .lineage20: return "LineageOS 20"
             case .lineage: return "LineageOS orbit"
             case .blobs: return "Material shapes"
@@ -47,6 +48,7 @@ enum AndroidOS {
         }
         var icon: String {
             switch self {
+            case .custom: return "photo.on.rectangle"
             case .lineage22: return "rectangle.portrait.inset.filled"
             case .lineage20: return "photo"
             case .lineage: return "circle.circle"
@@ -195,7 +197,7 @@ final class AndroidShellState: ObservableObject {
         if open != app { captureSnapshot() }
         recentApps.removeAll { $0 == app }
         recentApps.insert(app, at: 0)
-        withAnimation(AndroidMotion.spatial) {
+        withAnimation(AndroidMotion.launch) {
             drawer = false
             drawerPeek = 0
             recents = false
@@ -232,7 +234,7 @@ final class AndroidShellState: ObservableObject {
 
     func home() {
         captureSnapshot()
-        withAnimation(AndroidMotion.spatial) {
+        withAnimation(AndroidMotion.launch) {
             open = nil; split = nil; splitPicking = nil; drawer = false; drawerPeek = 0; recents = false; shade = false; shadeExpanded = false
         }
     }
@@ -332,10 +334,7 @@ struct AndroidShellView: View {
                     } else if let app = shell.open {
                         AndroidAppContainer(app: app)
                             .id(app.id)
-                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                            .transition(.asymmetric(
-                                insertion: .scale(scale: 0.12, anchor: launchAnchor).combined(with: .opacity),
-                                removal: .scale(scale: 0.12, anchor: launchAnchor).combined(with: .opacity)))
+                            .transition(a13 ? .scale(scale: 0.88).combined(with: .opacity) : .androidLaunch(from: launchAnchor))
                             .zIndex(2)
                     }
 
@@ -420,6 +419,9 @@ struct AndroidShellView: View {
             }
         }
         .statusBarHidden(true)
+        // iOS's own edge swipes (Notification Center from the top, home from the bottom) would take Android's shade and
+        // drawer gestures: they need a second swipe while Android OS mode is showing
+        .huskDefersSystemGestures(on: [.top, .bottom])
         .animation(AndroidMotion.fade, value: shell.notice)
         .animation(AndroidMotion.spatial, value: shell.split)
         .onReceive(NotificationCenter.default.publisher(for: TLUnityUIView.appClosedItself)) { _ in
@@ -443,6 +445,7 @@ struct AndroidWallpaper: View {
         switch style {
         case .lineage22: Lineage22Wallpaper()
         case .lineage20: Lineage20Wallpaper()
+        case .custom: CustomWallpaper()
         case .lineage: LineageWallpaper()
         case .blobs: blobs
         }
@@ -528,7 +531,7 @@ struct AndroidClockWidget: View {
             Button { shell.launch(.system(.clock)) } label: {
                 VStack(spacing: 2) {
                     Text(AndroidClockFace.time(context.date))
-                        .font(.system(size: large ? 84 : 52, weight: .regular, design: .rounded))
+                        .font(.system(size: large ? 66 : 48, weight: .medium, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(Color(uiColor: AndroidClockFace.ink))
                     Text(context.date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
@@ -555,12 +558,8 @@ enum AndroidClockFace {
             .trimmingCharacters(in: .whitespaces)
     }
 
-    /// The clock's colour: a light, saturated tone of the palette (teal on LineageOS 22's wallpaper).
-    static var ink: UIColor {
-        UserDefaults.standard.string(forKey: AndroidOS.wallpaperKey).map { $0 == AndroidOS.Wallpaper.lineage22.rawValue } ?? true
-            ? UIColor(red: 0.45, green: 0.95, blue: 0.95, alpha: 1)
-            : Material3.tone(.primary, 85)
-    }
+    /// The clock's colour: the palette's light accent (#97DCEE, L* 85, on LineageOS's wallpaper).
+    static var ink: UIColor { Material3.tone(.primary, 86) }
 }
 
 // MARK: - icons
@@ -594,60 +593,103 @@ struct AndroidAppIconButton: View {
     }
 }
 
-/// Android's adaptive icon: the app's own picture in a circle; Settings and Play Store drawn in Material's colours.
+/// Android's adaptive icon: the app's own picture in the icon shape chosen in Wallpaper & style (a circle unless changed);
+/// LineageOS's own pictures for its apps, Google Play's for the Play Store.
 struct AndroidAppIcon: View {
     let app: ShellApp
     let size: CGFloat
+    @AppStorage(AndroidIconShape.key) private var shapeRaw = AndroidIconShape.circle.rawValue
+
+    private var shape: AndroidIconShape { AndroidIconShape(rawValue: shapeRaw) ?? .circle }
+
+    /// LineageOS's picture for one of its apps (a round picture: the rest of another shape is filled with its edge colour).
+    private var asset: String? {
+        switch app {
+        case .settings: return "A13Icon-settings"
+        case .system(let a): return Android13.iconAsset(a)
+        default: return nil
+        }
+    }
 
     var body: some View {
         Group {
-            switch app {
-            case .settings where Android13.isOn:
-                Image("A13Icon-settings").resizable().scaledToFit()
-            case .settings:
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: size * 0.5, weight: .semibold))
-                    .foregroundStyle(Color(uiColor: Material3.onPrimaryContainer))
-                    .frame(width: size, height: size)
-                    .background(Color(uiColor: Material3.primaryContainer).opacity(0.95))
-            case .system(let a):
-                if Android13.isOn, let asset = Android13.iconAsset(a) {
+            if let asset {
+                ZStack {
+                    if shape != .circle { IconPlate.color(asset) }
                     Image(asset).resizable().scaledToFit()
-                } else {
-                    AndroidSystemAppIcon(app: a, size: size)
+                        .scaleEffect(shape == .circle ? 1 : 1.04)
                 }
-            case .playStore:
-                PlayTriangle()
-                    .fill(AngularGradient(colors: [.green, .blue, .red, .yellow, .green], center: .center))
-                    .frame(width: size * 0.48, height: size * 0.52)
-                    .offset(x: size * 0.04)
-                    .frame(width: size, height: size)
-                    .background(Color.white)
-            case .item(let item):
-                if item == .android {
-                    Image(systemName: "apps.iphone")
-                        .font(.system(size: size * 0.46, weight: .semibold))
-                        .foregroundStyle(.white)
+            } else {
+                switch app {
+                case .settings:
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: size * 0.5, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: Material3.onPrimaryContainer))
                         .frame(width: size, height: size)
-                        .background(AndroidMark.green.gradient)
-                } else {
-                    AppIcon(path: item.iconPath, size: size)
+                        .background(Color(uiColor: Material3.primaryContainer).opacity(0.95))
+                case .system(let a):
+                    AndroidSystemAppIcon(app: a, size: size)
+                case .playStore:
+                    GooglePlayLogo()
+                        .frame(width: size * 0.56, height: size * 0.6)
+                        .offset(x: size * 0.03)
+                        .frame(width: size, height: size)
+                        .background(Color.white)
+                case .item(let item):
+                    if item == .android {
+                        Image(systemName: "apps.iphone")
+                            .font(.system(size: size * 0.46, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: size, height: size)
+                            .background(AndroidMark.green.gradient)
+                    } else {
+                        AppIcon(path: item.iconPath, size: size)
+                    }
                 }
             }
         }
         .frame(width: size, height: size)
-        .clipShape(Circle())
+        .clipShape(shape.shape(size))
         .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
     }
 }
 
-/// The Play Store's triangle.
-private struct PlayTriangle: Shape {
+/// Google Play's logo: the play triangle in its four colours -- green along the top, blue down the left, red along the
+/// bottom, yellow at the point.
+struct GooglePlayLogo: View {
+    var body: some View {
+        Canvas { ctx, s in
+            let w = s.width, h = s.height
+            let tl = CGPoint(x: 0, y: 0), bl = CGPoint(x: 0, y: h), tip = CGPoint(x: w, y: h / 2)
+            let c = CGPoint(x: w * 0.42, y: h / 2)
+            func tri(_ a: CGPoint, _ b: CGPoint, _ d: CGPoint, _ color: Color) {
+                var p = Path(); p.move(to: a); p.addLine(to: b); p.addLine(to: d); p.closeSubpath()
+                ctx.fill(p, with: .color(color))
+            }
+            tri(tl, bl, c, Color(red: 0.0, green: 0.62, blue: 1.0))            // blue
+            tri(tl, tip, c, Color(red: 0.0, green: 0.84, blue: 0.47))          // green
+            tri(bl, tip, c, Color(red: 1.0, green: 0.2, blue: 0.27))           // red
+            // yellow: the point, from where the green and red meet the right of the centre
+            var y = Path()
+            y.move(to: CGPoint(x: w * 0.62, y: h * 0.31)); y.addLine(to: tip); y.addLine(to: CGPoint(x: w * 0.62, y: h * 0.69))
+            y.addLine(to: CGPoint(x: w * 0.5, y: h / 2)); y.closeSubpath()
+            ctx.fill(y, with: .color(Color(red: 1.0, green: 0.8, blue: 0.0)))
+        }
+        .clipShape(RoundedTriangle())
+    }
+}
+
+/// The play triangle with softened corners.
+private struct RoundedTriangle: Shape {
     func path(in r: CGRect) -> Path {
+        let k: CGFloat = min(r.width, r.height) * 0.12
         var p = Path()
-        p.move(to: CGPoint(x: r.minX, y: r.minY))
-        p.addLine(to: CGPoint(x: r.maxX, y: r.midY))
-        p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+        p.move(to: CGPoint(x: r.minX, y: r.minY + k))
+        p.addQuadCurve(to: CGPoint(x: r.minX + k * 1.2, y: r.minY + k * 0.4), control: CGPoint(x: r.minX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX - k, y: r.midY - k * 0.5))
+        p.addQuadCurve(to: CGPoint(x: r.maxX - k, y: r.midY + k * 0.5), control: CGPoint(x: r.maxX, y: r.midY))
+        p.addLine(to: CGPoint(x: r.minX + k * 1.2, y: r.maxY - k * 0.4))
+        p.addQuadCurve(to: CGPoint(x: r.minX, y: r.maxY - k), control: CGPoint(x: r.minX, y: r.maxY))
         p.closeSubpath()
         return p
     }
@@ -670,6 +712,7 @@ private struct AndroidAppDrawer: View {
     @ObservedObject private var host = AndroidHost.shared
     @State private var query = ""
     @State private var pull: CGFloat = 0
+    @State private var menu: DrawerMenu?
 
     /// Everything in the Library, and the two system apps and Android, by name.
     private var apps: [ShellApp] {
@@ -695,39 +738,114 @@ private struct AndroidAppDrawer: View {
     private var drawer16: some View {
         GeometryReader { geo in
             let land = geo.size.width > geo.size.height
-            VStack(spacing: 0) {
-                Capsule().fill(Color(uiColor: Material3.onSurfaceVariant).opacity(0.5))
-                    .frame(width: 36, height: 4)
-                    .padding(.top, 10)
-                    .padding(.bottom, 4)
-                Material3SearchBar(text: $query, prompt: "Search apps")
-                ScrollView {
-                    if apps.isEmpty {
-                        Text("No apps found for \u{201C}\(query)\u{201D}")
-                            .font(.system(size: 15, design: .rounded))
-                            .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(24)
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: 0) {
+                    // the handle and the search field: pulled down, the drawer goes (the list scrolls on its own)
+                    VStack(spacing: 0) {
+                        Capsule().fill(Color(uiColor: Material3.onSurfaceVariant).opacity(0.5))
+                            .frame(width: 36, height: 4)
+                            .padding(.top, 10)
+                            .padding(.bottom, 4)
+                        Material3SearchBar(text: $query, prompt: "Search apps")
                     }
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: land ? 7 : 5), spacing: 22) {
-                        ForEach(apps) { AndroidAppIconButton(app: $0, size: 52) }
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 10)
+                        .onChanged { pull = max(0, $0.translation.height) }
+                        .onEnded { v in
+                            if v.translation.height > 100 || v.predictedEndTranslation.height > 360 { shell.back() }
+                            withAnimation(AndroidMotion.spatial) { pull = 0 }
+                        })
+                    ScrollView {
+                        if apps.isEmpty {
+                            Text("No apps found for \u{201C}\(query)\u{201D}")
+                                .font(.system(size: 15, design: .rounded))
+                                .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(24)
+                        }
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: land ? 7 : 5), spacing: 22) {
+                            ForEach(apps) { app in
+                                VStack(spacing: 6) {
+                                    AndroidAppIcon(app: app, size: 52)
+                                    Text(app.title)
+                                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                                        .foregroundStyle(Color(uiColor: Material3.onSurface))
+                                        .lineLimit(1)
+                                        .frame(maxWidth: 70)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    shell.launchOrigin = TouchTracker.last
+                                    shell.launch(app)
+                                }
+                                .onLongPressGesture(minimumDuration: 0.4) {
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    let origin = geo.frame(in: .global).origin
+                                    let at = TouchTracker.last.map { CGPoint(x: $0.x - origin.x, y: $0.y - origin.y) } ?? .zero
+                                    withAnimation(AndroidMotion.bouncy) { menu = DrawerMenu(app: app, at: at) }
+                                }
+                                .accessibilityLabel(app.title)
+                                .accessibilityAddTraits(.isButton)
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.top, 8)
+                        .padding(.bottom, 24)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.top, 8)
-                    .padding(.bottom, 24)
+                    .scrollDismissesKeyboard(.immediately)
                 }
-                .scrollDismissesKeyboard(.immediately)
+                .background(Color(uiColor: Material3.surfaceContainer).opacity(0.86), in: UnevenRoundedRectangleCompat(top: 28))
+
+                if let m = menu {
+                    Color.black.opacity(0.001).onTapGesture { withAnimation(AndroidMotion.spatialFast) { menu = nil } }
+                    let onHome = HomeLayout.shared.contains(m.app.id)
+                    VStack(spacing: 0) {
+                        drawerMenuRow(onHome ? "checkmark" : "plus.square.on.square", onHome ? "On Home screen" : "Add to Home screen") {
+                            if !onHome { HomeLayout.shared.addToHome(m.app.id) }
+                        }
+                        drawerMenuRow("info.circle", "App info") {
+                            if case .item(.game(let g)) = m.app { shell.settingsPath.append(AndroidSettingsRoute.appInfo(g.id)) }
+                            else { shell.settingsPath.append(AndroidSettingsRoute.apps) }
+                            shell.launch(.settings)
+                        }
+                    }
+                    .padding(.vertical, 6)
+                    .frame(width: 230)
+                    .background(Color(uiColor: Material3.surfaceContainerHigh), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+                    .offset(x: min(max(m.at.x - 115, 12), geo.size.width - 242), y: max(20, m.at.y - 150))
+                    .transition(.scale(scale: 0.85).combined(with: .opacity))
+                }
             }
-            .background(Color(uiColor: Material3.surfaceContainer).opacity(0.86), in: UnevenRoundedRectangleCompat(top: 28))
-            .offset(y: max(0, pull))
-            .gesture(DragGesture(minimumDistance: 20)
-                .onChanged { pull = $0.translation.height }
-                .onEnded { v in
-                    if v.translation.height > 120 || v.predictedEndTranslation.height > 400 { shell.back() }
-                    withAnimation(AndroidMotion.spatial) { pull = 0 }
-                })
+            .offset(y: pull)
         }
     }
+
+    private func drawerMenuRow(_ icon: String, _ title: String, _ action: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(AndroidMotion.spatialFast) { menu = nil }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            action()
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: icon).font(.system(size: 17)).frame(width: 22)
+                Text(title).font(.system(size: 16, weight: .medium, design: .rounded))
+                Spacer()
+            }
+            .foregroundStyle(Color(uiColor: Material3.onSurface))
+            .padding(.horizontal, 18)
+            .frame(height: 52)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(AndroidRippleStyle())
+    }
+}
+
+/// An app held in the drawer, and where.
+private struct DrawerMenu: Equatable {
+    let app: ShellApp
+    let at: CGPoint
 }
 
 /// A shape with only its top corners rounded (UnevenRoundedRectangle is iOS 17; HuskPatch runs on 16).
@@ -940,24 +1058,27 @@ private struct AndroidShadePull: View {
     @ObservedObject private var shell = AndroidShellState.shared
 
     var body: some View {
+        GeometryReader { geo in
         VStack {
+            // over the home screen a generous strip; over an app, just the status bar, so the app's own top bar works
             Color.clear
-                .frame(height: 34)
+                .frame(height: shell.open == nil ? geo.safeAreaInsets.top + 44 : max(geo.safeAreaInsets.top, 24) + 6)
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
                 .gesture(DragGesture(minimumDistance: 6, coordinateSpace: .global)
                     .onChanged { v in if !Android13.isOn { shell.shadePeek = min(1, max(0, v.translation.height / 320)) } }
                     .onEnded { v in
                         let dy = v.translation.height
-                        if dy > 40 || v.predictedEndTranslation.height > 220 {
+                        if dy > 28 || v.predictedEndTranslation.height > 160 {
                             shell.openShade(expanded: dy > 330)
                             shell.shadePeek = 0
                         } else {
                             withAnimation(AndroidMotion.spatial) { shell.shadePeek = 0 }
                         }
                     })
-                .ignoresSafeArea(edges: .top)
             Spacer()
+        }
+        .ignoresSafeArea(edges: .top)
         }
         .allowsHitTesting(!shell.shade && !shell.locked)
     }

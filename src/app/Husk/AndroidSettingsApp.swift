@@ -23,7 +23,7 @@ struct AndroidSettingsApp: View {
 enum AndroidSettingsRoute: Hashable {
     case network, connected, apps, appInfo(String), specialAccess(AndroidSpecialAccess), display, wallpaper, system, navigation,
          jit, performance, library, discover, emulator, input, savedMachine, about, legal,
-         security, screenLock, fingerprint, testing, developer, updates, gestures
+         security, screenLock, fingerprint, testing, developer, updates, gestures, statusBar
 
     /// The pages HuskPatch already had are pushed with their own (Material-styled) navigation bar; the Android pages draw theirs.
     @MainActor @ViewBuilder var destination: some View {
@@ -56,6 +56,7 @@ enum AndroidSettingsRoute: Hashable {
         case .developer: AndroidDeveloperOptionsPage().toolbar(.hidden, for: .navigationBar)
         case .updates: AndroidSystemUpdatesPage().toolbar(.hidden, for: .navigationBar)
         case .gestures: AndroidGesturesPage().toolbar(.hidden, for: .navigationBar)
+        case .statusBar: AndroidStatusBarPage().toolbar(.hidden, for: .navigationBar)
         }
     }
 
@@ -344,62 +345,119 @@ private struct AndroidWallpaperPage: View {
     @ObservedObject private var theme = AppTheme.shared
     @AppStorage(Material3.appsKey) private var materialApps = false
     @AppStorage(AndroidOS.wallpaperKey) private var wallpaper = AndroidOS.Wallpaper.lineage22
+    @AppStorage(AndroidColors.wallpaperColorsKey) private var wallpaperColors = true
+    @AppStorage(AndroidColors.styleKey) private var style = AndroidColors.Style.tonalSpot
+    @AppStorage(AndroidIconShape.key) private var iconShape = AndroidIconShape.circle
     @State private var custom: Color = AppTheme.shared.accentColor
+    @State private var picking = false
 
     var body: some View {
         AndroidSettingsPage(title: "Wallpaper & style", onBack: AndroidSettingsRoute.pop) {
             // A preview of the home screen in the current colours, as Android's picker shows one.
             AndroidWallpaper()
-                .frame(height: 220)
+                .frame(height: 240)
                 .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .overlay(alignment: .top) {
+                    Text(AndroidClockFace.time(Date()))
+                        .font(.system(size: 44, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color(uiColor: AndroidClockFace.ink))
+                        .padding(.top, 30)
+                }
                 .overlay(alignment: .bottom) {
                     HStack(spacing: 14) {
-                        ForEach(0..<4) { _ in Circle().fill(Color(uiColor: Material3.surfaceContainerHigh)).frame(width: 40, height: 40) }
+                        ForEach(AndroidSystemApp.dock.prefix(4)) { a in AndroidAppIcon(app: .system(a), size: 40) }
                     }
                     .padding(.bottom, 18)
                 }
                 .padding(.bottom, 16)
             AndroidSettingsGroup(header: "Wallpaper") {
-                ForEach(AndroidOS.Wallpaper.allCases) { w in
-                    Button { wallpaper = w } label: {
+                Button { picking = true } label: {
+                    AndroidSettingsRow(icon: "photo.on.rectangle", title: "Choose a photo", summary: "From your iPhone's photos") {
+                        AndroidRadio(on: wallpaper == .custom)
+                    }
+                }
+                .buttonStyle(AndroidRippleStyle())
+                ForEach(AndroidOS.Wallpaper.allCases.filter { $0 != .custom && $0 != .lineage20 }) { w in
+                    Button { wallpaper = w; AndroidColors.changed() } label: {
                         AndroidSettingsRow(icon: w.icon, title: w.title) {
-                            AndroidRadio(on: wallpaper == w)
+                            AndroidRadio(on: wallpaper == w || (w == .lineage22 && wallpaper == .lineage20))
                         }
                     }
                     .buttonStyle(AndroidRippleStyle())
                 }
             }
             AndroidSettingsGroup(header: "Colours") {
-                VStack(alignment: .leading, spacing: 14) {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 14) {
-                        ForEach(AppTheme.presets) { preset in
-                            Button { theme.accentColor = preset.color; custom = preset.color } label: {
-                                Circle().fill(preset.color).frame(width: 44, height: 44)
-                                    .overlay {
-                                        if preset.color.themeHex == theme.accentColor.themeHex {
-                                            Image(systemName: "checkmark").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
-                                        }
-                                    }
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(preset.name)
+                AndroidSettingsRow(icon: "drop.halffull", title: "Wallpaper colours",
+                                   summary: wallpaperColors ? "Colours come from the wallpaper, as on Android" : "Colours come from your accent below") {
+                    Toggle("", isOn: $wallpaperColors).labelsHidden().toggleStyle(Material3SwitchStyle())
+                }
+                ForEach(AndroidColors.Style.allCases) { st in
+                    Button { style = st; AndroidColors.changed() } label: {
+                        AndroidSettingsRow(icon: st == .monochrome ? "circle.lefthalf.filled" : st == .vibrant ? "sun.max" : "paintpalette",
+                                           title: st.title, summary: st.summary) {
+                            AndroidRadio(on: style == st)
                         }
                     }
-                    ColorPicker("Custom colour", selection: $custom, supportsOpacity: false)
-                        .font(.system(size: 16, design: .rounded))
-                        .foregroundStyle(Color(uiColor: Material3.onSurface))
-                        .onChange(of: custom) { theme.accentColor = $0 }
+                    .buttonStyle(AndroidRippleStyle())
                 }
-                .padding(16)
-                .background(Color(uiColor: Material3.surfaceContainer))
+                if !wallpaperColors {
+                    VStack(alignment: .leading, spacing: 14) {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 14) {
+                            ForEach(AppTheme.presets) { preset in
+                                Button { theme.accentColor = preset.color; custom = preset.color } label: {
+                                    Circle().fill(preset.color).frame(width: 44, height: 44)
+                                        .overlay {
+                                            if preset.color.themeHex == theme.accentColor.themeHex {
+                                                Image(systemName: "checkmark").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
+                                            }
+                                        }
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(preset.name)
+                            }
+                        }
+                        ColorPicker("Custom colour", selection: $custom, supportsOpacity: false)
+                            .font(.system(size: 16, design: .rounded))
+                            .foregroundStyle(Color(uiColor: Material3.onSurface))
+                            .onChange(of: custom) { theme.accentColor = $0 }
+                    }
+                    .padding(16)
+                    .background(Color(uiColor: Material3.surfaceContainer))
+                }
                 AndroidSettingsRow(icon: "paintbrush.pointed.fill", title: "Material You in apps",
-                                   summary: "Apps get Android's dynamic colours from your accent, from the next app you open") {
+                                   summary: "Apps get Android's dynamic colours, from the next app you open") {
                     Toggle("", isOn: $materialApps).labelsHidden().toggleStyle(Material3SwitchStyle())
                 }
             }
+            AndroidSettingsGroup(header: "App icons") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Icon shape").font(.system(size: 16, design: .rounded))
+                        .foregroundStyle(Color(uiColor: Material3.onSurface))
+                    HStack(spacing: 10) {
+                        ForEach(AndroidIconShape.allCases) { shape in
+                            Button { withAnimation(AndroidMotion.spatial) { iconShape = shape } } label: {
+                                VStack(spacing: 6) {
+                                    shape.shape(44).fill(Color(uiColor: iconShape == shape ? Material3.primary : Material3.surfaceContainerHighest))
+                                        .frame(width: 44, height: 44)
+                                    Text(shape.title).font(.system(size: 10, design: .rounded)).lineLimit(1)
+                                        .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(AndroidSquashStyle())
+                        }
+                    }
+                }
+                .padding(16)
+                .background(Color(uiColor: Material3.surfaceContainer))
+            }
         }
-        .onChange(of: theme.accentColor.themeHex) { _ in Material3.exportDynamicColors() }
+        .onChange(of: theme.accentColor.themeHex) { _ in AndroidColors.changed() }
+        .onChange(of: wallpaperColors) { _ in AndroidColors.changed() }
         .onChange(of: materialApps) { _ in Material3.exportDynamicColors() }
+        .sheet(isPresented: $picking) {
+            WallpaperPhotoPicker { AndroidColors.setCustom($0); wallpaper = .custom }.ignoresSafeArea()
+        }
     }
 }
 
@@ -434,6 +492,8 @@ private struct AndroidOSSystemPage: View {
             }
             AndroidSettingsGroup {
                 SettingsLink(route: .gestures, icon: "hand.draw.fill", tint: .systemGray, title: "Gestures", summary: navigation.title)
+                SettingsLink(route: .statusBar, icon: "menubar.rectangle", tint: .systemBlue, title: "Status bar",
+                             summary: "Battery percentage, clock, notification icons")
                 SettingsLink(route: .updates, icon: "arrow.triangle.2.circlepath.circle.fill", tint: .systemTeal, title: "System updates",
                              summary: "LineageOS 23.2 · HuskPatch \(Bundle.main.version)")
             }

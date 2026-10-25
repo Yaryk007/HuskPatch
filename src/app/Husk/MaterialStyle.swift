@@ -27,8 +27,10 @@ enum Material3 {
     /// secondary 16, tertiary 24 turned 60 degrees, neutral 6, neutral variant 8; CAM16 chroma, about 1.3x in CIELAB).
     enum Palette { case primary, secondary, tertiary, neutral, neutralVariant, error }
 
-    /// The seed in CIE L*C*h: (hue in degrees, chroma).
+    /// The seed in CIE L*C*h: (hue in degrees, chroma). In Android OS mode with wallpaper colours on (Android's
+    /// default), the wallpaper's; otherwise the accent.
     private static var seedLCh: (h: Double, c: Double) {
+        if let seed = AndroidColors.wallpaperSeed { return seed }
         let lab = Lab(UIColor(AppTheme.shared.accentColor))
         return (atan2(lab.b, lab.a) * 180 / .pi, (lab.a * lab.a + lab.b * lab.b).squareRoot())
     }
@@ -37,14 +39,29 @@ enum Material3 {
         let seed = seedLCh
         // a grey seed makes grey palettes, as Android's "monochrome" style does
         let k = min(1, seed.c / 18)
-        switch p {
-        case .primary: return (seed.h, max(min(seed.c, 62), 47) * k)
-        case .secondary: return (seed.h, 21 * k)
-        case .tertiary: return (seed.h + 60, 31 * k)
-        // HuskPatch's Android 13 look: Monet's neutrals as LineageOS 20 has them, all but grey (2E3132, 3F484B)
-        case .neutral: return (seed.h, (Android13.isOn ? 1.6 : 8) * k)
-        case .neutralVariant: return (seed.h, (Android13.isOn ? 4.5 : 11) * k)
-        case .error: return (35, 70)
+        switch AndroidColors.style {
+        case .tonalSpot:
+            // Android's default scheme, measured on LineageOS 23.2 (accent tone 77 at chroma ~18, surfaces chroma ~3-6)
+            switch p {
+            case .primary: return (seed.h, 24 * k)
+            case .secondary: return (seed.h, 9 * k)
+            case .tertiary: return (seed.h + 60, 16 * k)
+            case .neutral: return (seed.h, (Android13.isOn ? 1.6 : 2.6) * k)
+            case .neutralVariant: return (seed.h, (Android13.isOn ? 4.5 : 5.5) * k)
+            case .error: return (35, 70)
+            }
+        case .monochrome:
+            return p == .error ? (35, 70) : (seed.h, 0)
+        case .vibrant:
+            switch p {
+            case .primary: return (seed.h, max(min(seed.c, 62), 47) * k)
+            case .secondary: return (seed.h, 21 * k)
+            case .tertiary: return (seed.h + 60, 31 * k)
+            // HuskPatch's Android 13 look: Monet's neutrals as LineageOS 20 has them, all but grey (2E3132, 3F484B)
+            case .neutral: return (seed.h, (Android13.isOn ? 1.6 : 8) * k)
+            case .neutralVariant: return (seed.h, (Android13.isOn ? 4.5 : 11) * k)
+            case .error: return (35, 70)
+            }
         }
     }
 

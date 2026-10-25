@@ -196,3 +196,30 @@ struct AndroidGesturesPage: View {
         }
     }
 }
+
+/// System › Status bar: what Android 16's status bar shows.
+struct AndroidStatusBarPage: View {
+    @AppStorage(AndroidStatusBar.percentKey) private var percent = false
+    @AppStorage(AndroidStatusBar.secondsKey) private var seconds = false
+    @AppStorage(AndroidStatusBar.iconsKey) private var icons = true
+
+    var body: some View {
+        AndroidSettingsPage(title: "Status bar", onBack: AndroidSettingsRoute.pop) {
+            AndroidSettingsGroup(header: "Battery") {
+                AndroidSettingsRow(icon: "battery.75", title: "Battery percentage", summary: "Show the level beside the battery") {
+                    Toggle("", isOn: $percent).labelsHidden().toggleStyle(Material3SwitchStyle())
+                }
+            }
+            AndroidSettingsGroup(header: "Clock") {
+                AndroidSettingsRow(icon: "clock", title: "Show seconds") {
+                    Toggle("", isOn: $seconds).labelsHidden().toggleStyle(Material3SwitchStyle())
+                }
+            }
+            AndroidSettingsGroup(header: "Notifications") {
+                AndroidSettingsRow(icon: "bell.badge", title: "Notification icons", summary: "Show what is waiting beside the clock") {
+                    Toggle("", isOn: $icons).labelsHidden().toggleStyle(Material3SwitchStyle())
+                }
+            }
+        }
+    }
+}
