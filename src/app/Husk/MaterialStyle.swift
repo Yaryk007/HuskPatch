@@ -41,8 +41,9 @@ enum Material3 {
         case .primary: return (seed.h, max(min(seed.c, 62), 47) * k)
         case .secondary: return (seed.h, 21 * k)
         case .tertiary: return (seed.h + 60, 31 * k)
-        case .neutral: return (seed.h, 8 * k)
-        case .neutralVariant: return (seed.h, 11 * k)
+        // HuskPatch's Android 13 look: Monet's neutrals as LineageOS 20 has them, all but grey (2E3132, 3F484B)
+        case .neutral: return (seed.h, (Android13.isOn ? 1.6 : 8) * k)
+        case .neutralVariant: return (seed.h, (Android13.isOn ? 4.5 : 11) * k)
         case .error: return (35, 70)
         }
     }

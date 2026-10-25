@@ -534,7 +534,13 @@ struct AndroidHeadsUp: View {
     @ObservedObject private var shell = AndroidShellState.shared
 
     var body: some View {
-        AndroidNotificationBubble(note: note)
+        Group {
+            if Android13.isOn {
+                A13NotificationStack(notes: [note], expandable: true).environment(\.colorScheme, .dark)
+            } else {
+                AndroidNotificationBubble(note: note)
+            }
+        }
             .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
             .padding(.horizontal, 10)
             .padding(.top, 4)

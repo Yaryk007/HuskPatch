@@ -35,11 +35,12 @@ enum AndroidOS {
     /// The wallpaper: LineageOS 22's (a teal sweep across the dark), its earlier one (orbit rings in the palette's colours),
     /// or Material's soft shapes.
     enum Wallpaper: String, CaseIterable, Identifiable {
-        case lineage22, lineage, blobs
+        case lineage22, lineage20, lineage, blobs
         var id: String { rawValue }
         var title: String {
             switch self {
             case .lineage22: return "LineageOS 22"
+            case .lineage20: return "LineageOS 20"
             case .lineage: return "LineageOS orbit"
             case .blobs: return "Material shapes"
             }
@@ -47,6 +48,7 @@ enum AndroidOS {
         var icon: String {
             switch self {
             case .lineage22: return "rectangle.portrait.inset.filled"
+            case .lineage20: return "photo"
             case .lineage: return "circle.circle"
             case .blobs: return "scribble.variable"
             }
@@ -136,6 +138,27 @@ final class AndroidShellState: ObservableObject {
     /// The notification shade, pulled down from the status bar; expanded: all of Quick Settings.
     @Published var shade = false
     @Published var shadeExpanded = false
+    /// Android 13's power menu, and the screen it can turn off or restart.
+    @Published var powerMenu = false
+    @Published var blackout: Blackout?
+    enum Blackout { case off, restarting }
+
+    func powerOff() {
+        withAnimation(.easeOut(duration: 0.25)) { blackout = .off; open = nil; drawer = false; recents = false }
+    }
+
+    func restart() {
+        withAnimation(.easeOut(duration: 0.25)) { blackout = .restarting; open = nil; drawer = false; recents = false }
+        Task {
+            try? await Task.sleep(nanoseconds: 2_600_000_000)
+            AndroidLock.unlockedSinceLaunch = false
+            withAnimation(.easeIn(duration: 0.4)) { blackout = nil; locked = AndroidLock.showsLockScreen }
+        }
+    }
+
+    func wake() {
+        withAnimation(.easeIn(duration: 0.25)) { blackout = nil; locked = AndroidLock.showsLockScreen }
+    }
 
     func openShade(expanded: Bool = false) {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -236,6 +259,7 @@ struct AndroidShellView: View {
     @ObservedObject private var store = TranslationLayerStore.shared
     @ObservedObject private var host = AndroidHost.shared
     @ObservedObject private var theme = AppTheme.shared
+    @AppStorage(Android13.key) private var a13 = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -244,7 +268,9 @@ struct AndroidShellView: View {
 
             VStack(spacing: 0) {
                 ZStack {
-                    AndroidHomeScreen()
+                    Group {
+                        if a13 { Android13HomeScreen() } else { AndroidHomeScreen() }
+                    }
                         .opacity(shell.drawer || shell.open != nil ? 0 : 1)
                         .scaleEffect(shell.open != nil ? 0.94 : 1)
 
@@ -262,7 +288,9 @@ struct AndroidShellView: View {
                     }
 
                     if shell.recents {
-                        AndroidRecents()
+                        Group {
+                            if a13 { Android13Recents() } else { AndroidRecents() }
+                        }
                             .transition(.opacity)
                             .zIndex(3)
                     }
@@ -297,7 +325,9 @@ struct AndroidShellView: View {
             }
 
             if shell.shade {
-                AndroidShade()
+                Group {
+                    if a13 { Android13Shade() } else { AndroidShade() }
+                }
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .zIndex(5)
             }
@@ -313,6 +343,16 @@ struct AndroidShellView: View {
                 AndroidLockScreen()
                     .transition(.move(edge: .top))
                     .zIndex(10)
+            }
+
+            if shell.powerMenu {
+                Android13PowerMenu().zIndex(11)
+            }
+
+            if let b = shell.blackout {
+                Android13Blackout(restarting: b == .restarting)
+                    .transition(.opacity)
+                    .zIndex(20)
             }
         }
         .statusBarHidden(true)
@@ -336,6 +376,7 @@ struct AndroidWallpaper: View {
     var body: some View {
         switch style {
         case .lineage22: Lineage22Wallpaper()
+        case .lineage20: Lineage20Wallpaper()
         case .lineage: LineageWallpaper()
         case .blobs: blobs
         }
@@ -584,6 +625,8 @@ struct AndroidAppIcon: View {
     var body: some View {
         Group {
             switch app {
+            case .settings where Android13.isOn:
+                Image("A13Icon-settings").resizable().scaledToFit()
             case .settings:
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: size * 0.5, weight: .semibold))
@@ -591,7 +634,11 @@ struct AndroidAppIcon: View {
                     .frame(width: size, height: size)
                     .background(Color(uiColor: Material3.primaryContainer).opacity(0.95))
             case .system(let a):
-                AndroidSystemAppIcon(app: a, size: size)
+                if Android13.isOn, let asset = Android13.iconAsset(a) {
+                    Image(asset).resizable().scaledToFit()
+                } else {
+                    AndroidSystemAppIcon(app: a, size: size)
+                }
             case .playStore:
                 PlayTriangle()
                     .fill(AngularGradient(colors: [.green, .blue, .red, .yellow, .green], center: .center))
@@ -655,7 +702,17 @@ private struct AndroidAppDrawer: View {
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
+    @AppStorage(Android13.key) private var a13 = false
+
     var body: some View {
+        if a13 {
+            Android13Drawer(apps: apps, query: $query)
+        } else {
+            drawer16
+        }
+    }
+
+    private var drawer16: some View {
         VStack(spacing: 0) {
             Capsule().fill(Color(uiColor: Material3.onSurfaceVariant).opacity(0.4))
                 .frame(width: 36, height: 4)
@@ -791,14 +848,20 @@ private struct AndroidNavigationButtons: View {
 
     var body: some View {
         HStack {
+            // Android 13 fills all three (LineageOS 20's white triangle, circle and square); later versions outline recents
             button("Back") { shell.back() } label: {
-                Image(systemName: "arrowtriangle.backward.fill").font(.system(size: 18, weight: .regular))
+                Image(systemName: Android13.isOn ? "arrowtriangle.left.fill" : "arrowtriangle.backward.fill")
+                    .font(.system(size: Android13.isOn ? 20 : 18, weight: .regular))
             }
             button("Home") { shell.home() } label: {
-                Circle().frame(width: 18, height: 18)
+                Circle().frame(width: Android13.isOn ? 20 : 18, height: Android13.isOn ? 20 : 18)
             }
             button("Recents") { shell.toggleRecents() } label: {
-                RoundedRectangle(cornerRadius: 3).stroke(lineWidth: 2.4).frame(width: 16, height: 16)
+                if Android13.isOn {
+                    RoundedRectangle(cornerRadius: 2.5).frame(width: 17, height: 17)
+                } else {
+                    RoundedRectangle(cornerRadius: 3).stroke(lineWidth: 2.4).frame(width: 16, height: 16)
+                }
             }
         }
         .foregroundStyle(overApp ? Color.white : solid ? Color(uiColor: Material3.onSurface) : Color(uiColor: Material3.onPrimaryContainer))

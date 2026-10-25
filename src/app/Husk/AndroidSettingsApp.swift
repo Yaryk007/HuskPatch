@@ -23,7 +23,7 @@ struct AndroidSettingsApp: View {
 enum AndroidSettingsRoute: Hashable {
     case network, connected, apps, appInfo(String), specialAccess(AndroidSpecialAccess), display, wallpaper, system, navigation,
          jit, performance, library, discover, emulator, input, savedMachine, about, legal,
-         security, screenLock, fingerprint, testing
+         security, screenLock, fingerprint, testing, developer
 
     /// The pages HuskPatch already had are pushed with their own (Material-styled) navigation bar; the Android pages draw theirs.
     @MainActor @ViewBuilder var destination: some View {
@@ -53,6 +53,7 @@ enum AndroidSettingsRoute: Hashable {
         case .screenLock: AndroidScreenLockPage().toolbar(.hidden, for: .navigationBar)
         case .fingerprint: AndroidFingerprintPage().toolbar(.hidden, for: .navigationBar)
         case .testing: AndroidTestingPage(onBack: AndroidSettingsRoute.pop).toolbar(.hidden, for: .navigationBar)
+        case .developer: AndroidDeveloperOptionsPage().toolbar(.hidden, for: .navigationBar)
         }
     }
 
@@ -417,10 +418,18 @@ private struct AndroidRadio: View {
 private struct AndroidOSSystemPage: View {
     @AppStorage(AndroidOS.Navigation.key) private var navigation = AndroidOS.Navigation.buttons
     @AppStorage(AppWindows.defaultKey) private var multitask = false
+    @AppStorage(TranslationLayer.devInfoKey) private var devInfo = false
+    @AppStorage(Android13.key) private var a13 = false
     @State private var leaving = false
 
     var body: some View {
         AndroidSettingsPage(title: "System", onBack: AndroidSettingsRoute.pop) {
+            if devInfo {
+                AndroidSettingsGroup {
+                    SettingsLink(route: .developer, icon: "curlybraces", tint: .systemGreen, title: "Developer options",
+                                 summary: a13 ? "Android 13 look on" : nil)
+                }
+            }
             AndroidSettingsGroup(header: "Gestures") {
                 SettingsLink(route: .navigation, icon: "hand.draw.fill", tint: .systemGray, title: "Navigation mode", summary: navigation.title)
             }
@@ -540,13 +549,14 @@ private struct AndroidAboutPhonePage: View {
             AndroidSettingsGroup {
                 AndroidSettingsRow(title: "Device name", summary: UIDevice.current.name)
                 AndroidSettingsRow(title: "Model", summary: model)
-                AndroidSettingsRow(title: "Android version", summary: "16")
-                AndroidSettingsRow(title: "LineageOS version", summary: "23.0-\(Bundle.main.version)-HUSKPATCH")
+                AndroidSettingsRow(title: "Android version", summary: Android13.isOn ? "13" : "16")
+                AndroidSettingsRow(title: "LineageOS version",
+                                   summary: (Android13.isOn ? "20.0" : "23.0") + "-\(Bundle.main.version)-HUSKPATCH")
                 AndroidSettingsRow(title: "HuskPatch version", summary: Bundle.main.version)
                 Button {
                     taps += 1
                     if devInfo { show("No need, you are already a developer.") }
-                    else if taps >= 7 { devInfo = true; show("You are now a developer!") }
+                    else if taps >= 7 { devInfo = true; show("You are now a developer! Developer options are in System.") }
                     else if taps >= 3 { show("You are now \(7 - taps) step\(7 - taps == 1 ? "" : "s") away from being a developer.") }
                 } label: {
                     AndroidSettingsRow(title: "Build number", summary: Bundle.main.commit)

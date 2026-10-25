@@ -260,8 +260,19 @@ private struct SystemTests: View {
     @State private var pickedNote: String?
     @State private var pattern: String?
 
+    @AppStorage(Android13.key) private var a13 = false
+
     var body: some View {
         VStack(spacing: 0) {
+            TestCard(title: "Android version", caption: "Developer toggle: Android OS mode's look") {
+                Toggle("Android 13 (LineageOS 20)", isOn: Binding(get: { a13 }, set: { Android13.set($0) }))
+                    .font(.system(size: 16, design: .rounded))
+                    .toggleStyle(Material3SwitchStyle())
+                Text(a13 ? "LineageOS 20: its wallpaper, icons, lock screen, shade, home, drawer and recents"
+                         : "LineageOS 22 (Android 15/16)")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+            }
             TestCard(title: "Dialogs and notifications") {
                 FlowRow {
                     Button("Dialog") { withAnimation(.snappy) { dialog = true } }.buttonStyle(.expressive(.tonal))

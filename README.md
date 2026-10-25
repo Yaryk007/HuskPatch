@@ -2,8 +2,8 @@
 
 The text bellow is not what huskpatch was used to be, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed, thank you guys for the support, i might still make updates but i will focus on my other projects more.
 
-> **HuskPatch 3.0.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (the 3.0 work, build 123: Compatibility
-> List, Godot 4, OBB expansion files, CJK fonts, Help in Settings...) with these additions:
+> **HuskPatch 3.2.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (Husk 3.0 and after: Compatibility
+> List, Godot 4, OBB expansion files, CJK fonts, .NET for Android, battery/clock/locale following the phone...) with these additions:
 >
 > - **Android OS mode** (Settings › Appearance › Android OS): HuskPatch's interface replaced by LineageOS 22's (Android
 >   15) -- a lock screen you swipe up, a home screen with your games and apps, an app drawer with the whole library, recents, and
@@ -17,6 +17,11 @@ The text bellow is not what huskpatch was used to be, it was a fork of husk to f
 >     clock widget and Trebuchet's dock of system apps; AOSP 15's lock screen -- the large clock in the middle, or the
 >     small one top left with your notifications as cards under it, "Unlock for all features and data" until the first
 >     unlock, optional flashlight / Do Not Disturb shortcuts; heads-up notifications; Android's dialogs instead of iOS alerts.
+>   - **Android 13 look** (developer toggle: tap Build number seven times, then Settings › System › Developer options,
+>     or Settings › Testing): LineageOS 20 copied from the real thing -- its wallpaper and Monet colours, its app icons,
+>     lock screen, shade and Quick Settings (pill tiles, brightness slider, pages of tiles, power menu with Power off,
+>     Restart and Screenshot), home screen and dock, full-screen app drawer, recents, filled navigation buttons, flat
+>     Settings lists -- in portrait and landscape. Controls stay Material 3 Expressive.
 >   - **System apps**, as LineageOS ships them, working through the iPhone where iOS allows: **Phone** (dialpad,
 >     recents, favourites; calls go through iOS), **Messaging** (conversations; texts go through iOS's message sheet),
 >     **Contacts** (the iPhone's, with new contacts), **Browser** (Jelly: address bar, incognito, desktop site, search

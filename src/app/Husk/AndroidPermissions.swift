@@ -860,6 +860,7 @@ struct AndroidSettingsPage<Content: View>: View {
 /// Settings' grouped rows: a rounded card of rows, 2 points apart, the group's ends rounded more.
 struct AndroidSettingsGroup<Content: View>: View {
     var header: String?
+    @AppStorage(Android13.key) private var a13 = false
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -871,10 +872,11 @@ struct AndroidSettingsGroup<Content: View>: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
             }
-            VStack(spacing: 2) { content }
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            // Android 13's Settings are flat lists; later versions group rows on cards
+            VStack(spacing: a13 ? 0 : 2) { content }
+                .clipShape(RoundedRectangle(cornerRadius: a13 ? 0 : 24, style: .continuous))
         }
-        .padding(.bottom, 16)
+        .padding(.bottom, a13 ? 8 : 16)
     }
 }
 
@@ -885,23 +887,25 @@ struct AndroidSettingsRow<Trailing: View>: View {
     let title: String
     var summary: String?
     @ViewBuilder var trailing: Trailing
+    @AppStorage(Android13.key) private var a13 = false
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: a13 ? 22 : 16) {
             if let icon {
+                // Android 13: the icon alone, in the accent's light tone; later: in a tinted circle
                 Image(systemName: icon)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(Color(uiColor: tint))
-                    .frame(width: 40, height: 40)
-                    .background(Color(uiColor: tint).opacity(0.14), in: Circle())
+                    .font(.system(size: a13 ? 20 : 18, weight: .medium))
+                    .foregroundStyle(a13 ? Color(uiColor: Material3.tone(.primary, 80)) : Color(uiColor: tint))
+                    .frame(width: a13 ? 28 : 40, height: 40)
+                    .background(a13 ? Color.clear : Color(uiColor: tint).opacity(0.14), in: Circle())
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 17, design: .rounded))
+                    .font(.system(size: a13 ? 19 : 17, design: a13 ? .default : .rounded))
                     .foregroundStyle(Color(uiColor: Material3.onSurface))
                 if let summary, !summary.isEmpty {
                     Text(summary)
-                        .font(.system(size: 14, design: .rounded))
+                        .font(.system(size: 14, design: a13 ? .default : .rounded))
                         .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -911,8 +915,8 @@ struct AndroidSettingsRow<Trailing: View>: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .frame(minHeight: 64)
-        .background(Color(uiColor: Material3.surfaceContainer))
+        .frame(minHeight: a13 ? 72 : 64)
+        .background(Color(uiColor: a13 ? Material3.surface : Material3.surfaceContainer))
         .contentShape(Rectangle())
     }
 }

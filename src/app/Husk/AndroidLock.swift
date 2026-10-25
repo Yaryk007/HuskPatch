@@ -141,7 +141,9 @@ struct AndroidLockScreen: View {
                 AndroidBouncer(kind: AndroidLock.kind, onUnlock: unlock, onCancel: { withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) { bouncer = false } })
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
-                keyguard
+                Group {
+                    if Android13.isOn { Android13Keyguard(unlock: unlock) } else { keyguard }
+                }
                     .offset(y: min(0, drag))
                     .opacity(1 - Double(min(abs(drag) / 500, 0.7)))
                     .transition(.opacity)

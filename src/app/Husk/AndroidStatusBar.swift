@@ -46,6 +46,27 @@ struct AndroidStatusBar: View {
     /// The clock on the left, the connection and a horizontal battery with its level written in it on the right,
     /// in Google Sans's place the rounded face, with the bar's items kept clear of the notch at the sides.
     private func expressive(_ now: Date) -> some View {
+        Group {
+            if Android13.isOn { android13(now) } else { android16(now) }
+        }
+    }
+
+    /// Android 13: the clock in the system face on the left, the connection and the upright battery on the right.
+    private func android13(_ now: Date) -> some View {
+        HStack(spacing: 6) {
+            Text(time(now))
+                .font(.system(size: 15, weight: .regular, design: .default))
+                .monospacedDigit()
+                .opacity(hidesClock ? 0 : 1)
+            Spacer(minLength: 0)
+            A13StatusIcons(status: status)
+        }
+        .foregroundStyle(transparent ? Color.white : ink)
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+    }
+
+    private func android16(_ now: Date) -> some View {
         let fg = ink
         return HStack(spacing: 6) {
             Text(time(now))
