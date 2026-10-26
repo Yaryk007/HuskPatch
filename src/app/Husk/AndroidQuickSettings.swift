@@ -62,7 +62,10 @@ struct AndroidAlertDialog: View {
     let icon: String
     let title: String
     let message: String
+    /// A second button, beside the one that dismisses (then labelled Cancel), and what it does.
+    var confirm: String? = nil
     let dismiss: () -> Void
+    var onConfirm: (() -> Void)? = nil
 
     var body: some View {
         ZStack {
@@ -81,8 +84,12 @@ struct AndroidAlertDialog: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack {
                     Spacer()
-                    Button("OK", action: dismiss)
+                    Button(confirm == nil ? "OK" : "Cancel", action: dismiss)
                         .buttonStyle(.expressive(.text))
+                    if let confirm, let onConfirm {
+                        Button(confirm, action: onConfirm)
+                            .buttonStyle(.expressive(.text))
+                    }
                 }
             }
             .padding(.horizontal, 24).padding(.top, 24).padding(.bottom, 14)

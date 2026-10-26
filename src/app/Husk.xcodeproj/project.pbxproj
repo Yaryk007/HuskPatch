@@ -1265,7 +1265,7 @@
 		5F45FC5FDE6614EBCB307AFD /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIconLegacy AppIconClearLight AppIconClearDark AppIconTintedLight AppIconTintedDark";
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIconGreen AppIconLegacy AppIconClearLight AppIconClearDark AppIconTintedLight AppIconTintedDark";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = "$(HUSK_ENTITLEMENTS)";
@@ -1343,7 +1343,7 @@
 		A4ED241CB14F87417258BD9B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIconLegacy AppIconClearLight AppIconClearDark AppIconTintedLight AppIconTintedDark";
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIconGreen AppIconLegacy AppIconClearLight AppIconClearDark AppIconTintedLight AppIconTintedDark";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = "$(HUSK_ENTITLEMENTS)";

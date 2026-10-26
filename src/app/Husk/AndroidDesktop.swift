@@ -16,9 +16,9 @@ struct DesktopWindow: Identifiable, Equatable {
 extension AndroidShellState {
     /// Moves an app into a desktop window (from recents' menu).
     func openInDesktop(_ app: ShellApp) {
-        if case .item(.game) = app {
-            notice = "\(app.title) can't run in a desktop window: it draws full screen."
-            return
+        if case .item(.game(let g)) = app {
+            // one engine at a time: another app on the translation layer offers to restart into this one
+            guard canRun(g) else { return }
         }
         captureSnapshot()
         recentApps.removeAll { $0 == app }
@@ -128,7 +128,7 @@ private struct AndroidDesktopWindowView: View {
         let f = frame
         VStack(spacing: 0) {
             captionBar
-            AndroidAppContainer(app: window.app)
+            AndroidAppContainer(app: window.app, windowed: true)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
                 .environment(\.horizontalSizeClass, .compact)

@@ -76,13 +76,18 @@ extension AndroidShellState {
         }
     }
 
-    /// Split screen: `first` on top, `second` under it. Apps on the translation layer cannot share the screen (one engine
-    /// draws at a time).
+    /// Split screen: `first` on top, `second` under it. One of them can be an app on the translation layer, scaled to fit its
+    /// half (one engine runs at a time, so not both).
     func startSplit(_ first: ShellApp, _ second: ShellApp) {
         splitPicking = nil
         guard first != second else { return }
-        if case .item(.game) = first { notice = "\(first.title) doesn't support split screen."; return }
-        if case .item(.game) = second { notice = "\(second.title) doesn't support split screen."; return }
+        if case .item(.game) = first, case .item(.game) = second {
+            notice = "Only one Android app can share the screen at a time: pair \(second.title) with a system app."
+            return
+        }
+        for app in [first, second] {
+            if case .item(.game(let g)) = app, !canRun(g) { return }
+        }
         for app in [first, second] where !recentApps.contains(app) { recentApps.insert(app, at: 0) }
         withAnimation(AndroidMotion.spatial) {
             recents = false
@@ -271,8 +276,7 @@ private struct RecentMenu: View {
                 }
                 item("macwindow", "Desktop") { shell.openInDesktop(app) }
                 item("rectangle.split.1x2", "Split screen") {
-                    if case .item(.game) = app { shell.notice = "\(app.title) doesn't support split screen." }
-                    else { withAnimation(AndroidMotion.spatial) { shell.splitPicking = app } }
+                    withAnimation(AndroidMotion.spatial) { shell.splitPicking = app }
                 }
                 item("viewfinder", "Screenshot") { shell.saveScreenshot(shell.snapshots[app.id]) }
                 item("xmark", "Clear") { shell.forget(app) }
@@ -315,7 +319,7 @@ struct AndroidSplitView: View {
             let h = geo.size.height
             let ratio = dragRatio ?? pair.ratio
             VStack(spacing: 0) {
-                AndroidAppContainer(app: pair.top)
+                AndroidAppContainer(app: pair.top, windowed: true)
                     .frame(height: max(0, h * ratio - 6))
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 ZStack {
@@ -335,7 +339,7 @@ struct AndroidSplitView: View {
                             else { shell.split?.ratio = min(0.75, max(0.25, r)) }
                         }
                     })
-                AndroidAppContainer(app: pair.bottom)
+                AndroidAppContainer(app: pair.bottom, windowed: true)
                     .frame(maxHeight: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
@@ -470,9 +474,21 @@ struct LaunchMorph: ViewModifier, Animatable {
     func body(content: Content) -> some View {
         let p = min(max(progress, 0), 1)
         content
-            .clipShape(RoundedRectangle(cornerRadius: 28 + (1 - p) * 190, style: .continuous))
+            .clipShape(LaunchClip(progress: p))
             .scaleEffect(0.13 + 0.87 * p, anchor: anchor)
             .opacity(Double(min(1, p * 3.5)))
+    }
+}
+
+/// The launching window's outline: round while it grows, and no outline at all once it is open, so an open app is square
+/// to the screen's own corners and an app drawn past the safe area (a game in landscape) is not cut off at it.
+private struct LaunchClip: Shape {
+    let progress: CGFloat
+
+    func path(in r: CGRect) -> Path {
+        if progress >= 0.999 { return Path(r.insetBy(dx: -4000, dy: -4000)) }
+        let radius = min((1 - progress) * 218, min(r.width, r.height) / 2)
+        return Path(roundedRect: r, cornerRadius: radius, style: .continuous)
     }
 }
 

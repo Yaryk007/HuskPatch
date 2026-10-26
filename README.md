@@ -2,7 +2,7 @@
 
 The text bellow is not what huskpatch was used to be, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed, thank you guys for the support, i might still make updates but i will focus on my other projects more.
 
-> **HuskPatch 3.5.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (Husk 3.0 and after: Compatibility
+> **HuskPatch 3.6.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (Husk 3.0 and after: Compatibility
 > List, Godot 4, OBB expansion files, CJK fonts, .NET for Android, battery/clock/locale following the phone...) with these additions:
 >
 > - **Android OS mode** (Settings › Appearance › Android OS): HuskPatch's interface replaced by LineageOS 22's (Android
@@ -38,6 +38,12 @@ The text bellow is not what huskpatch was used to be, it was a fork of husk to f
 >     "No notifications" panel. Recents' **Desktop**: an app in a window with a caption bar (its menu, minimise,
 >     maximise, close) that you move and resize. Motion uses Material 3 Expressive's springs and Android's emphasized
 >     window transitions.
+>   - **3.6, apps in Android OS mode**: open apps are square to the screen (no more rounded, cut-off corners), and
+>     the 3 buttons and the gesture handle sit at the very bottom in place of iOS's home indicator. An app in landscape
+>     gets the whole screen (immersive mode): swipe in from the right edge (or up from the bottom, down from the top) to
+>     show the status bar and the navigation over it for a few seconds. Fullscreen games get the status bar and the
+>     shade the same way. Android apps work in split screen and Desktop windows, and opening another Android app
+>     restarts HuskPatch straight into it (one engine per run). New blue icon; the green one is still in Settings.
 >   - **Developer options** (Settings › Testing › System): hide the status bar or the navigation/gesture bar, skip the
 >     lock screen, no heads-up notifications, animator duration scale (off to 10x), disable blur, plain black
 >     wallpaper, Show taps and Show refresh rate.

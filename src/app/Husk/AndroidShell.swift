@@ -158,6 +158,11 @@ final class AndroidShellState: ObservableObject {
     @Published var split: SplitPair?
     @Published var splitPicking: ShellApp?
     @Published var notificationPrompt: AndroidSystemApp?
+    /// Immersive mode (AndroidMultiApp.swift): the bars shown over an app in landscape for a moment, after a swipe in.
+    @Published var barsRevealed = false
+    var barsToken = 0
+    /// Another app on the translation layer, asked for while one is loaded: HuskPatch offers to restart into it.
+    @Published var switchTo: TLApp?
     /// Each app's picture as it was last left, for recents; and the apps started since HuskPatch opened (no splash again).
     var snapshots: [String: UIImage] = [:]
     var warmApps: Set<String> = []
@@ -186,6 +191,7 @@ final class AndroidShellState: ObservableObject {
 
     func closeShade() {
         withAnimation(AndroidMotion.spatial) { shade = false; shadeExpanded = false; shadePeek = 0 }
+        keepBars()
     }
 
     /// The game or app on the translation layer that is open now, if one is.
@@ -208,13 +214,15 @@ final class AndroidShellState: ObservableObject {
             recents = false
             split = nil
             desktopActive = false
+            barsRevealed = false
             open = app
         }
         if case .system(let a) = app { askNotificationsIfNeeded(a) }
     }
 
-    /// Whether an app on the translation layer can be opened now: JIT is on, and no other app's engine is loaded.
-    private func canRun(_ g: TLApp) -> Bool {
+    /// Whether an app on the translation layer can be opened now: JIT is on, and no other app's engine is loaded. When
+    /// another one is (or this one closed itself), HuskPatch offers to restart into it instead.
+    func canRun(_ g: TLApp) -> Bool {
         if g.report?.webKind != nil { return true }
         guard Launcher.jitOn else {
             JITCoordinator.shared.enable()
@@ -223,16 +231,11 @@ final class AndroidShellState: ObservableObject {
         }
         // An app that closed itself: its engine cannot be started again in this run, as an engine cannot be unloaded
         if let loaded = husk_native_loaded_apk().map({ String(cString: $0) }), loaded == g.apks.first, husk_unity_state() == Int32(HUSK_UNITY_ENDED) {
-            notice = "\(g.label) was closed. An Android app can't be started again once it has closed in the same session: "
-                   + "close HuskPatch completely and open it again to run it."
+            withAnimation(AndroidMotion.fade) { switchTo = g }
             return false
         }
         if let loaded = husk_native_loaded_apk().map({ String(cString: $0) }), loaded != g.apks.first {
-            let other = Launcher.items(store: TranslationLayerStore.shared, host: AndroidHost.shared)
-                .first { if case .game(let o) = $0 { return o.apks.first == loaded }; return false }?.title
-                ?? (loaded as NSString).lastPathComponent
-            notice = "HuskPatch can't run more than one Android app at a time. \(other) is already running, and an app "
-                   + "can't be unloaded once it has started. Close HuskPatch completely and open it again to run \(g.label)."
+            withAnimation(AndroidMotion.fade) { switchTo = g }
             return false
         }
         return true
@@ -242,7 +245,7 @@ final class AndroidShellState: ObservableObject {
         captureSnapshot()
         withAnimation(AndroidMotion.launch) {
             open = nil; split = nil; splitPicking = nil; drawer = false; drawerPeek = 0; recents = false; shade = false; shadeExpanded = false
-            desktopActive = false
+            desktopActive = false; barsRevealed = false
         }
     }
 
@@ -322,8 +325,29 @@ struct AndroidShellView: View {
     /// How far the drawer is out: open, or following the finger.
     private var drawerReveal: CGFloat { shell.drawer ? 1 : shell.drawerPeek }
 
+    /// The open app on the translation layer, full screen (not sharing the screen in split screen).
+    private var fullScreenGame: TLApp? { shell.split == nil ? shell.openGame : nil }
+
+    /// Whether the open app on the translation layer draws Android's status bar in a strip of its own (a Java or Flutter
+    /// app in portrait, TLCocosAttemptView); every other one is a game that has the whole screen.
+    private func hasStatusStrip(_ g: TLApp) -> Bool {
+        guard g.report?.webKind == nil, g.report?.runsOnNativeRuntime == true else { return false }
+        return (g.screenEngine == .java || g.screenEngine == .flutter) && g.drawsPortrait(TLAppSettings.load(g.id))
+    }
+
     var body: some View {
-        ZStack {
+        GeometryReader { geo in
+            shellBody(landscape: geo.size.width > geo.size.height)
+        }
+    }
+
+    private func shellBody(landscape: Bool) -> some View {
+        // Immersive mode: an app on the translation layer in landscape has the whole screen; the bars come back over it
+        // for a moment when swiped in (AndroidMultiApp.swift)
+        let game = fullScreenGame
+        let immersive = game != nil && landscape
+        let barless = immersive || game.map { !hasStatusStrip($0) } == true
+        return ZStack {
             AndroidWallpaper()
 
             VStack(spacing: 0) {
@@ -373,7 +397,9 @@ struct AndroidShellView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                if hideNavBar {
+                // Along the very bottom of the screen, where iOS's home indicator was (hidden below): the buttons and
+                // the handle take its place rather than sitting above it
+                if hideNavBar || immersive {
                     EmptyView()
                 } else if navigation == .gestures {
                     AndroidGestureBar(solid: shell.open != nil, overApp: shell.openGame != nil)
@@ -381,24 +407,37 @@ struct AndroidShellView: View {
                     AndroidNavigationButtons(solid: shell.open != nil, overApp: shell.openGame != nil)
                 }
             }
+            .ignoresSafeArea(.container, edges: .bottom)
 
             // Hidden by Developer options, gesture navigation keeps its swipe up from the bottom edge
-            if hideNavBar, navigation == .gestures, !shell.locked {
+            if hideNavBar, navigation == .gestures, !shell.locked, !immersive {
                 VStack {
                     Spacer()
                     AndroidGestureBar(solid: false, hidden: true)
                 }
+                .ignoresSafeArea(.container, edges: .bottom)
             }
 
-            // Gesture navigation: back is a swipe in from either edge.
-            if navigation == .gestures, !shell.locked {
+            // Gesture navigation: back is a swipe in from either edge (in immersive mode, once the bars are showing).
+            if navigation == .gestures, !shell.locked, !immersive || shell.barsRevealed {
                 AndroidEdgeBack()
             }
 
-            // Android's status bar over everything but the lock screen, which draws its own; pulled down, the shade.
-            if shell.openGame == nil {
+            // Android's status bar over everything but the lock screen, which draws its own; pulled down, the shade. A
+            // Java or Flutter app draws its own in its strip; a game has the whole screen, and the bar comes when swiped in.
+            if game == nil {
                 if !hideStatusBar { AndroidStatusBar(material: true, transparent: shell.open == nil) }
                 AndroidShadePull()
+            } else if !barless {
+                AndroidShadePull()
+            } else if !shell.locked {
+                if shell.barsRevealed {
+                    AndroidTransientBars(landscape: immersive, navigation: navigation)
+                        .zIndex(3.5)
+                    AndroidShadePull()
+                } else {
+                    AndroidImmersiveEdges(landscape: immersive)
+                }
             }
 
             if let n = shell.headsUp, !shell.shade, !shell.locked, !noHeadsUp {
@@ -431,6 +470,18 @@ struct AndroidShellView: View {
                 .zIndex(8)
             }
 
+            // Another Android app while one is loaded: an engine cannot be unloaded, so it opens in a fresh run
+            if let next = shell.switchTo {
+                AndroidAlertDialog(icon: "arrow.triangle.2.circlepath", title: "Open \(next.label)?",
+                                   message: switchMessage(next), confirm: "Restart") {
+                    withAnimation(AndroidMotion.fade) { shell.switchTo = nil }
+                } onConfirm: {
+                    shell.switchTo = nil
+                    shell.restartInto(next)
+                }
+                .zIndex(8)
+            }
+
             if shell.starting && !shell.locked {
                 PhoneStartingView()
                     .transition(.opacity)
@@ -454,9 +505,12 @@ struct AndroidShellView: View {
             }
         }
         .statusBarHidden(true)
+        // iOS's home indicator: Android's navigation is drawn in its place
+        .huskHideSystemOverlays()
         // iOS's own edge swipes (Notification Center from the top, home from the bottom) would take Android's shade and
         // drawer gestures: they need a second swipe while Android OS mode is showing
-        .huskDefersSystemGestures(on: [.top, .bottom])
+        .huskDefersSystemGestures(on: immersive ? .all : [.top, .bottom])
+        .onChange(of: immersive) { on in if !on { shell.hideBars() } }
         .animation(AndroidMotion.fade, value: shell.notice)
         .animation(AndroidMotion.spatial, value: shell.split)
         .onReceive(NotificationCenter.default.publisher(for: TLUnityUIView.appClosedItself)) { _ in
@@ -465,12 +519,27 @@ struct AndroidShellView: View {
         .onAppear {
             TouchTracker.install()
             AndroidDev.applyOverlays()
+            shell.resumePendingLaunch()
         }
         .onDisappear { AndroidDev.applyOverlays() }
         .onChange(of: scenePhase) { phase in
             // A phone locks when it is put away: so does this, when HuskPatch goes to the background.
             if phase == .background, AndroidLock.locksAutomatically { shell.locked = true }
         }
+    }
+}
+
+extension AndroidShellView {
+    /// Why switching needs a restart, and what it does.
+    fileprivate func switchMessage(_ next: TLApp) -> String {
+        let reason: String
+        if let loaded = husk_native_loaded_apk().map({ String(cString: $0) }), loaded == next.apks.first {
+            reason = "\(next.label) was closed, and an Android app can't be started again in the same run."
+        } else {
+            reason = "\(shell.loadedGameTitle ?? "Another app") is still loaded, and HuskPatch runs one Android app per run."
+        }
+        return reason + " HuskPatch will close \(shell.loadedGameTitle ?? "it") and restart straight into \(next.label): "
+             + "tap the notification (or HuskPatch's icon) to come back."
     }
 }
 
@@ -913,6 +982,8 @@ private struct UnevenRoundedRectangleCompat: Shape {
 /// Apps in Emulation open their page, since Android has to be started for them.
 struct AndroidAppContainer: View {
     let app: ShellApp
+    /// Sharing the screen (split screen, a desktop window): an app on the translation layer is scaled to fit its part.
+    var windowed = false
     @State private var splash = false
 
     var body: some View {
@@ -936,6 +1007,8 @@ struct AndroidAppContainer: View {
 
     @ViewBuilder private var content: some View {
         switch app {
+        case .item(.game(let g)) where windowed:
+            AndroidTLWindowContent(app: g)
         case .item(.game(let g)):
             // Edge to edge: under the status bar and, in landscape, past the notch and the rounded corners, as an Android game
             // in immersive mode draws. Only the navigation buttons below keep their strip.
@@ -964,42 +1037,68 @@ struct AndroidAppContainer: View {
 // MARK: - navigation buttons
 
 /// Android's three buttons: back, home, recents.
-private struct AndroidNavigationButtons: View {
+struct AndroidNavigationButtons: View {
     let solid: Bool
     /// Over an app running full screen: white on black, as Android draws them there.
     var overApp = false
+    /// Down the right edge, recents at the top and back at the bottom, as Android puts them in landscape.
+    var vertical = false
+    /// Shown over an app in immersive mode: on a translucent dark strip, the app showing through.
+    var floating = false
     @ObservedObject private var shell = AndroidShellState.shared
 
     var body: some View {
-        HStack {
-            // Android 13 fills all three (LineageOS 20's white triangle, circle and square); later versions outline recents
-            button("Back") { shell.back() } label: {
-                Image(systemName: Android13.isOn ? "arrowtriangle.left.fill" : "arrowtriangle.backward.fill")
-                    .font(.system(size: Android13.isOn ? 20 : 18, weight: .regular))
-            }
-            button("Home") { shell.home() } label: {
-                Circle().frame(width: Android13.isOn ? 20 : 18, height: Android13.isOn ? 20 : 18)
-            }
-            button("Recents") { shell.toggleRecents() } label: {
-                if Android13.isOn {
-                    RoundedRectangle(cornerRadius: 2.5).frame(width: 17, height: 17)
-                } else {
-                    RoundedRectangle(cornerRadius: 3).stroke(lineWidth: 2.4).frame(width: 16, height: 16)
-                }
+        Group {
+            if vertical {
+                VStack { recentsButton; homeButton; backButton }
+                    .frame(width: 48)
+                    .padding(.vertical, 28)
+            } else {
+                HStack { backButton; homeButton; recentsButton }
+                    .frame(height: 48)
+                    .padding(.horizontal, 36)
             }
         }
         .foregroundStyle(overApp ? Color.white : solid ? Color(uiColor: Material3.onSurface) : Color(uiColor: Material3.onPrimaryContainer))
-        .frame(height: 48)
-        .padding(.horizontal, 36)
-        .background((overApp ? Color.black : solid ? Color(uiColor: Material3.surfaceContainer) : Color.clear).ignoresSafeArea(edges: .bottom))
+        .background((floating ? Color.black.opacity(0.45) : overApp ? Color.black : solid ? Color(uiColor: Material3.surfaceContainer) : Color.clear)
+            .ignoresSafeArea(edges: vertical ? .trailing : .bottom))
+    }
+
+    // Android 13 fills all three (LineageOS 20's white triangle, circle and square); later versions outline recents
+    private var backButton: some View {
+        button("Back") { shell.back() } label: {
+            Image(systemName: Android13.isOn ? "arrowtriangle.left.fill" : "arrowtriangle.backward.fill")
+                .font(.system(size: Android13.isOn ? 20 : 18, weight: .regular))
+        }
+    }
+
+    private var homeButton: some View {
+        button("Home") { shell.home() } label: {
+            Circle().frame(width: Android13.isOn ? 20 : 18, height: Android13.isOn ? 20 : 18)
+        }
+    }
+
+    private var recentsButton: some View {
+        button("Recents") { shell.toggleRecents() } label: {
+            if Android13.isOn {
+                RoundedRectangle(cornerRadius: 2.5).frame(width: 17, height: 17)
+            } else {
+                RoundedRectangle(cornerRadius: 3).stroke(lineWidth: 2.4).frame(width: 16, height: 16)
+            }
+        }
     }
 
     private func button<L: View>(_ name: String, _ action: @escaping () -> Void, @ViewBuilder label: () -> L) -> some View {
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             action()
+            shell.keepBars()
         } label: {
-            label().frame(maxWidth: .infinity).frame(height: 48).contentShape(Rectangle())
+            Group {
+                if vertical { label().frame(maxHeight: .infinity).frame(width: 48) }
+                else { label().frame(maxWidth: .infinity).frame(height: 48) }
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(name)
@@ -1010,9 +1109,11 @@ private struct AndroidNavigationButtons: View {
 
 /// Gesture navigation's handle: a thin bar along the bottom. Swipe up from it to go home; swipe up and hold to see recent
 /// apps. On the home screen, a swipe up opens the app drawer.
-private struct AndroidGestureBar: View {
+struct AndroidGestureBar: View {
     let solid: Bool
     var overApp = false
+    /// Shown over an app in immersive mode: the handle alone, the app showing all around it.
+    var floating = false
     /// Developer options' "Hide gesture bar": nothing drawn, the swipe still there.
     var hidden = false
     @ObservedObject private var shell = AndroidShellState.shared
@@ -1028,7 +1129,7 @@ private struct AndroidGestureBar: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 22)
-        .background((hidden ? Color.clear : overApp ? Color.black : solid ? Color(uiColor: Material3.surfaceContainer) : Color.clear)
+        .background((hidden || floating ? Color.clear : overApp ? Color.black : solid ? Color(uiColor: Material3.surfaceContainer) : Color.clear)
             .ignoresSafeArea(edges: .bottom))
         .contentShape(Rectangle())
         .gesture(DragGesture(minimumDistance: 8, coordinateSpace: .global)
