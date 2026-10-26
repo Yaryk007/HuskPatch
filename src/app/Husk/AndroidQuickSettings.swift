@@ -184,9 +184,9 @@ struct AndroidHeadsUp: View {
             .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
             .padding(.horizontal, 10)
             .padding(.top, 4)
-            .onTapGesture { withAnimation(.snappy) { shell.headsUp = nil }; shell.openShade() }
+            .onTapGesture { withAnimation(AndroidMotion.exit) { shell.headsUp = nil }; shell.openShade() }
             .simultaneousGesture(DragGesture(minimumDistance: 10).onEnded { v in
-                if v.translation.height < -20 { withAnimation(.snappy) { shell.headsUp = nil } }
+                if v.translation.height < -20 { withAnimation(AndroidMotion.exit) { shell.headsUp = nil } }
             })
     }
 }

@@ -2,7 +2,7 @@
 
 The text bellow is not what huskpatch was used to be, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed, thank you guys for the support, i might still make updates but i will focus on my other projects more.
 
-> **HuskPatch 3.4.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (Husk 3.0 and after: Compatibility
+> **HuskPatch 3.5.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (Husk 3.0 and after: Compatibility
 > List, Godot 4, OBB expansion files, CJK fonts, .NET for Android, battery/clock/locale following the phone...) with these additions:
 >
 > - **Android OS mode** (Settings › Appearance › Android OS): HuskPatch's interface replaced by LineageOS 22's (Android
@@ -31,6 +31,21 @@ The text bellow is not what huskpatch was used to be, it was a fork of husk to f
 >     from the drawer; 4 or 5 columns, 4 to 6 rows -- edit Quick Settings (reorder, remove, add, large or icon tiles),
 >     status bar options (battery %, seconds, notification icons). Google Play looks like Google Play. Apps open out
 >     of their icon as on Android 16, and the shade and drawer open from easier swipes.
+>   - **3.5, closer to Android 16**: Quick Settings' real tile editor (the tiles in an accent frame with minus badges;
+>     select one to move it or drag its edge handle to resize; tiles to add by category with plus badges; the reset
+>     arrow), the tapped icon tile's name in the footer, LineageOS 23.2's default tiles, the Screen record tile with
+>     Android 16's dialog, a 3-second countdown, the red status bar chip and the video saved to Photos, and the empty
+>     "No notifications" panel. Recents' **Desktop**: an app in a window with a caption bar (its menu, minimise,
+>     maximise, close) that you move and resize. Motion uses Material 3 Expressive's springs and Android's emphasized
+>     window transitions.
+>   - **Developer options** (Settings › Testing › System): hide the status bar or the navigation/gesture bar, skip the
+>     lock screen, no heads-up notifications, animator duration scale (off to 10x), disable blur, plain black
+>     wallpaper, Show taps and Show refresh rate.
+>   - **Custom Android firmware** (developer toggle in Settings › Testing › System): boot the Android machine from your
+>     own image -- for example a debloated build -- instead of LineageOS 23.2. Any complete arm64 disk that boots with
+>     UEFI (GPT with an EFI system partition), as qcow2 or raw .img, gzipped or not. Each image keeps its own data and
+>     snapshot; switch back to Husk's image at any time. OTA zips, sparse system.img files and boot.img files are
+>     partitions of a phone, not bootable disks, and are refused with an explanation.
 >   - **Android 13 look** (developer toggle: tap Build number seven times, then Settings › System › Developer options,
 >     or Settings › Testing): LineageOS 20 copied from the real thing -- its wallpaper and Monet colours, its app icons,
 >     lock screen, shade and Quick Settings (pill tiles, brightness slider, pages of tiles, power menu with Power off,

@@ -67,7 +67,7 @@ enum AndroidOS {
             d.set(true, forKey: Material3.appsKey)
             Material3.exportDynamicColors()
         }
-        AndroidShellState.shared.locked = on && AndroidLock.showsLockScreen
+        AndroidShellState.shared.locked = on && AndroidLock.locksAutomatically
     }
 }
 
@@ -101,7 +101,7 @@ enum ShellApp: Hashable, Identifiable {
 final class AndroidShellState: ObservableObject {
     static let shared = AndroidShellState()
 
-    @Published var locked = AndroidOS.isOn && AndroidLock.showsLockScreen
+    @Published var locked = AndroidOS.isOn && AndroidLock.locksAutomatically
     /// Do Not Disturb, from the lock screen's shortcut or Quick Settings.
     @Published var doNotDisturb = false
     /// Notifications posted in the shell (the Testing page's, an installed app's), newest first.
@@ -111,19 +111,22 @@ final class AndroidShellState: ObservableObject {
     @Published var headsUp: ShellNotification?
 
     func post(_ n: ShellNotification) {
-        withAnimation(.snappy) { notifications.insert(n, at: 0) }
+        withAnimation(AndroidMotion.spatial) { notifications.insert(n, at: 0) }
         guard !doNotDisturb else { return }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) { headsUp = n }
+        withAnimation(AndroidMotion.bouncy) { headsUp = n }
         Task {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
-            if headsUp?.id == n.id { withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) { headsUp = nil } }
+            if headsUp?.id == n.id { withAnimation(AndroidMotion.exit) { headsUp = nil } }
         }
     }
 
-    func dismissNotifications() { withAnimation(.snappy) { notifications.removeAll() } }
+    func dismissNotifications() { withAnimation(AndroidMotion.spatial) { notifications.removeAll() } }
 
     @Published var open: ShellApp?
+    /// Desktop windowing (AndroidDesktop.swift): the windows, front last, and whether the desktop is what is showing.
+    @Published var desktop: [DesktopWindow] = []
+    @Published var desktopActive = false
     @Published var drawer = false
     @Published var recents = false
     @Published var recentApps: [ShellApp] = []
@@ -168,12 +171,12 @@ final class AndroidShellState: ObservableObject {
         Task {
             try? await Task.sleep(nanoseconds: 2_600_000_000)
             AndroidLock.unlockedSinceLaunch = false
-            withAnimation(.easeIn(duration: 0.4)) { blackout = nil; locked = AndroidLock.showsLockScreen }
+            withAnimation(.easeIn(duration: 0.4)) { blackout = nil; locked = AndroidLock.locksAutomatically }
         }
     }
 
     func wake() {
-        withAnimation(.easeIn(duration: 0.25)) { blackout = nil; locked = AndroidLock.showsLockScreen }
+        withAnimation(.easeIn(duration: 0.25)) { blackout = nil; locked = AndroidLock.locksAutomatically }
     }
 
     func openShade(expanded: Bool = false) {
@@ -197,11 +200,14 @@ final class AndroidShellState: ObservableObject {
         if open != app { captureSnapshot() }
         recentApps.removeAll { $0 == app }
         recentApps.insert(app, at: 0)
+        // an app with a desktop window opens there
+        if desktop.contains(where: { $0.app == app }) { focusDesktop(app); return }
         withAnimation(AndroidMotion.launch) {
             drawer = false
             drawerPeek = 0
             recents = false
             split = nil
+            desktopActive = false
             open = app
         }
         if case .system(let a) = app { askNotificationsIfNeeded(a) }
@@ -236,6 +242,7 @@ final class AndroidShellState: ObservableObject {
         captureSnapshot()
         withAnimation(AndroidMotion.launch) {
             open = nil; split = nil; splitPicking = nil; drawer = false; drawerPeek = 0; recents = false; shade = false; shadeExpanded = false
+            desktopActive = false
         }
     }
 
@@ -257,6 +264,11 @@ final class AndroidShellState: ObservableObject {
             default: break
             }
         }
+        // the desktop: back minimises the window in front
+        if !recents, !drawer, open == nil, desktopActive, let front = desktop.last(where: { !$0.minimized }) {
+            minimizeDesktopWindow(front.id)
+            return
+        }
         if !recents, !drawer, open != nil { captureSnapshot() }
         withAnimation(AndroidMotion.spatial) {
             if recents { recents = false } else if drawer { drawer = false } else { open = nil }
@@ -273,12 +285,16 @@ final class AndroidShellState: ObservableObject {
         withAnimation(AndroidMotion.spatial) {
             recentApps.removeAll { $0 == app }
             if open == app { open = nil; split = nil }
+            desktop.removeAll { $0.app == app }
+            if desktop.allSatisfy(\.minimized) { desktopActive = false }
         }
     }
 
     func clearRecents() {
         snapshots.removeAll()
-        withAnimation(AndroidMotion.spatial) { recentApps.removeAll(); open = nil; split = nil; recents = false }
+        withAnimation(AndroidMotion.spatial) {
+            recentApps.removeAll(); open = nil; split = nil; recents = false; desktop.removeAll(); desktopActive = false
+        }
     }
 }
 
@@ -291,6 +307,9 @@ struct AndroidShellView: View {
     @ObservedObject private var host = AndroidHost.shared
     @ObservedObject private var theme = AppTheme.shared
     @AppStorage(Android13.key) private var a13 = false
+    @AppStorage(AndroidDev.hideStatusBarKey) private var hideStatusBar = false
+    @AppStorage(AndroidDev.hideNavBarKey) private var hideNavBar = false
+    @AppStorage(AndroidDev.noHeadsUpKey) private var noHeadsUp = false
     @Environment(\.scenePhase) private var scenePhase
 
     /// Where the app being opened grows from: the icon tapped, or the middle of the screen.
@@ -314,8 +333,8 @@ struct AndroidShellView: View {
                     }
                         // Android 16's depth: the home screen sinks back and blurs as the drawer comes up or an app opens,
                         // and grows into place when the phone is unlocked
-                        .opacity(shell.open != nil ? 0 : 1 - Double(drawerReveal) * (a13 ? 1 : 0.6))
-                        .blur(radius: a13 ? 0 : drawerReveal * 14)
+                        .opacity(shell.open != nil || shell.desktopActive ? 0 : 1 - Double(drawerReveal) * (a13 ? 1 : 0.6))
+                        .androidBlur(a13 ? 0 : drawerReveal * 14)
                         .scaleEffect(shell.locked ? 0.88 : shell.open != nil ? 0.92 : 1 - drawerReveal * 0.06)
                         .animation(AndroidMotion.spatial, value: shell.locked)
 
@@ -338,6 +357,12 @@ struct AndroidShellView: View {
                             .zIndex(2)
                     }
 
+                    if shell.desktopActive, shell.open == nil, shell.split == nil {
+                        AndroidDesktopView()
+                            .transition(.opacity)
+                            .zIndex(2.5)
+                    }
+
                     if shell.recents {
                         Group {
                             if a13 { Android13Recents() } else { Android16Recents() }
@@ -348,10 +373,20 @@ struct AndroidShellView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                if navigation == .gestures {
+                if hideNavBar {
+                    EmptyView()
+                } else if navigation == .gestures {
                     AndroidGestureBar(solid: shell.open != nil, overApp: shell.openGame != nil)
                 } else {
                     AndroidNavigationButtons(solid: shell.open != nil, overApp: shell.openGame != nil)
+                }
+            }
+
+            // Hidden by Developer options, gesture navigation keeps its swipe up from the bottom edge
+            if hideNavBar, navigation == .gestures, !shell.locked {
+                VStack {
+                    Spacer()
+                    AndroidGestureBar(solid: false, hidden: true)
                 }
             }
 
@@ -362,11 +397,11 @@ struct AndroidShellView: View {
 
             // Android's status bar over everything but the lock screen, which draws its own; pulled down, the shade.
             if shell.openGame == nil {
-                AndroidStatusBar(material: true, transparent: shell.open == nil)
+                if !hideStatusBar { AndroidStatusBar(material: true, transparent: shell.open == nil) }
                 AndroidShadePull()
             }
 
-            if let n = shell.headsUp, !shell.shade, !shell.locked {
+            if let n = shell.headsUp, !shell.shade, !shell.locked, !noHeadsUp {
                 VStack {
                     AndroidHeadsUp(note: n)
                     Spacer()
@@ -427,10 +462,14 @@ struct AndroidShellView: View {
         .onReceive(NotificationCenter.default.publisher(for: TLUnityUIView.appClosedItself)) { _ in
             if shell.openGame != nil { shell.home() }
         }
-        .onAppear { TouchTracker.install() }
+        .onAppear {
+            TouchTracker.install()
+            AndroidDev.applyOverlays()
+        }
+        .onDisappear { AndroidDev.applyOverlays() }
         .onChange(of: scenePhase) { phase in
             // A phone locks when it is put away: so does this, when HuskPatch goes to the background.
-            if phase == .background, AndroidLock.showsLockScreen { shell.locked = true }
+            if phase == .background, AndroidLock.locksAutomatically { shell.locked = true }
         }
     }
 }
@@ -440,8 +479,17 @@ struct AndroidShellView: View {
 /// The wallpaper: soft shapes in the palette's container colours, as Android 16's default wallpapers are.
 struct AndroidWallpaper: View {
     @AppStorage(AndroidOS.wallpaperKey) private var style = AndroidOS.Wallpaper.lineage22
+    @AppStorage(AndroidDev.plainWallpaperKey) private var plain = false
 
     var body: some View {
+        if plain {
+            Color.black.ignoresSafeArea()
+        } else {
+            styled
+        }
+    }
+
+    @ViewBuilder private var styled: some View {
         switch style {
         case .lineage22: Lineage22Wallpaper()
         case .lineage20: Lineage20Wallpaper()
@@ -881,7 +929,7 @@ struct AndroidAppContainer: View {
                 splash = true
                 Task {
                     try? await Task.sleep(nanoseconds: 450_000_000)
-                    withAnimation(.easeOut(duration: 0.25)) { splash = false }
+                    withAnimation(AndroidMotion.fade) { splash = false }
                 }
             }
     }
@@ -965,6 +1013,8 @@ private struct AndroidNavigationButtons: View {
 private struct AndroidGestureBar: View {
     let solid: Bool
     var overApp = false
+    /// Developer options' "Hide gesture bar": nothing drawn, the swipe still there.
+    var hidden = false
     @ObservedObject private var shell = AndroidShellState.shared
     @State private var lift: CGFloat = 0
 
@@ -974,15 +1024,17 @@ private struct AndroidGestureBar: View {
                 .fill(overApp ? Color.white.opacity(0.85) : solid ? Color(uiColor: Material3.onSurface) : Color(uiColor: Material3.onPrimaryContainer))
                 .frame(width: 108, height: 4)
                 .offset(y: max(-14, lift / 6))
+                .opacity(hidden ? 0 : 1)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 22)
-        .background((overApp ? Color.black : solid ? Color(uiColor: Material3.surfaceContainer) : Color.clear).ignoresSafeArea(edges: .bottom))
+        .background((hidden ? Color.clear : overApp ? Color.black : solid ? Color(uiColor: Material3.surfaceContainer) : Color.clear)
+            .ignoresSafeArea(edges: .bottom))
         .contentShape(Rectangle())
         .gesture(DragGesture(minimumDistance: 8, coordinateSpace: .global)
             .onChanged { lift = min(0, $0.translation.height) }
             .onEnded { v in
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { lift = 0 }
+                withAnimation(AndroidMotion.bouncy) { lift = 0 }
                 let dy = v.translation.height
                 guard dy < -30 else { return }
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -990,7 +1042,7 @@ private struct AndroidGestureBar: View {
                 let held = abs(v.predictedEndTranslation.height - dy) < 50 && dy < -110
                 if held { shell.toggleRecents() }
                 else if shell.open == nil && !shell.drawer && !shell.recents {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { shell.drawer = true }
+                    withAnimation(AndroidMotion.spatialSlow) { shell.drawer = true }
                 } else { shell.home() }
             })
         .accessibilityElement()
@@ -1046,7 +1098,7 @@ private struct AndroidEdgeBack: View {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         shell.back()
                     }
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { pull = 0 }
+                    withAnimation(AndroidMotion.spatialFast) { pull = 0 }
                 })
     }
 }

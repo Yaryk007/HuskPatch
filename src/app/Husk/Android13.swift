@@ -823,7 +823,7 @@ struct Android13Recents: View {
             let cardW = land ? geo.size.width * 0.34 : geo.size.width * 0.66
             let cardH = land ? geo.size.height * 0.62 : geo.size.height * 0.6
             ZStack {
-                AndroidWallpaper().blur(radius: 40).overlay(Color(white: 0.45).opacity(0.75)).ignoresSafeArea()
+                AndroidWallpaper().androidBlur(40).overlay(Color(white: 0.45).opacity(0.75)).ignoresSafeArea()
                     .onTapGesture { shell.back() }
                 if shell.recentApps.isEmpty {
                     Text("No recent items").font(Android13.font(16)).foregroundStyle(Android13.text)

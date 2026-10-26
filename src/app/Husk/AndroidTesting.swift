@@ -273,6 +273,12 @@ private struct SystemTests: View {
                     .font(.system(size: 13, design: .rounded))
                     .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
             }
+            TestCard(title: "Developer options", caption: "Android OS mode, as Android's Developer options would change it") {
+                AndroidDeveloperOptions()
+            }
+            TestCard(title: "Android firmware", caption: "Developer toggle: what the Android machine boots") {
+                AndroidFirmwareSection()
+            }
             TestCard(title: "Dialogs and notifications") {
                 FlowRow {
                     Button("Dialog") { withAnimation(.snappy) { dialog = true } }.buttonStyle(.expressive(.tonal))

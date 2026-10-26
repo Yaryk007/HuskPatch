@@ -86,6 +86,7 @@ struct AndroidStatusBar: View {
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .opacity(hidesClock ? 0 : 1)
+            if !hidesClock { ScreenRecordChip() }
             if !hidesClock && icons {
                 ForEach(Array(waiting.prefix(3).enumerated()), id: \.offset) { _, icon in
                     Image(systemName: icon).font(.system(size: 11, weight: .semibold))

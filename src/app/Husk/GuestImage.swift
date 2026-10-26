@@ -137,6 +137,8 @@ final class GuestImage: ObservableObject {
     /// that could not happen and cold-booted, which looks exactly like the
     /// snapshot feature silently not existing.
     nonisolated var hasShippedSnapshot: Bool {
+        // The shipped snapshot is of Husk's image; an imported firmware only ever has snapshots of its own.
+        if FirmwareStore.active != nil { return false }
         // The stamp files can outlive the disk they describe. A snapshot only
         // counts as installed while its qcow2 is present and valid.
         guard Self.validate(path: userdataPath).problem == nil else { return false }
@@ -212,6 +214,8 @@ final class GuestImage: ObservableObject {
     /// wrong: a stamp that outlived the files it described, and an asset
     /// published under a new name carrying the old bytes.
     func checkForUpdates() async {
+        // Husk's image and snapshot updates mean nothing to an imported firmware (Testing › Custom firmware).
+        if FirmwareStore.active != nil { update = .none; return }
         guard let m = await GuestManifest.fetch() else { return }
         manifest = m
         snapshotPinsToRecord = m.snapshot
@@ -294,6 +298,12 @@ final class GuestImage: ObservableObject {
     }
 
     nonisolated var userdataPath: String { documents.appendingPathComponent("lineage-vdb.qcow2").path }
+
+    // HuskPatch: what QEMU actually boots -- Husk's image, or the firmware chosen in Testing (FirmwareStore).
+    nonisolated var bootDiskPath: String { FirmwareStore.active?.diskPath ?? diskPath }
+    nonisolated var bootDiskFormat: String { FirmwareStore.active?.format ?? "qcow2" }
+    nonisolated var bootUserdataPath: String { FirmwareStore.active?.userdataPath ?? userdataPath }
+    nonisolated var bootVarsPath: String { FirmwareStore.active?.varsPath ?? varsPath }
     nonisolated var varsPath: String { documents.appendingPathComponent("lineage-efi-vars.fd").path }
     nonisolated var firmwarePath: String { documents.appendingPathComponent("edk2-aarch64-code.fd").path }
 
@@ -378,6 +388,12 @@ final class GuestImage: ObservableObject {
         if case .installing = state { return }
         removeStaleDownloads()
 
+        if let custom = FirmwareStore.active {
+            HuskLog.log("guest", "booting imported firmware \(custom.name) (\(custom.format))")
+            state = .ready
+            return
+        }
+
         guard FileManager.default.fileExists(atPath: diskPath) else {
             state = .missing
             return
@@ -450,6 +466,11 @@ final class GuestImage: ObservableObject {
             // makes the pair easy to reason about.
             try fm.copyItem(atPath: src, toPath: firmwarePath)
             HuskLog.log("guest", "firmware staged to Documents")
+        }
+        // An imported firmware has its own userdata and variable store, made blank on its first boot.
+        if let custom = FirmwareStore.active {
+            try custom.prepare()
+            return
         }
         // The UEFI variable store records boot entries as PCI device paths. Adding
         // or removing a virtio device renumbers the bus, so entries written under a
@@ -759,7 +780,7 @@ final class GuestImage: ObservableObject {
     /// container, so the header is parsed and skipped by hand. Streamed in
     /// chunks because the output is nearly four gigabytes and will not be held
     /// in memory on a phone.
-    static func gunzip(from src: URL, to dst: URL) throws {
+    nonisolated static func gunzip(from src: URL, to dst: URL) throws {
         let input = try FileHandle(forReadingFrom: src)
         defer { try? input.close() }
         FileManager.default.createFile(atPath: dst.path, contents: nil)

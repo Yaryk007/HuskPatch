@@ -55,6 +55,8 @@ enum AndroidLock {
 
     /// Whether the lock screen shows at all.
     static var showsLockScreen: Bool { kind != .none }
+    /// Whether the phone locks by itself (starting, waking, going to the background); Developer options can skip that.
+    static var locksAutomatically: Bool { showsLockScreen && !AndroidDev.on(AndroidDev.skipLockKey) }
 
     static var fingerprints: Int { UserDefaults.standard.integer(forKey: fingerprintsKey) }
 

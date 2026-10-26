@@ -24,7 +24,11 @@ struct AndroidShade: View {
     @State private var editingTiles = false
     @ObservedObject private var qs = QSTileStore.shared
 
-    enum Dialog: Identifiable { case internet, cast; var id: Int { self == .internet ? 0 : 1 } }
+    enum Dialog: Identifiable, Equatable {
+        case internet, cast, screenRecord
+        var id: Int { self == .internet ? 0 : self == .cast ? 1 : 2 }
+    }
+    @ObservedObject private var recorder = AndroidScreenRecorder.shared
 
     private var dark: Bool {
         switch Theme.Appearance(rawValue: appearance) ?? .system {
@@ -46,7 +50,7 @@ struct AndroidShade: View {
             ZStack(alignment: .top) {
                 // the blurred, dimmed screen behind the shade
                 ZStack {
-                    Rectangle().fill(.ultraThinMaterial)
+                    if AndroidDev.on(AndroidDev.noBlurKey) { Color.black.opacity(0.35) } else { Rectangle().fill(.ultraThinMaterial) }
                     Color(uiColor: Material3.tone(.neutral, dark ? 6 : 94)).opacity(0.72)
                 }
                 .ignoresSafeArea()
@@ -73,9 +77,15 @@ struct AndroidShade: View {
                 }
 
                 if let dialog {
-                    ShadeDialogView(dialog: dialog, status: status) { withAnimation(AndroidMotion.fade) { self.dialog = nil } }
-                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
-                        .zIndex(2)
+                    Group {
+                        if dialog == .screenRecord {
+                            ScreenRecordDialog { withAnimation(AndroidMotion.fade) { self.dialog = nil } }
+                        } else {
+                            ShadeDialogView(dialog: dialog, status: status) { withAnimation(AndroidMotion.fade) { self.dialog = nil } }
+                        }
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                    .zIndex(2)
                 }
                 if let toast {
                     VStack {
@@ -160,6 +170,11 @@ struct AndroidShade: View {
                 Task { try? await Task.sleep(nanoseconds: 450_000_000); A13Screenshot.take() }
             }),
             ("devices", AndroidQSTile(icon: "house", title: "Device controls", subtitle: "Unavailable", unavailable: true) {}),
+            ("wallet", AndroidQSTile(icon: "wallet.pass", title: "Wallet", subtitle: "Unavailable", unavailable: true) {}),
+            ("screenrecord", AndroidQSTile(icon: recorder.isRecording ? "record.circle.fill" : "record.circle", title: "Screen record",
+                                           subtitle: recorder.tileSubtitle, on: recorder.state != .idle) {
+                if recorder.state == .idle { withAnimation(AndroidMotion.fade) { dialog = .screenRecord } } else { recorder.stop() }
+            }),
         ]
         return Dictionary(tiles, uniquingKeysWith: { a, _ in a })
     }
@@ -213,17 +228,31 @@ struct AndroidShade: View {
         downloads.jobs.filter { !$0.complete || ($0.finished.map { Date().timeIntervalSince($0) < 3600 } ?? false) }
     }
 
-    /// The notifications: the alerting ones grouped as one card, a Silent section for downloads, and the footer.
-    private var notifications: some View {
+    private var nothingToShow: Bool { shell.notifications.isEmpty && (active.isEmpty || silentHidden) }
+
+    /// The notifications: the alerting ones grouped as one card, a Silent section for downloads, and the footer. With none,
+    /// LineageOS 23.2 draws an empty panel under the tiles, edge to edge, with "No notifications" in its middle.
+    @ViewBuilder private var notifications: some View {
+        if nothingToShow {
+            Text("No notifications")
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color(uiColor: Material3.onSurface))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    StackedCorners(top: 40, bottom: 0)
+                        .fill(Color(uiColor: Material3.surfaceContainer).opacity(0.55))
+                        .ignoresSafeArea(edges: .bottom))
+                .contentShape(Rectangle())
+                .onTapGesture { shell.closeShade() }
+                .transition(.opacity)
+        } else {
+            notificationList
+        }
+    }
+
+    private var notificationList: some View {
         ScrollView {
             VStack(spacing: 14) {
-                if shell.notifications.isEmpty && (active.isEmpty || silentHidden) {
-                    Text("No notifications")
-                        .font(.system(size: 15, weight: .medium, design: .rounded))
-                        .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 26)
-                }
                 if !shell.notifications.isEmpty {
                     VStack(spacing: 2) {
                         let posted = Array(shell.notifications.prefix(6))
@@ -334,6 +363,16 @@ struct AndroidShade: View {
             .scrollBounceBehaviorBasedOnSizeCompat()
 
             HStack(spacing: 14) {
+                if let flash = qs.flash {
+                    Label(flash.title, systemImage: flash.icon)
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .lineLimit(1)
+                        .foregroundStyle(Color(uiColor: Material3.onSurface))
+                        .padding(.horizontal, 14).frame(height: 40)
+                        .background(Color(uiColor: Material3.surfaceContainerHigh), in: Capsule())
+                        .transition(.scale(scale: 0.6, anchor: .leading).combined(with: .opacity))
+                        .id(flash.id)
+                }
                 Spacer()
                 Button { shell.closeShade(); shell.launch(.settings) } label: {
                     Image(systemName: "gearshape.fill").font(.system(size: 19, weight: .medium))
@@ -455,6 +494,7 @@ struct A16RoundTile: View {
     var body: some View {
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            QSTileStore.shared.flashLabel(of: tile)
             withAnimation(AndroidMotion.spatial) { tile.action() }
         } label: {
             Image(systemName: tile.icon)
@@ -695,12 +735,13 @@ final class QSTileStore: ObservableObject {
     static let shared = QSTileStore()
     private static let key = "huskpatch.qs.tiles"
 
+    /// LineageOS 23.2's own set and order (from the recordings): the four large tiles, then Airplane mode, Auto-rotate,
+    /// Wallet, Alarm, Device controls, Screen record and Battery Saver.
     static let defaults: [QSTileSpec] = [
         .init(id: "internet", large: true), .init(id: "bluetooth", large: true), .init(id: "modes", large: true),
         .init(id: "cast", large: true), .init(id: "airplane", large: false), .init(id: "rotate", large: false),
-        .init(id: "battery", large: false), .init(id: "alarm", large: false), .init(id: "flashlight", large: false),
-        .init(id: "dark", large: false), .init(id: "jit", large: false), .init(id: "navigation", large: false),
-        .init(id: "devices", large: false),
+        .init(id: "wallet", large: false), .init(id: "alarm", large: false), .init(id: "devices", large: false),
+        .init(id: "screenrecord", large: false), .init(id: "battery", large: false),
     ]
 
     @Published var tiles: [QSTileSpec] {
@@ -712,6 +753,23 @@ final class QSTileStore: ObservableObject {
     }
 
     func reset() { tiles = Self.defaults }
+
+    /// The name of the icon tile just tapped, shown for a moment in Quick Settings' footer (icon tiles have no label).
+    struct Flash: Equatable {
+        let id = UUID()
+        let icon: String
+        let title: String
+    }
+    @Published var flash: Flash?
+
+    func flashLabel(of tile: AndroidQSTile) {
+        let f = Flash(icon: tile.icon, title: tile.title)
+        withAnimation(AndroidMotion.bouncy) { flash = f }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            if flash?.id == f.id { withAnimation(AndroidMotion.fade) { flash = nil } }
+        }
+    }
 }
 
 /// The tiles flowing in rows of four slots (eight in landscape): a large tile takes two, an icon tile one.
@@ -752,16 +810,36 @@ private struct TileFlow: View {
     }
 }
 
-/// Quick Settings' editor (the pencil): the tiles shown -- drag to reorder, the minus to remove, tap the size to switch
-/// between large and icon -- and the tiles that can be added.
+/// Quick Settings' editor (the pencil), as Android 16 draws it: "Edit tiles" over the tiles shown, framed in the accent --
+/// each with a minus to remove it; tap one to select it, then the handle on its edge switches it between large and icon,
+/// and dragging moves it -- and under them the tiles that can be added, by category, each with a plus. The reset arrow
+/// appears once the layout differs from the default.
 private struct QSEditView: View {
     let all: [String: AndroidQSTile]
     let done: () -> Void
     @ObservedObject private var store = QSTileStore.shared
+    @State private var selected: String?
+    @State private var dragging: String?
 
-    private var available: [String] {
-        all.keys.filter { key in !store.tiles.contains { $0.id == key } }.sorted { (all[$0]?.title ?? "") < (all[$1]?.title ?? "") }
+    /// Where the tiles that can be added are listed (Android 16's categories); anything else goes under Utilities.
+    private static let categories: [(title: String, icon: String, keys: [String])] = [
+        ("Connectivity", "wifi", ["internet", "bluetooth", "airplane", "cast"]),
+        ("Utilities", "gearshape.fill", ["alarm", "flashlight", "screenrecord", "screenshot", "wallet", "recents", "lock", "devices",
+                                         "modes", "jit"]),
+        ("Display", "iphone", ["dark", "rotate", "battery", "navigation"]),
+    ]
+
+    private func available(in keys: [String]) -> [String] {
+        keys.filter { key in all[key] != nil && !store.tiles.contains { $0.id == key } }
     }
+
+    private var uncategorised: [String] {
+        let listed = Set(Self.categories.flatMap(\.keys))
+        let shown = Set(store.tiles.map(\.id))
+        return all.keys.filter { !listed.contains($0) && !shown.contains($0) }.sorted()
+    }
+
+    private var changed: Bool { store.tiles != QSTileStore.defaults }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -770,76 +848,240 @@ private struct QSEditView: View {
                     Image(systemName: "arrow.left").font(.system(size: 20, weight: .medium)).frame(width: 48, height: 48)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Done")
-                Text("Edit").font(.system(size: 22, design: .rounded))
+                .accessibilityLabel("Back")
+                Text("Edit tiles").font(.system(size: 22, design: .rounded)).lineLimit(2)
                 Spacer()
-                Button("Reset") { withAnimation(AndroidMotion.spatial) { store.reset() } }
-                    .buttonStyle(.expressive(.text))
+                if changed {
+                    Button {
+                        withAnimation(AndroidMotion.spatial) { store.reset(); selected = nil }
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise").font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(Color(uiColor: Material3.onPrimary))
+                            .frame(width: 40, height: 40)
+                            .background(Color(uiColor: Material3.primary), in: Circle())
+                    }
+                    .buttonStyle(AndroidSquashStyle())
+                    .accessibilityLabel("Reset")
+                    .transition(.scale.combined(with: .opacity))
+                }
             }
             .foregroundStyle(Color(uiColor: Material3.onSurface))
             .padding(.horizontal, 8)
             .padding(.top, 8)
+            .animation(AndroidMotion.bouncy, value: changed)
 
-            List {
-                Section {
-                    ForEach(store.tiles) { spec in
-                        if let tile = all[spec.id] {
-                            HStack(spacing: 14) {
-                                Image(systemName: tile.icon).font(.system(size: 17, weight: .semibold))
-                                    .frame(width: 40, height: 40)
-                                    .background(Color(uiColor: Material3.surfaceContainerHighest), in: Circle())
-                                Text(tile.title).font(.system(size: 16, design: .rounded))
-                                Spacer()
-                                Button(spec.large ? "Large" : "Icon") {
-                                    if let i = store.tiles.firstIndex(of: spec) {
-                                        withAnimation(AndroidMotion.spatial) { store.tiles[i].large.toggle() }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Select tiles to rearrange and resize")
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+                        .frame(maxWidth: .infinity)
+
+                    EditGrid(all: all, selected: $selected, dragging: $dragging)
+                        .padding(10)
+                        .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .strokeBorder(Color(uiColor: Material3.primary), lineWidth: 2))
+
+                    ForEach(Self.categories, id: \.title) { cat in
+                        let keys = available(in: cat.keys) + (cat.title == "Utilities" ? uncategorised : [])
+                        if !keys.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Label(cat.title, systemImage: cat.icon)
+                                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                                    .foregroundStyle(Color(uiColor: Material3.onSurface))
+                                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 14) {
+                                    ForEach(keys, id: \.self) { key in
+                                        if let tile = all[key] { addable(key, tile) }
                                     }
                                 }
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                .foregroundStyle(Color(uiColor: Material3.onSecondaryContainer))
-                                .padding(.horizontal, 12).frame(height: 30)
-                                .background(Color(uiColor: Material3.secondaryContainer), in: Capsule())
-                                .buttonStyle(.plain)
                             }
-                            .foregroundStyle(Color(uiColor: Material3.onSurface))
-                            .listRowBackground(Color(uiColor: Material3.surfaceContainerHigh))
+                            .transition(.opacity)
                         }
                     }
-                    .onMove { store.tiles.move(fromOffsets: $0, toOffset: $1) }
-                    .onDelete { store.tiles.remove(atOffsets: $0) }
-                } header: {
-                    Text("Drag to rearrange").foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
                 }
-                if !available.isEmpty {
-                    Section {
-                        ForEach(available, id: \.self) { key in
-                            if let tile = all[key] {
-                                Button {
-                                    withAnimation(AndroidMotion.spatial) { store.tiles.append(QSTileSpec(id: key, large: false)) }
-                                } label: {
-                                    HStack(spacing: 14) {
-                                        Image(systemName: tile.icon).font(.system(size: 17, weight: .semibold))
-                                            .frame(width: 40, height: 40)
-                                            .background(Color(uiColor: Material3.surfaceContainerHighest), in: Circle())
-                                        Text(tile.title).font(.system(size: 16, design: .rounded))
-                                        Spacer()
-                                        Image(systemName: "plus.circle.fill").font(.system(size: 22))
-                                            .foregroundStyle(Color(uiColor: Material3.primary))
-                                    }
-                                    .foregroundStyle(Color(uiColor: Material3.onSurface))
-                                }
-                                .listRowBackground(Color(uiColor: Material3.surfaceContainerHigh))
+                .padding(.horizontal, 14)
+                .padding(.bottom, 30)
+            }
+            .scrollBounceBehaviorBasedOnSizeCompat()
+        }
+        .background(Color(uiColor: Material3.surface).ignoresSafeArea())
+        .onTapGesture { withAnimation(AndroidMotion.spatialFast) { selected = nil } }
+    }
+
+    private func addable(_ key: String, _ tile: AndroidQSTile) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(AndroidMotion.spatial) {
+                store.tiles.append(QSTileSpec(id: key, large: false))
+                selected = key
+            }
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: tile.icon).font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+                    .frame(width: 58, height: 58)
+                    .background(Color(uiColor: Material3.surfaceContainerHigh), in: Circle())
+                    .overlay(alignment: .topTrailing) {
+                        Image(systemName: "plus").font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Color(uiColor: Material3.onPrimary))
+                            .frame(width: 22, height: 22)
+                            .background(Color(uiColor: Material3.primary), in: Circle())
+                            .offset(x: 3, y: -3)
+                    }
+                Text(tile.title).font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .frame(height: 28, alignment: .top)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(AndroidSquashStyle())
+        .accessibilityLabel("Add \(tile.title)")
+    }
+}
+
+/// The tiles shown, in the editor: four slots to a row, a large tile taking two.
+private struct EditGrid: View {
+    let all: [String: AndroidQSTile]
+    @Binding var selected: String?
+    @Binding var dragging: String?
+    @ObservedObject private var store = QSTileStore.shared
+    private let units = 4
+
+    private var rows: [[QSTileSpec]] {
+        var rows: [[QSTileSpec]] = [[]]
+        var used = 0
+        for t in store.tiles where all[t.id] != nil {
+            let w = t.large ? 2 : 1
+            if used + w > units { rows.append([]); used = 0 }
+            rows[rows.count - 1].append(t)
+            used += w
+        }
+        return rows.filter { !$0.isEmpty }
+    }
+
+    var body: some View {
+        GeometryReader { g in
+            let slot = (g.size.width - CGFloat(units - 1) * 10) / CGFloat(units)
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: 10) {
+                        ForEach(row) { spec in
+                            if let tile = all[spec.id] {
+                                editTile(spec, tile).frame(width: spec.large ? slot * 2 + 10 : slot)
                             }
                         }
-                    } header: {
-                        Text("Add tiles").foregroundStyle(Color(uiColor: Material3.onSurfaceVariant))
                     }
                 }
             }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .environment(\.editMode, .constant(.active))
         }
-        .background(Color(uiColor: Material3.surface).ignoresSafeArea())
+        .frame(height: CGFloat(rows.count) * 64 + CGFloat(max(0, rows.count - 1)) * 10)
+        .animation(AndroidMotion.spatial, value: store.tiles)
+    }
+
+    private func editTile(_ spec: QSTileSpec, _ tile: AndroidQSTile) -> some View {
+        let isSelected = selected == spec.id
+        return Group {
+            if spec.large {
+                HStack(spacing: 10) {
+                    Image(systemName: tile.icon).font(.system(size: 18, weight: .semibold))
+                        .frame(width: 48, height: 48)
+                        .background(Color(uiColor: Material3.surfaceContainerHighest), in: Circle())
+                    Text(tile.title).font(.system(size: 14, weight: .semibold, design: .rounded)).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, 8)
+                .frame(height: 64)
+                .background(Color(uiColor: Material3.surfaceContainerHigh), in: Capsule())
+            } else {
+                Image(systemName: tile.icon).font(.system(size: 20, weight: .semibold))
+                    .frame(maxWidth: .infinity).frame(height: 64)
+                    .background(Color(uiColor: Material3.surfaceContainerHigh), in: Circle())
+            }
+        }
+        .foregroundStyle(Color(uiColor: Material3.onSurface))
+        .opacity(dragging == spec.id ? 0.4 : 1)
+        // selected: a ring around it and the resize handle on its trailing edge
+        .overlay {
+            if isSelected {
+                Capsule().strokeBorder(Color(uiColor: Material3.primary), lineWidth: 3).padding(-5)
+            }
+        }
+        .overlay(alignment: .trailing) {
+            if isSelected {
+                Capsule().fill(Color(uiColor: Material3.primary))
+                    .frame(width: 6, height: 30)
+                    .padding(.horizontal, 10)
+                    .contentShape(Rectangle())
+                    .offset(x: 13)
+                    .onTapGesture { resize(spec) }
+                    .gesture(DragGesture(minimumDistance: 6).onEnded { v in
+                        if (v.translation.width > 20 && !spec.large) || (v.translation.width < -20 && spec.large) { resize(spec) }
+                    })
+                    .accessibilityLabel(spec.large ? "Make smaller" : "Make larger")
+                    .transition(.opacity)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            Button {
+                withAnimation(AndroidMotion.spatial) {
+                    store.tiles.removeAll { $0.id == spec.id }
+                    if selected == spec.id { selected = nil }
+                }
+            } label: {
+                Image(systemName: "minus").font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color(uiColor: Material3.onSurface))
+                    .frame(width: 22, height: 22)
+                    .background(Color(uiColor: Material3.surfaceContainerHighest), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .offset(x: spec.large ? -2 : 4, y: -4)
+            .accessibilityLabel("Remove \(tile.title)")
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(AndroidMotion.spatialFast) { selected = isSelected ? nil : spec.id }
+        }
+        .onDrag {
+            dragging = spec.id
+            selected = spec.id
+            return NSItemProvider(object: spec.id as NSString)
+        }
+        .onDrop(of: [.text], delegate: TileDrop(target: spec.id, dragging: $dragging))
+        .animation(AndroidMotion.spatialFast, value: isSelected)
+        .accessibilityLabel(tile.title)
+    }
+
+    private func resize(_ spec: QSTileSpec) {
+        guard let i = store.tiles.firstIndex(of: spec) else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        withAnimation(AndroidMotion.bouncy) { store.tiles[i].large.toggle() }
+    }
+}
+
+/// Moving a tile while it is dragged over the others.
+private struct TileDrop: DropDelegate {
+    let target: String
+    @Binding var dragging: String?
+
+    func dropEntered(info: DropInfo) {
+        Task { @MainActor in
+            let store = QSTileStore.shared
+            guard let dragging, dragging != target,
+                  let from = store.tiles.firstIndex(where: { $0.id == dragging }),
+                  let to = store.tiles.firstIndex(where: { $0.id == target }) else { return }
+            withAnimation(AndroidMotion.spatial) {
+                store.tiles.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+            }
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        dragging = nil
+        return true
     }
 }

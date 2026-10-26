@@ -295,7 +295,7 @@ final class QemuRunner: ObservableObject {
     /// and the budget is computed from a figure that can drift between runs.
     nonisolated var snapshotSizePath: String {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("husk-snapshot.mib").path
+            .appendingPathComponent("husk-snapshot.mib" + (FirmwareStore.active?.stampSuffix ?? "")).path
     }
 
     /// Whether to give the guest a real GPU.
@@ -315,7 +315,7 @@ final class QemuRunner: ObservableObject {
     /// and checked before any restore is attempted.
     nonisolated var snapshotDisplayPath: String {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("husk-snapshot.display").path
+            .appendingPathComponent("husk-snapshot.display" + (FirmwareStore.active?.stampSuffix ?? "")).path
     }
     nonisolated var snapshotDisplay: String? {
         (try? String(contentsOfFile: snapshotDisplayPath, encoding: .utf8))?
@@ -687,7 +687,7 @@ final class QemuRunner: ObservableObject {
     /// one (or the reverse) is not something to find out about at load time.
     nonisolated var memoryStrategyPath: String {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("husk-memory-strategy").path
+            .appendingPathComponent("husk-memory-strategy" + (FirmwareStore.active?.stampSuffix ?? "")).path
     }
 
     /// Bumped whenever the memory layout changes, to retire old snapshots.
@@ -1110,7 +1110,7 @@ final class QemuRunner: ObservableObject {
             // UEFI: our bundled code volume, and the variable store that shipped
             // with the image.
             "-drive", "if=pflash,unit=0,format=raw,readonly=on,file=\(guest.firmwarePath)",
-            "-drive", "if=pflash,unit=1,format=qcow2,file=\(guest.varsPath)",
+            "-drive", "if=pflash,unit=1,format=qcow2,file=\(guest.bootVarsPath)",
 
             // vda is the system disk, vdb is userdata. bootindex matters: the
             // firmware must try the system disk first.
@@ -1120,13 +1120,13 @@ final class QemuRunner: ObservableObject {
             // looking for runs of zeroes to punch out. That is host CPU spent
             // to save disk space on a device with 53 GB free, and host CPU is
             // the one resource this whole system is short of.
-            "-drive", "file=\(guest.diskPath),if=none,id=vda,format=qcow2,discard=unmap",
+            "-drive", "file=\(guest.bootDiskPath),if=none,id=vda,format=\(guest.bootDiskFormat),discard=unmap",
             // node-name matters: save_snapshot picks where to put the VM state
             // by node name, and with nothing named it takes the FIRST
             // snapshot-capable drive in graph order -- which is the pflash
             // variable store. That is how a 64 MiB UEFI vars image grew to
             // 2.6 GB of guest RAM blobs.
-            "-drive", "file=\(guest.userdataPath),if=none,id=vdb,node-name=huskvmstate,"
+            "-drive", "file=\(guest.bootUserdataPath),if=none,id=vdb,node-name=huskvmstate,"
                     + "format=qcow2,discard=unmap",
 
             // Two forwards, both on loopback so nothing outside this app can
@@ -1378,10 +1378,10 @@ final class QemuRunner: ObservableObject {
         let required: [String] = (profile == .phase0Alpine)
             ? ["\(Bundle.main.bundlePath)/vmlinuz-virt",
                "\(Bundle.main.bundlePath)/initramfs-virt"]
-            : [GuestImage.shared.diskPath,
-               GuestImage.shared.userdataPath,
+            : [GuestImage.shared.bootDiskPath,
+               GuestImage.shared.bootUserdataPath,
                GuestImage.shared.firmwarePath,
-               GuestImage.shared.varsPath]
+               GuestImage.shared.bootVarsPath]
         for path in required {
             let attrs = try? FileManager.default.attributesOfItem(atPath: path)
             let size = (attrs?[.size] as? NSNumber)?.intValue ?? -1

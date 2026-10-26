@@ -11,11 +11,27 @@ import UserNotifications
 
 /// Android 16's motion, in SwiftUI springs: the spatial spring moves things (apps opening, panels, cards), the effects
 /// curve fades and colours them. Material 3 Expressive's "standard" scheme (stiffness ~700-1400, damping ~0.9).
+/// Android 16's motion: Material 3 Expressive's springs (MotionScheme in androidx.compose.material3, which System UI and
+/// Launcher use from Android 16 on) and the emphasized easing of window transitions. A spring's response is 2π/√stiffness
+/// for a unit mass, so the tokens carry over exactly: spatial movement is stiffness 700 at a damping ratio of 0.9 (1400
+/// when fast, 300 when slow); the expressive, bouncy one is 380 at 0.8; effects (fades, colours) are critically damped at
+/// 1600. All of them follow Developer options' animation scale, as Android's animator duration scale does.
 enum AndroidMotion {
-    static let spatial = Animation.spring(response: 0.42, dampingFraction: 0.86)
-    static let spatialFast = Animation.spring(response: 0.3, dampingFraction: 0.88)
-    static let bouncy = Animation.spring(response: 0.38, dampingFraction: 0.72)
-    static let fade = Animation.easeOut(duration: 0.2)
+    static var spatial: Animation { scaled(.spring(response: 0.2375, dampingFraction: 0.9)) }
+    static var spatialFast: Animation { scaled(.spring(response: 0.168, dampingFraction: 0.9)) }
+    static var spatialSlow: Animation { scaled(.spring(response: 0.363, dampingFraction: 0.9)) }
+    static var bouncy: Animation { scaled(.spring(response: 0.322, dampingFraction: 0.8)) }
+    static var fade: Animation { scaled(.spring(response: 0.157, dampingFraction: 1)) }
+    /// Emphasized decelerate / accelerate: things arriving on screen, and leaving it.
+    static var enter: Animation { scaled(.timingCurve(0.05, 0.7, 0.1, 1, duration: 0.4)) }
+    static var exit: Animation { scaled(.timingCurve(0.3, 0, 0.8, 0.15, duration: 0.2)) }
+
+    /// Stretched or squeezed by the animation scale; at 0 ("Animation off") it jumps straight to the end.
+    static func scaled(_ a: Animation) -> Animation {
+        let s = AndroidDev.animationScale
+        if s <= 0 { return .linear(duration: 0) }
+        return s == 1 ? a : a.speed(1 / s)
+    }
 }
 
 // MARK: - snapshots
@@ -56,7 +72,7 @@ extension AndroidShellState {
         withAnimation(AndroidMotion.fade) { starting = true }
         Task {
             try? await Task.sleep(nanoseconds: 1_700_000_000)
-            withAnimation(.easeOut(duration: 0.35)) { starting = false }
+            withAnimation(AndroidMotion.fade) { starting = false }
         }
     }
 
@@ -108,7 +124,7 @@ struct Android16Recents: View {
             let cardW = land ? geo.size.width * 0.34 : geo.size.width * 0.7
             let cardH = land ? geo.size.height * 0.72 : geo.size.height * 0.66
             ZStack {
-                AndroidWallpaper().blur(radius: 30).overlay(Color.black.opacity(0.28)).ignoresSafeArea()
+                AndroidWallpaper().androidBlur(30).overlay(Color.black.opacity(0.28)).ignoresSafeArea()
                     .onTapGesture { menuFor = nil; shell.back() }
                 if shell.recentApps.isEmpty {
                     Text("No recent items")
@@ -253,6 +269,7 @@ private struct RecentMenu: View {
                     else { shell.settingsPath.append(AndroidSettingsRoute.apps) }
                     shell.launch(.settings)
                 }
+                item("macwindow", "Desktop") { shell.openInDesktop(app) }
                 item("rectangle.split.1x2", "Split screen") {
                     if case .item(.game) = app { shell.notice = "\(app.title) doesn't support split screen." }
                     else { withAnimation(AndroidMotion.spatial) { shell.splitPicking = app } }
@@ -466,6 +483,6 @@ extension AnyTransition {
 }
 
 extension AndroidMotion {
-    /// An app opening or closing: a little longer and softer than other movement, as Android's window animations are.
-    static let launch = Animation.spring(response: 0.5, dampingFraction: 0.88)
+    /// An app opening or closing: AOSP's window transition, 500 ms on the emphasized path (approximated by cubic 0.2, 0, 0, 1).
+    static var launch: Animation { scaled(.timingCurve(0.2, 0, 0, 1, duration: 0.5)) }
 }

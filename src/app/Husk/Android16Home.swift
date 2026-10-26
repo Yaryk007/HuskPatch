@@ -379,7 +379,7 @@ private struct MediaWidget: View {
         .background {
             ZStack {
                 Color(white: 0.06)
-                if let a = media.artwork { Image(uiImage: a).resizable().scaledToFill().blur(radius: 30).opacity(0.45) }
+                if let a = media.artwork { Image(uiImage: a).resizable().scaledToFill().androidBlur(30).opacity(0.45) }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
