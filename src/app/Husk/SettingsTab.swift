@@ -930,6 +930,7 @@ struct AppearanceSettings: View {
     @AppStorage(Material3.key) private var material3 = false
     @AppStorage(Material3.appsKey) private var materialApps = false
     @AppStorage(AndroidOS.key) private var androidOS = false
+    @AppStorage(ModemOSLook.key) private var modemOS = false
     @ObservedObject private var theme = AppTheme.shared
     @Environment(\.colorScheme) private var scheme
     @State private var custom: Color = AppTheme.shared.accentColor
@@ -959,7 +960,12 @@ struct AppearanceSettings: View {
                 Toggle("Android OS", isOn: Binding(get: { androidOS }, set: { on in
                     AndroidOS.set(on)
                     androidOS = on
-                    if on { material3 = true; materialApps = true }
+                    if on { material3 = true; materialApps = true; ModemOSLook.set(false); modemOS = false }
+                }))
+                Toggle("ModemOS", isOn: Binding(get: { modemOS }, set: { on in
+                    ModemOSLook.set(on)
+                    modemOS = on
+                    if on { androidOS = false }
                 }))
             } header: {
                 Text("Android")
@@ -967,7 +973,10 @@ struct AppearanceSettings: View {
                 Text("Replaces HuskPatch's interface with Android 16's: a lock screen, a home screen with your games and "
                    + "apps, an app drawer with the whole library, Settings and Play Store as apps, and Android's back, "
                    + "home and recents buttons. Turns on the Android 16 style and Material You in apps with it. Turn it "
-                   + "off here, in the Settings app.")
+                   + "off here, in the Settings app.\n\n"
+                   + "ModemOS swaps in your own fake OS instead: its boot, setup, home screen, Lab and apps, with "
+                   + "HuskPatch's games, library, store and settings in a HuskPatch folder in its app drawer. Leave it "
+                   + "with Exit to HuskPatch, in its Lab (swipe in from a side edge) or its Settings app.")
             }
 
             Section {

@@ -10,6 +10,11 @@ options:
     iOS: "16.0"
   createIntermediateGroups: true
 
+# HuskPatch: the user's own fake OS, a local Swift package (ModemOSShell.swift).
+packages:
+  ModemOS:
+    path: ModemOS
+
 settings:
   base:
     # The app and its JIT helper extension follow this together: the helper's
@@ -120,6 +125,8 @@ targets:
           # On-device pairing for Built-in StikJIT, built by scripts/build_rppairing_ios.sh.
           - "-lhusk_rppairing"
     dependencies:
+      # HuskPatch: ModemOS, the fake OS shown when Settings › Appearance › ModemOS is on.
+      - package: ModemOS
       # Built-in StikJIT's debugger process. Embedded into PlugIns/.
       - target: HuskJITHelper
       # The download Live Activity (Lock Screen and Dynamic Island). Embedded into PlugIns/.

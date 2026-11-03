@@ -98,6 +98,8 @@
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Android OS mode's Camera, and Android apps you allow in Android's permission dialog, use the camera.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>ModemOS's Health app shows your steps, distance and floors.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>An Android app you run in HuskPatch asked for the microphone, and you allowed it in Android's permission dialog.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

@@ -31,6 +31,7 @@ struct ContentView: View {
     @AppStorage(Theme.Appearance.key) private var appearance = Theme.Appearance.system
     @AppStorage(Material3.key) private var material3 = false
     @AppStorage(AndroidOS.key) private var androidOS = false
+    @AppStorage(ModemOSLook.key) private var modemOS = false
     @ObservedObject private var theme = AppTheme.shared
     @ObservedObject private var incoming = IncomingFiles.shared
     @ObservedObject private var showcase = ShowcaseStore.shared
@@ -53,7 +54,10 @@ struct ContentView: View {
             // Android is then a matter of hiding what is over it, which is also
             // why it appears instantly rather than reloading.
             Group {
-                if androidOS {
+                if modemOS {
+                    // HuskPatch: the user's own fake OS (ModemOSShell.swift).
+                    ModemOSShellView()
+                } else if androidOS {
                     // HuskPatch: Android OS mode -- the interface replaced by Android's (AndroidShell.swift).
                     AndroidShellView()
                 } else if material3 {

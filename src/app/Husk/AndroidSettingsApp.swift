@@ -509,6 +509,11 @@ private struct AndroidOSSystemPage: View {
                                        summary: "Back to HuskPatch's own tabs")
                 }
                 .buttonStyle(AndroidRippleStyle())
+                Button { ModemOSLook.set(true) } label: {
+                    AndroidSettingsRow(icon: "iphone.gen3", tint: .systemGreen, title: "Switch to ModemOS",
+                                       summary: "Your own fake OS in place of Android")
+                }
+                .buttonStyle(AndroidRippleStyle())
             }
         }
         .confirmationDialog("Leave Android OS mode?", isPresented: $leaving, titleVisibility: .visible) {
