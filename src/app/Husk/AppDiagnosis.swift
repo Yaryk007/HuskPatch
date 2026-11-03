@@ -57,7 +57,7 @@ struct AppDiagnosis: Identifiable, Equatable {
         }
         if r.verdict == "noArm64" {
             return AppDiagnosis(kind: .unsupportedCPU, title: "Not supported: wrong kind of CPU code",
-                                detail: r.summary + " iPhones run 64-bit ARM (arm64) code. Look for an arm64 or universal build of this app.",
+                                detail: r.summary + " Husk runs ARM (arm64 and 32-bit ARM translated to arm64). Look for an ARM build of this app.",
                                 evidence: "ABIs: " + r.abis.joined(separator: ", "))
         }
         if app.apks.count == 1, let base = app.apks.first, husk_apk_split_required(base) != 0 {
@@ -88,6 +88,20 @@ struct AppDiagnosis: Identifiable, Equatable {
                                 detail: "This iPhone only lets an app run translated code while a debugger enables JIT for it. Open Husk "
                                     + "through StikDebug, or tap Turn On JIT in Husk, then start the app again.",
                                 evidence: l)
+        }
+
+        // iOS closed Husk for memory: the runtime's last readings ("N MiB left before jetsam") had fallen to almost nothing. Checked
+        // before what the log said earlier in the run, which may only be a warning (#175: an OBB note, then an out-of-memory end).
+        let left = lines.suffix(40).compactMap { l -> Int? in
+            guard let r = l.range(of: " MiB left before jetsam") else { return nil }
+            return Int(l[..<r.lowerBound].split(separator: " ").last ?? "")
+        }
+        if let last = left.last, last < 80 {
+            return AppDiagnosis(kind: .noProgress, title: "Ran out of memory",
+                                detail: "iOS closed Husk because the game used all the memory it allows an app (\(last) MiB were left). "
+                                    + "Close other apps and try again; lower graphics settings in the game help. On SideStore or AltStore, "
+                                    + "GetMoreRam raises the limit.",
+                                evidence: lines.last { $0.contains("left before jetsam") })
         }
 
         // The JIT region is shared: Android (QEMU) holds its top half while it runs, an app's libraries fill it from the bottom

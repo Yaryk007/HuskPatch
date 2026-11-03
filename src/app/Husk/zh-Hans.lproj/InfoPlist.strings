@@ -1,0 +1,21 @@
+/* No comment provided by engineer. */
+"Android App" = "安卓应用";
+
+/* No comment provided by engineer. */
+"Android App Bundle (APKM)" = "安卓应用包（APKM）";
+
+/* No comment provided by engineer. */
+"Android App Bundle (APKS)" = "安卓应用包（APKS）";
+
+/* No comment provided by engineer. */
+"Android App Bundle (XAPK)" = "安卓应用包（XAPK）";
+
+/* Bundle display name */
+"CFBundleDisplayName" = "Husk";
+
+/* Bundle name */
+"CFBundleName" = "Husk";
+
+/* Privacy - Local Network Usage Description */
+"NSLocalNetworkUsageDescription" = "Husk 使用本地网络与这台 iPhone 配对以开启 JIT，无需电脑。";
+

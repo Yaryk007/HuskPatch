@@ -295,13 +295,48 @@ enum PlayAPI {
         public let summary: String
         public let iconURL: String?
         public let screenshotURLs: [String]
-        public let versionCode: Int
+        public var versionCode: Int
         public let versionString: String
         public let sizeBytes: Int64
         public let downloads: String
         public let rating: Double
         public let formattedPrice: String
         public let isFree: Bool
+        /// The rest of the page, when Play sent it (details always does; lists sometimes)
+        public var feature: String? = nil            // the 1024x500 banner
+        public var screenshotRatios: [Double] = []   // width / height, per screenshot, 0 when unknown
+        public var trailer: (url: String, thumbnail: String?)? = nil
+        public var tagline = ""
+        public var downloadsShort = ""               // "1B+"
+        public var reviews = ""                      // "37M"
+        public var updated = ""
+        public var released = ""
+        public var whatsNew = ""
+        public var contentRating = ""
+        public var ads = ""                          // "Contains ads"
+        public var purchases = ""                    // "$0.99 - $99.99 per item"
+        public var tags: [String] = []
+        public var highlights: [String] = []
+        public var award = ""                        // "Editors' Choice"
+        public var email = ""
+        public var website = ""
+        public var privacy = ""
+        public var isGame = false
+
+        /// "1B+", "500M+", "10K+": Play's short form, or the long one shortened.
+        public var installs: String {
+            if !downloadsShort.isEmpty { return downloadsShort }
+            let digits = downloads.filter(\.isNumber)
+            guard let n = Double(digits), n > 0 else { return downloads }
+            for (size, unit) in [(1e9, "B"), (1e6, "M"), (1e3, "K")] where n >= size {
+                let v = n / size
+                return (v == v.rounded() ? String(Int(v)) : String(format: "%.1f", v)) + unit + "+"
+            }
+            return String(Int(n)) + "+"
+        }
+
+        public static func == (a: PlayApp, b: PlayApp) -> Bool { a.id == b.id && a.versionCode == b.versionCode && a.summary == b.summary }
+        public func hash(into h: inout Hasher) { h.combine(id) }
 
         public static func isValidPackageName(_ id: String) -> Bool {
             id.range(of: "^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]+)+$", options: .regularExpression) != nil
@@ -319,19 +354,24 @@ enum PlayAPI {
             let dev = doc.string(6) ?? ""
             let desc = doc.string(7) ?? ""
 
-            // Images: field 10 (imageType 4 = icon, 1 or 2 = screenshot)
+            // Images: field 10 (1 screenshot, 2 feature banner, 3 trailer, 4 icon, 13 trailer thumbnail)
             var icon: String? = nil
+            var feature: String? = nil
             var screenshots: [String] = []
+            var ratios: [Double] = []
+            var trailer: String? = nil, trailerThumb: String? = nil
             for img in doc.messages(10) {
-                let imgType = img.int(1) ?? 0
-                if let url = img.string(5), url.hasPrefix("http") {
-                    if imgType == 4 && icon == nil {
-                        icon = url
-                    } else if imgType == 1 || imgType == 2 {
-                        screenshots.append(url)
-                    } else if icon == nil {
-                        icon = url
-                    }
+                guard let url = img.string(5), url.hasPrefix("http") else { continue }
+                switch img.int(1) ?? 0 {
+                case 4: if icon == nil { icon = url }
+                case 1:
+                    screenshots.append(url)
+                    let w = Double(img.message(2)?.int(3) ?? 0), h = Double(img.message(2)?.int(4) ?? 0)
+                    ratios.append(w > 0 && h > 0 ? w / h : 0)
+                case 2: if feature == nil { feature = url }
+                case 3: if trailer == nil { trailer = url }
+                case 13: if trailerThumb == nil { trailerThumb = url }
+                default: if icon == nil { icon = url }
                 }
             }
 
@@ -363,7 +403,7 @@ enum PlayAPI {
                 }
             }
 
-            return PlayApp(
+            var app = PlayApp(
                 id: id,
                 title: title,
                 developer: dev,
@@ -378,6 +418,33 @@ enum PlayAPI {
                 formattedPrice: price,
                 isFree: isFree
             )
+            app.feature = feature
+            app.screenshotRatios = ratios
+            if let trailer { app.trailer = (trailer, trailerThumb) }
+            app.tagline = doc.string(27) ?? ""
+            app.downloadsShort = appDetails?.string(61) ?? ""
+            app.reviews = doc.message(14)?.string(18) ?? ""
+            app.updated = appDetails?.string(16) ?? ""
+            app.released = appDetails?.message(64)?.string(1) ?? ""
+            app.whatsNew = appDetails?.string(15) ?? ""
+            app.contentRating = doc.message(50)?.string(1) ?? ""
+            app.ads = appDetails?.string(30) ?? ""
+            app.purchases = appDetails?.string(67) ?? ""
+            // genre groups (Action, Platformer...; Arcade; Single player; Offline): each group's names, in order
+            var tags: [String] = []
+            for group in appDetails?.message(66)?.fields.sorted(by: { $0.key < $1.key }) ?? [] {
+                for case .bytes(let d) in group.value {
+                    for tag in ProtoMessage(d).messages(1) { if let t = tag.string(1), !tags.contains(t) { tags.append(t) } }
+                }
+            }
+            app.tags = tags
+            app.highlights = appDetails?.message(41)?.strings(1) ?? []
+            app.award = appDetails?.message(41)?.string(4) ?? ""
+            app.email = appDetails?.string(11) ?? ""
+            app.website = appDetails?.string(12) ?? ""
+            app.privacy = doc.message(15)?.string(18) ?? ""
+            app.isGame = appDetails?.string(18) == "GAME"
+            return app
         }
 
         public static func parseApps(from message: ProtoMessage) -> [PlayApp] {
@@ -425,6 +492,8 @@ enum PlayAPI {
         "com.fingersoft.hillclimb",
         "org.libretro.retroarch"
     ]
+    /// The featured ones that are apps rather than games (the Store's Apps pill).
+    static let featuredAppPackages: Set<String> = ["org.videolan.vlc", "org.libretro.retroarch"]
 
     /// HuskPatch: the Play Store app's Games and Apps tabs. Games the translation layer runs well first.
     static let featuredGames: [String] = [
@@ -648,27 +717,8 @@ enum PlayAPI {
         let detResp = payload.message(2)
         if let doc = detResp?.message(4), var app = PlayApp.from(doc: doc) {
             // Extract latest versionCode from prefetch/cluster info (field 6.2.11.2) if not in appDetails
-            if app.versionCode <= 0 {
-                let f6 = detResp?.message(6)
-                let f2 = f6?.message(2)
-                let f11 = f2?.message(11)
-                if let vc = f11?.int(2), vc > 0 {
-                    app = PlayApp(
-                        id: app.id,
-                        title: app.title,
-                        developer: app.developer,
-                        summary: app.summary,
-                        iconURL: app.iconURL,
-                        screenshotURLs: app.screenshotURLs,
-                        versionCode: Int(vc),
-                        versionString: app.versionString,
-                        sizeBytes: app.sizeBytes,
-                        downloads: app.downloads,
-                        rating: app.rating,
-                        formattedPrice: app.formattedPrice,
-                        isFree: app.isFree
-                    )
-                }
+            if app.versionCode <= 0, let vc = detResp?.message(6)?.message(2)?.message(11)?.int(2), vc > 0 {
+                app.versionCode = Int(vc)
             }
             return app
         }

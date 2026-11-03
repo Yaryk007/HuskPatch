@@ -12,7 +12,7 @@ struct DownloadsTab: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            HuskPageList {
                 updatesSection
                 Section {
                     if downloads.jobs.isEmpty {
@@ -156,7 +156,7 @@ private struct AddDownloadSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            HuskForm {
                 Section {
                     TextField("https://… or http://192.168.1.20:8642/", text: $link)
                         .keyboardType(.URL)

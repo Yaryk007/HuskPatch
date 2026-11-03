@@ -63,7 +63,7 @@ struct DiscoverView: View {
     }
 
     private var list: some View {
-        List {
+        HuskPageList {
             ForEach(manager.sources) { source in
                 let filtered = filteredApps(for: source)
                 if !filtered.isEmpty {
@@ -169,7 +169,7 @@ struct DiscoverView: View {
 
     private var addSourceSheet: some View {
         NavigationStack {
-            Form {
+            HuskForm {
                 Section {
                     TextField("https://f-droid.org/repo/index-v1.json", text: $newSourceURL)
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -225,7 +225,7 @@ struct DiscoverView: View {
 
     private var sourcesSheet: some View {
         NavigationStack {
-            List {
+            HuskPageList {
                 Section {
                     ForEach(manager.sourceURLs, id: \.self) { url in
                         VStack(alignment: .leading, spacing: 2) {

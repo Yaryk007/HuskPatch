@@ -14,7 +14,7 @@ void tl_egl_es3_claim(int minor) { if (minor >= 1) { g_es31_shim = true; g_es3_m
 
 typedef struct { char name[72]; int binding; bool block; } es31_bind;
 #define ES31_SHADERS 1024
-#define ES31_BINDS 12
+#define ES31_BINDS 32
 #define ES31_ATTACHED 2048
 static struct { unsigned shader; int n; es31_bind b[ES31_BINDS]; } g_es31_sh[ES31_SHADERS];
 static struct { unsigned prog, shader; } g_es31_att[ES31_ATTACHED];
@@ -151,6 +151,27 @@ static void w_glShaderSource(unsigned sh, int count, const char *const *str, con
     }
     es31_bind rec[ES31_BINDS]; int nrec = 0;
     char *down = es31_downgrade(cat, k, rec, &nrec);
+    /* Unity's 3.1 shaders give uniforms explicit locations (UNITY_LOCATION(x) -> layout(location = x)), which ES 3.0 refuses
+     * on anything but inputs and outputs; its own switch turns them off. */
+    /* Unity gives explicit locations only to samplers, and the location is the texture unit: each becomes a binding, set after link. */
+    for (char *u = down; (u = strstr(u, "#define UNITY_SUPPORTS_UNIFORM_LOCATION 1")); ) {
+        u[sizeof("#define UNITY_SUPPORTS_UNIFORM_LOCATION ") - 1] = '0';
+        for (const char *l = down; (l = strstr(l, "UNITY_LOCATION(")) && nrec < ES31_BINDS; l++) {
+            const char *d = l + sizeof("UNITY_LOCATION(") - 1;
+            if (*d < '0' || *d > '9') continue;
+            int unit = atoi(d);
+            const char *eol = strchr(d, '\n'), *semi = strchr(d, ';');
+            if (!semi || (eol && semi > eol) || !strstr(d, "uniform") || strstr(d, "uniform") > semi) continue;
+            const char *e = semi;                          /* the name: the identifier before ';', past an array size */
+            while (e > d && e[-1] == ' ') e--;
+            if (e > d && e[-1] == ']') { while (e > d && e[-1] != '[') e--; if (e > d) e--; while (e > d && e[-1] == ' ') e--; }
+            const char *b = e; while (b > d && es31_ident((unsigned char)b[-1])) b--;
+            if (e - b <= 0 || e - b >= (long)sizeof(rec[0].name)) continue;
+            es31_bind *r = &rec[nrec++];
+            memcpy(r->name, b, (size_t)(e - b)); r->name[e - b] = 0; r->binding = unit; r->block = false;
+        }
+        break;
+    }
     pthread_mutex_lock(&g_es31_mu);
     int slot = (int)(sh % ES31_SHADERS);
     g_es31_sh[slot].shader = sh; g_es31_sh[slot].n = nrec; memcpy(g_es31_sh[slot].b, rec, sizeof(es31_bind) * (size_t)nrec);
@@ -207,6 +228,7 @@ static void w_glLinkProgram(unsigned prog)
 static void (*r_glGetIntegerv)(unsigned, int *);
 static void w_glGetIntegerv(unsigned pname, int *data)
 {
+    if (g_es31_shim && data) *data = 0;   /* a 3.1-only limit is an error on the 3.0 context, which writes nothing */
     r_glGetIntegerv(pname, data);
     if (g_es31_shim && pname == 0x821C /* GL_MINOR_VERSION */ && data && *data == 0) *data = g_es3_minor;
 }
@@ -270,3 +292,143 @@ static void w_glBindBufferRange(unsigned t, unsigned i, unsigned b, long o, long
     if (g_es31_shim && t == 0x90D2) { w_glBindBufferBase(t, i, b); return; }   /* grows the buffer if need be; the whole buffer is bound */
     r_glBindBufferRange(t, i, b, o, n);
 }
+
+/*
+ * The ES 3.1 program-interface queries, for the shim's 3.0 context. ANGLE exports them, but on a 3.0 context they only raise
+ * GL_INVALID_OPERATION and write nothing, and an engine that was told 3.1 (Unity 6 reflects its shaders this way) then reads
+ * uninitialised counts and name lengths and corrupts its heap. They are answered from the 3.0 queries instead: uniforms, uniform
+ * blocks (the shim's storage blocks are uniform blocks too, so they are reported as such) and vertex inputs. Any other interface
+ * has no resources.
+ */
+#define ES31_UNIFORM 0x92E1u
+#define ES31_UNIFORM_BLOCK 0x92E2u
+#define ES31_PROGRAM_INPUT 0x92E3u
+static struct {
+    bool ready;
+    void (*progiv)(unsigned, unsigned, int *);
+    void (*active_uniform)(unsigned, unsigned, int, int *, int *, unsigned *, char *);
+    void (*active_attrib)(unsigned, unsigned, int, int *, int *, unsigned *, char *);
+    void (*uniforms_iv)(unsigned, int, const unsigned *, unsigned, int *);
+    void (*block_iv)(unsigned, unsigned, unsigned, int *);
+    void (*block_name)(unsigned, unsigned, int, int *, char *);
+    unsigned (*block_index)(unsigned, const char *);
+    void (*uniform_indices)(unsigned, int, const char *const *, unsigned *);
+    int (*uniform_loc)(unsigned, const char *);
+    int (*attrib_loc)(unsigned, const char *);
+} Q;
+static bool es31_q(void)
+{
+    if (!Q.ready && E.ready && a_eglGetProcAddress) {
+        Q.progiv = a_eglGetProcAddress("glGetProgramiv"); Q.active_uniform = a_eglGetProcAddress("glGetActiveUniform");
+        Q.active_attrib = a_eglGetProcAddress("glGetActiveAttrib"); Q.uniforms_iv = a_eglGetProcAddress("glGetActiveUniformsiv");
+        Q.block_iv = a_eglGetProcAddress("glGetActiveUniformBlockiv"); Q.block_name = a_eglGetProcAddress("glGetActiveUniformBlockName");
+        Q.block_index = a_eglGetProcAddress("glGetUniformBlockIndex"); Q.uniform_indices = a_eglGetProcAddress("glGetUniformIndices");
+        Q.uniform_loc = a_eglGetProcAddress("glGetUniformLocation"); Q.attrib_loc = a_eglGetProcAddress("glGetAttribLocation");
+        Q.ready = Q.progiv && Q.active_uniform && Q.active_attrib && Q.uniforms_iv && Q.block_iv && Q.block_name && Q.block_index
+               && Q.uniform_indices && Q.uniform_loc && Q.attrib_loc;
+    }
+    return Q.ready;
+}
+
+static void (*r_glGetProgramInterfaceiv)(unsigned, unsigned, unsigned, int *);
+static void w_glGetProgramInterfaceiv(unsigned prog, unsigned iface, unsigned pname, int *params)
+{
+    if (!g_es31_shim) { r_glGetProgramInterfaceiv(prog, iface, pname, params); return; }
+    if (!params) return;
+    *params = 0;
+    if (!es31_q()) return;
+    bool count = pname == 0x92F5 /* GL_ACTIVE_RESOURCES */, maxname = pname == 0x92F6 /* GL_MAX_NAME_LENGTH */;
+    if (iface == ES31_UNIFORM) {
+        if (count) Q.progiv(prog, 0x8B86 /* GL_ACTIVE_UNIFORMS */, params);
+        else if (maxname) Q.progiv(prog, 0x8B87 /* GL_ACTIVE_UNIFORM_MAX_LENGTH */, params);
+    } else if (iface == ES31_UNIFORM_BLOCK) {
+        int n = 0; Q.progiv(prog, 0x8A36 /* GL_ACTIVE_UNIFORM_BLOCKS */, &n);
+        if (count) *params = n;
+        else if (maxname) Q.progiv(prog, 0x8A35 /* GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH */, params);
+        else if (pname == 0x92F7 /* GL_MAX_NUM_ACTIVE_VARIABLES */)
+            for (int i = 0; i < n; i++) { int v = 0; Q.block_iv(prog, (unsigned)i, 0x8A42 /* GL_UNIFORM_BLOCK_ACTIVE_UNIFORMS */, &v); if (v > *params) *params = v; }
+    } else if (iface == ES31_PROGRAM_INPUT) {
+        if (count) Q.progiv(prog, 0x8B89 /* GL_ACTIVE_ATTRIBUTES */, params);
+        else if (maxname) Q.progiv(prog, 0x8B8A /* GL_ACTIVE_ATTRIBUTE_MAX_LENGTH */, params);
+    }
+}
+
+static unsigned (*r_glGetProgramResourceIndex)(unsigned, unsigned, const char *);
+static unsigned w_glGetProgramResourceIndex(unsigned prog, unsigned iface, const char *name)
+{
+    if (!g_es31_shim) return r_glGetProgramResourceIndex(prog, iface, name);
+    if (!name || !es31_q()) return 0xFFFFFFFFu;
+    if (iface == ES31_UNIFORM) { unsigned i = 0xFFFFFFFFu; Q.uniform_indices(prog, 1, &name, &i); return i; }
+    if (iface == ES31_UNIFORM_BLOCK) return Q.block_index(prog, name);
+    if (iface == ES31_PROGRAM_INPUT) {
+        int n = 0; Q.progiv(prog, 0x8B89, &n);
+        for (int i = 0; i < n; i++) {
+            char nm[256]; int len = 0, size = 0; unsigned type = 0; nm[0] = 0;
+            Q.active_attrib(prog, (unsigned)i, sizeof(nm), &len, &size, &type, nm);
+            if (!strcmp(nm, name)) return (unsigned)i;
+        }
+    }
+    return 0xFFFFFFFFu;
+}
+
+static void (*r_glGetProgramResourceName)(unsigned, unsigned, unsigned, int, int *, char *);
+static void w_glGetProgramResourceName(unsigned prog, unsigned iface, unsigned index, int bufsize, int *length, char *name)
+{
+    if (!g_es31_shim) { r_glGetProgramResourceName(prog, iface, index, bufsize, length, name); return; }
+    if (length) *length = 0;
+    if (name && bufsize > 0) name[0] = 0;
+    if (!es31_q()) return;
+    int size = 0; unsigned type = 0;
+    if (iface == ES31_UNIFORM) Q.active_uniform(prog, index, bufsize, length, &size, &type, name);
+    else if (iface == ES31_UNIFORM_BLOCK) Q.block_name(prog, index, bufsize, length, name);
+    else if (iface == ES31_PROGRAM_INPUT) Q.active_attrib(prog, index, bufsize, length, &size, &type, name);
+}
+
+static void (*r_glGetProgramResourceiv)(unsigned, unsigned, unsigned, int, const unsigned *, int, int *, int *);
+static void w_glGetProgramResourceiv(unsigned prog, unsigned iface, unsigned index, int nprops, const unsigned *props, int bufsize,
+                                     int *length, int *params)
+{
+    if (!g_es31_shim) { r_glGetProgramResourceiv(prog, iface, index, nprops, props, bufsize, length, params); return; }
+    int k = 0;
+    bool q = es31_q();
+    char nm[256]; nm[0] = 0;
+    int asize = 0; unsigned atype = 0;
+    if (q && iface == ES31_PROGRAM_INPUT) { int l = 0; Q.active_attrib(prog, index, sizeof(nm), &l, &asize, &atype, nm); }
+    for (int p = 0; props && params && p < nprops && k < bufsize; p++) {
+        unsigned prop = props[p];
+        int v = 0;
+        if (q && iface == ES31_UNIFORM) {
+            unsigned up = prop == 0x92FA ? 0x8A37 : prop == 0x92FB ? 0x8A38 : prop == 0x92F9 ? 0x8A39 : prop == 0x92FD ? 0x8A3A
+                        : prop == 0x92FC ? 0x8A3B : prop == 0x92FE ? 0x8A3C : prop == 0x92FF ? 0x8A3D : prop == 0x9300 ? 0x8A3E : 0;
+            if (up) Q.uniforms_iv(prog, 1, &index, up, &v);
+            else if (prop == 0x930E /* GL_LOCATION */) {
+                int l = 0, s = 0; unsigned t = 0; Q.active_uniform(prog, index, sizeof(nm), &l, &s, &t, nm);
+                v = Q.uniform_loc(prog, nm);
+            } else if (prop >= 0x9306 && prop <= 0x930B) v = prop == 0x9306 || prop == 0x930A;   /* referenced by vertex, fragment */
+            else if (prop == 0x9301 /* GL_ATOMIC_COUNTER_BUFFER_INDEX */) v = -1;
+        } else if (q && iface == ES31_UNIFORM_BLOCK) {
+            unsigned bp = prop == 0x9302 ? 0x8A3F : prop == 0x9303 ? 0x8A40 : prop == 0x92F9 ? 0x8A41 : prop == 0x9304 ? 0x8A42
+                        : prop == 0x9306 ? 0x8A44 : prop == 0x930A ? 0x8A46 : 0;
+            if (prop == 0x9305 /* GL_ACTIVE_VARIABLES: one value per member */) {
+                int n = 0; Q.block_iv(prog, index, 0x8A42, &n);
+                if (n > 0 && n <= 4096) {
+                    int *ix = calloc((size_t)n, sizeof(int));
+                    if (ix) { Q.block_iv(prog, index, 0x8A43, ix); for (int i = 0; i < n && k < bufsize; i++) params[k++] = ix[i]; free(ix); }
+                }
+                continue;
+            }
+            if (bp) Q.block_iv(prog, index, bp, &v);
+        } else if (q && iface == ES31_PROGRAM_INPUT) {
+            if (prop == 0x92FA) v = (int)atype;
+            else if (prop == 0x92FB) v = asize;
+            else if (prop == 0x92F9) v = nm[0] ? (int)strlen(nm) + 1 : 0;
+            else if (prop == 0x930E) v = nm[0] ? Q.attrib_loc(prog, nm) : -1;
+            else if (prop == 0x9306) v = 1;
+        }
+        params[k++] = v;
+    }
+    if (length) *length = k;
+}
+/* 3.1's indexed limits (compute work-group counts and sizes) are errors on the 3.0 context, which writes nothing: they read as zero. */
+static void (*r_glGetIntegeri_v)(unsigned, unsigned, int *);
+static void w_glGetIntegeri_v(unsigned p, unsigned i, int *d) { if (g_es31_shim && d) *d = 0; r_glGetIntegeri_v(p, i, d); }

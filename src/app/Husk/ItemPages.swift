@@ -1,44 +1,83 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import SwiftUI
+import UIKit
 
 // MARK: - the top of every page
 
-/// An item's page opens on its artwork: the icon over a blurred, darkened copy of itself, the name, a line under it, and
-/// the one thing to do -- Play, Open, Start -- as a big button.
+/// An item's page opens on its artwork, large: the name and its platform and status as chips over the bottom of it, then the
+/// one thing to do -- Play, Open, Start -- as a big button, and a row of facts (how it runs, when it was last played).
 private struct PageHero<Action: View>: View {
     let item: LibraryItem
     let subtitle: String
+    var facts: [(symbol: String, text: String)] = []
     @ViewBuilder var action: Action
 
+    /// playstation.logo is iOS 16+; a missing symbol on iOS 15 can blank the chip row.
+    private static var psSymbol: String {
+        UIImage(systemName: "playstation.logo") != nil ? "playstation.logo" : "gamecontroller.fill"
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 14) {
             ZStack(alignment: .bottomLeading) {
-                ItemBackdrop(item: item, fallback: Color(uiColor: .tertiarySystemFill))
-                LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
-                HStack(alignment: .bottom, spacing: 14) {
-                    ItemIcon(item: item, size: 84)
-                        .shadow(color: .black.opacity(0.35), radius: 12, y: 5)
-                    VStack(alignment: .leading, spacing: 4) {
+                ItemBackdrop(item: item, pixels: 1400, fallback: Console.card)
+                LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .center, endPoint: .bottom)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .bottom, spacing: 12) {
+                        if item.artworkPath == nil {
+                            ItemIcon(item: item, size: 68).shadow(color: .black.opacity(0.35), radius: 10, y: 4)
+                        }
                         Text(item.title)
-                            .font(.system(.title2, design: .rounded).weight(.heavy))
+                            .font(.system(size: 30, weight: .bold))
+                            .foregroundStyle(.white)
                             .lineLimit(2)
-                            .minimumScaleFactor(0.8)
-                        Text(subtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.75))
-                            .lineLimit(2)
+                            .minimumScaleFactor(0.7)
                     }
-                    .foregroundStyle(.white)
-                    Spacer(minLength: 0)
+                    HStack(spacing: 8) {
+                        PageChip(text: item.platformShort, symbol: item.isPS4 ? Self.psSymbol : "iphone", tint: .white)
+                        if let st = item.status {
+                            PageChip(text: st == .plays ? "Works Great" : st.label, symbol: "checkmark.seal.fill", tint: st.color)
+                        }
+                    }
                 }
                 .padding(16)
             }
-            .frame(height: 210)
+            .frame(height: 260)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             action
-                .padding(14)
+            if !facts.isEmpty {
+                HStack(alignment: .top) {
+                    ForEach(Array(facts.enumerated()), id: \.offset) { _, f in
+                        VStack(spacing: 6) {
+                            Image(systemName: f.symbol).font(.system(size: 17, weight: .semibold)).foregroundStyle(Console.textDim)
+                            Text(f.text).font(.system(size: 12, weight: .medium)).foregroundStyle(Console.text.opacity(0.85))
+                                .multilineTextAlignment(.center).lineLimit(2)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            if !subtitle.isEmpty {
+                Text(subtitle).font(.subheadline).foregroundStyle(Console.textDim)
+            }
         }
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(.vertical, 4)
+    }
+}
+
+/// A chip on an item's artwork: its platform, how it runs.
+private struct PageChip: View {
+    let text: String
+    let symbol: String
+    let tint: Color
+    var body: some View {
+        Label(text, systemImage: symbol)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 9).frame(height: 24)
+            .background(.black.opacity(0.45), in: Capsule())
+            .overlay(Capsule().stroke(tint.opacity(0.35), lineWidth: 0.5))
     }
 }
 
@@ -99,47 +138,57 @@ struct GamePage: View {
     @State private var savesBusy = false
     @State private var savesMessage: String?
     @State private var confirmRestore: URL?
-    @State private var confirmQuit = false
     @State private var reporting: CompatSubject?
+    /// JIT-less mode converting and signing this game's libraries before it starts
+    @State private var preparing: String?
+    @State private var prepareFailed: String?
+    @State private var confirmQuit = false
 
     private var runs: Bool { app.report?.canRun == true }
+
+    /// Another session is still in this process: Play would have to unload it, which is what made games slow and crash.
+    private var blockedBy: String? {
+        if Router.shared.androidStarted { return "Android" }
+        let apk = app.apks.first
+        guard let loaded = husk_native_loaded_apk().map({ String(cString: $0) }), loaded != apk else { return nil }
+        return Self.name(ofLoaded: loaded)
+    }
 
     private var compatSubject: CompatSubject? {
         app.packageName.map { CompatSubject(package: $0, name: app.label, isGame: LibraryItem.game(app).isGame, iconPath: app.iconPath) }
     }
 
-    /// Another game already loaded in this run of Husk: engines cannot be unloaded, so this one cannot start until Husk is
-    /// closed and opened again.
-    private var blockedBy: String? {
-        guard let loaded = husk_native_loaded_apk().map({ String(cString: $0) }), let apk = app.apks.first, loaded != apk
-        else { return nil }
-        return store.apps.first { $0.apks.first == loaded }?.label ?? "Another game"
-    }
-
     private var preflight: AppDiagnosis? { AppDiagnosis.preflight(app) }
 
-    private var subtitle: String {
-        if let used = LibraryItem.game(app).usedText { return used }
-        return runs ? "Ready to play" : "May not run on this iPhone"
+    /// Under Play: what runs it, how long it has been played, and when last.
+    private var gameFacts: [(symbol: String, text: String)] {
+        var f: [(symbol: String, text: String)] = [("cpu", app.report?.runnerName ?? "Translation Layer")]
+        let t = Playtime.seconds(LibraryItem.game(app).id)
+        f.append(("gamecontroller", t > 0 ? Playtime.text(t) + " played" : "Not played yet"))
+        if let d = app.lastPlayed {
+            let r = RelativeDateTimeFormatter(); r.unitsStyle = .short
+            f.append(("clock", "Last played\n" + r.localizedString(for: d, relativeTo: Date())))
+        }
+        return f
     }
 
+    /// When it was last played is in the facts already: only a warning here.
+    private var subtitle: String { runs ? "" : "May not run on this iPhone" }
+
     var body: some View {
-        List {
+        HuskPageList {
             Section {
-                PageHero(item: .game(app), subtitle: subtitle) { primary }
+                PageHero(item: .game(app), subtitle: subtitle, facts: gameFacts) { primary }
+                    .heroRow()
             } footer: {
                 if isGeodeLauncher {
                     Text("This is Geode's Android launcher. On Husk, Geode runs inside Geometry Dash instead: turn it on here "
                        + "(or in Geometry Dash's settings, under Mods), then start Geometry Dash and use Geode's button on its "
                        + "main menu to get mods. This APK supplies a library Geode needs, so keep it.")
-                } else if let other = blockedBy {
-                    Text("\(other) is still loaded, and a game cannot be unloaded once it has started. Close Husk with the "
-                       + "button above, then open it again to play \(app.label).")
                 } else if !runs {
-                    Text("This APK has no 64-bit code Husk can run, so it will probably not start.")
+                    Text("This APK has no ARM code Husk can run, so it will probably not start.")
                 }
             }
-            .heroRow()
 
             // what the files say before it starts: a damaged APK, the wrong CPU, a missing piece, protection that refuses Husk
             if let d = preflight {
@@ -222,10 +271,14 @@ struct GamePage: View {
         } message: {
             Text("What \(app.label) has saved now is replaced by the backup. Back up first if you want to keep it.")
         }
+        .onReceive(NotificationCenter.default.publisher(for: TLUnityUIView.huskStopPlaying)) { _ in playing = false }
+        .alert("JIT-less mode could not prepare this game", isPresented: Binding(get: { prepareFailed != nil }, set: { if !$0 { prepareFailed = nil } })) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(prepareFailed ?? "")
+        }
         .confirmationDialog("Close Husk?", isPresented: $confirmQuit, titleVisibility: .visible) {
             Button("Close Husk") {
-                // The game that is loaded is closed with Husk, which is the normal way out for it, not a crash; and this
-                // one starts by itself when Husk is opened again.
                 Router.shared.switchTo(app.id)
                 CrashReport.gameEnded()
                 HuskLog.flushNow()
@@ -245,14 +298,33 @@ struct GamePage: View {
         .id(jit.attachGeneration)
         .onAppear {
             // Kept until JIT is on: this page is rebuilt when it attaches (.id above), and plays then.
-            guard Router.shared.autoPlay == app.id, Launcher.jitOn, blockedBy == nil else { return }
+            guard Router.shared.autoPlay == app.id, blockedBy == nil, Launcher.jitOn || JITLess.enabled else { return }
             Router.shared.autoPlay = nil
             play()
         }
     }
 
-    /// Play: with Geode on, whatever it is missing (a newer release, its resources) is fetched first.
+    /// Play: in JIT-less mode the game's libraries are converted and signed first (once); with Geode on, whatever it is missing
+    /// (a newer release, its resources) is fetched first.
     private func play() {
+        if JITLess.enabled, SigningCertificate.credentials() != nil, preparing == nil {
+            preparing = "Preparing for JIT-less mode…"
+            Task {
+                do {
+                    try await JITLess.prepare(apks: app.apks) { text in Task { @MainActor in preparing = text } }
+                    preparing = nil
+                    playPrepared()
+                } catch {
+                    preparing = nil
+                    prepareFailed = error.localizedDescription
+                }
+            }
+            return
+        }
+        playPrepared()
+    }
+
+    private func playPrepared() {
         guard TLAppSettings.load(app.id).geode, case .ready = GeodeSupport.shared.current(app) else {
             if TLAppSettings.load(app.id).geode {
                 Task { await GeodeSupport.shared.prepare(app); start() }
@@ -277,7 +349,7 @@ struct GamePage: View {
         if app.report?.runsOnNativeRuntime == true || app.report?.webKind != nil, AppWindows.opensInWindow(app) {
             AppWindows.shared.open(app)
         } else {
-            AppWindows.shared.close(app)
+            AppWindows.shared.close()
             playing = true
         }
     }
@@ -286,6 +358,16 @@ struct GamePage: View {
     private var loadedNow: Bool {
         guard let loaded = husk_native_loaded_apk().map({ String(cString: $0) }) else { return false }
         return loaded == app.apks.first
+    }
+
+    fileprivate static func name(ofLoaded loaded: String) -> String {
+        if loaded.hasPrefix("ps4:") {
+            return PS4Store.shared.game(String(loaded.dropFirst(4)))?.title ?? "Another game"
+        }
+        if let other = TranslationLayerStore.shared.apps.first(where: { $0.apks.first == loaded }) {
+            return other.label
+        }
+        return "Another game"
     }
 
     private func backUp() {
@@ -343,9 +425,12 @@ struct GamePage: View {
             } else {
                 BigButton(title: "Add Geometry Dash First", systemImage: "plus", prominent: false) { }.disabled(true)
             }
+        } else if let preparing {
+            HStack(spacing: 10) { ProgressView(); Text(preparing).foregroundStyle(.secondary).lineLimit(1) }
+                .frame(maxWidth: .infinity).frame(height: 50)
         } else if blockedBy != nil {
             BigButton(title: "Close Husk to Play", systemImage: "xmark.circle", prominent: false) { confirmQuit = true }
-        } else if !Launcher.jitOn {
+        } else if !Launcher.jitOn && !JITLess.enabled {
             if jit.busy {
                 HStack(spacing: 10) { ProgressView(); Text(jit.status ?? "Turning on JIT…").foregroundStyle(.secondary) }
                     .frame(maxWidth: .infinity).frame(height: 50)
@@ -369,22 +454,32 @@ struct PS4GamePage: View {
 
     private var item: LibraryItem { .ps4(game) }
 
-    /// Another game already loaded in this run of Husk (an Android game's engine, or another PS4 game).
+    /// QEMU Android, or another game, still holds this process.
     private var blockedBy: String? {
-        if Router.shared.androidStarted { return "Android" }   // QEMU holds the JIT region the PS4 layer needs
+        if Router.shared.androidStarted { return "Android" }
         guard let loaded = husk_native_loaded_apk().map({ String(cString: $0) }), loaded != game.libraryID else { return nil }
-        if loaded.hasPrefix("ps4:") { return PS4Store.shared.game(String(loaded.dropFirst(4)))?.title ?? "Another game" }
-        return TranslationLayerStore.shared.apps.first { $0.apks.first == loaded }?.label ?? "Another game"
+        return GamePage.name(ofLoaded: loaded)
     }
 
-    private var subtitle: String {
-        if let used = item.usedText { return used }
-        return "PlayStation 4" + (game.version.map { " · v\($0)" } ?? "")
+    private func playPS4() {
+        playing = true
+    }
+
+    /// The same facts as an Android game's: version, how long it has been played, and when last.
+    private var facts: [(symbol: String, text: String)] {
+        var f: [(symbol: String, text: String)] = [("cpu", "PS4 layer" + (game.version.map { "\nv\($0)" } ?? ""))]
+        let t = Playtime.seconds(item.id)
+        f.append(("gamecontroller", t > 0 ? Playtime.text(t) + " played" : "Not played yet"))
+        if let d = game.lastPlayed {
+            let r = RelativeDateTimeFormatter(); r.unitsStyle = .short
+            f.append(("clock", "Last played\n" + r.localizedString(for: d, relativeTo: Date())))
+        }
+        return f
     }
 
     var body: some View {
-        List {
-            PageHero(item: item, subtitle: subtitle) { primary }
+        HuskPageList {
+            PageHero(item: item, subtitle: "", facts: facts) { primary }
                 .heroRow()
             if !PS4Store.available {
                 Section {
@@ -420,7 +515,7 @@ struct PS4GamePage: View {
         .onAppear {
             guard Router.shared.autoPlay == game.libraryID, Launcher.jitOn, blockedBy == nil, PS4Store.available else { return }
             Router.shared.autoPlay = nil
-            playing = true
+            playPS4()
         }
     }
 
@@ -438,7 +533,7 @@ struct PS4GamePage: View {
                 BigButton(title: "Turn On JIT to Play", systemImage: "bolt.fill", action: turnOnJIT)
             }
         } else {
-            BigButton(title: "Play", systemImage: "play.fill") { playing = true }
+            BigButton(title: "Play", systemImage: "play.fill") { playPS4() }
         }
     }
 }
@@ -462,15 +557,15 @@ struct AndroidAppPage: View {
     private var item: LibraryItem { .app(live) }
 
     var body: some View {
-        List {
+        HuskPageList {
             Section {
                 PageHero(item: item, subtitle: item.usedText ?? "Runs inside Android") { primary }
+                    .heroRow()
             } footer: {
                 if router.pendingAndroidLaunch == app.name, !host.isReady {
                     Text("\(live.label) opens by itself once Android has started.")
                 }
             }
-            .heroRow()
 
             if !ShowcaseStore.shared.pictures(for: app.name).isEmpty {
                 Section("Screenshots") {
@@ -574,7 +669,7 @@ struct AndroidSystemPage: View {
     private var running: Bool { router.androidStarted }
 
     var body: some View {
-        List {
+        HuskPageList {
             Section {
                 PageHero(item: .android, subtitle: status) {
                     VStack(spacing: 10) {
@@ -582,10 +677,10 @@ struct AndroidSystemPage: View {
                         if let progress { ProgressView(value: progress) }
                     }
                 }
+                .heroRow()
             } footer: {
                 if let note { Text(note) }
             }
-            .heroRow()
 
             if host.isReady {
                 Section {
@@ -606,12 +701,6 @@ struct AndroidSystemPage: View {
                 NavigationLink { SavedMachineSettings() } label: { Label("Saved Machine", systemImage: "externaldrive") }
             }
 
-            Section {
-                Text("Android runs fully emulated, so it is slower than games on the translation layer. Use it for apps "
-                   + "Husk cannot run directly, like Termux or app stores.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Android")

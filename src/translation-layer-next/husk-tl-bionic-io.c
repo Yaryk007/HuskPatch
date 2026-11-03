@@ -10,9 +10,12 @@
 #define _DARWIN_C_SOURCE
 #include "husk-tl-bionic.h"
 const char *tl_ld_main_apk(void);
+bool tl_ld_aot_contains(const void *addr);
+bool tl_ld_covers(const void *addr, size_t bytes);
 #include "husk-tl-internal.h"
 #include "husk-tl-codewrite.h"
 #include "husk-tl-xmem.h"
+#include "husk-tl-binder.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -168,11 +171,23 @@ const char *tl_path_resolve(const char *path, char *buf, size_t n)
 {
     if (!path) return path;
     if (g_sysfonts[0]) {
-        if (!strncmp(path, "/system/fonts", 13) && (path[13] == 0 || path[13] == '/')) {
-            snprintf(buf, n, "%s/fonts%s", g_sysfonts, path + 13);
-            if (g_extrafonts[0] && path[13] == '/' && access(buf, F_OK) != 0) {
+        const char *font_suffix = NULL;
+        if (!strncmp(path, "/system/fonts", 13) && (path[13] == 0 || path[13] == '/'))
+            font_suffix = path + 13;
+        /* Java uses its writable data directory as ANDROID_ROOT. Skia joins that
+         * root with /fonts; route just that subtree through the same system and
+         * downloaded-font lookup, without changing Java's environment or data paths. */
+        const char *root = getenv("ANDROID_ROOT");
+        size_t root_len = root ? strlen(root) : 0;
+        if (!font_suffix && root_len && !strncmp(path, root, root_len) &&
+            !strncmp(path + root_len, "/fonts", 6) &&
+            (path[root_len + 6] == 0 || path[root_len + 6] == '/'))
+            font_suffix = path + root_len + 6;
+        if (font_suffix) {
+            snprintf(buf, n, "%s/fonts%s", g_sysfonts, font_suffix);
+            if (g_extrafonts[0] && font_suffix[0] == '/' && access(buf, F_OK) != 0) {
                 char extra[1100];
-                snprintf(extra, sizeof(extra), "%s%s", g_extrafonts, path + 13);
+                snprintf(extra, sizeof(extra), "%s%s", g_extrafonts, font_suffix);
                 if (access(extra, F_OK) == 0) snprintf(buf, n, "%s", extra);
             }
             return buf;
@@ -549,6 +564,7 @@ static void fill_lib_standin_at(int dirfd, const char *name)
 }
 static int b_open(const char *path, int flags, unsigned mode)
 {
+    if (husk_binder_is_path(path)) return husk_binder_open();
     char buf[1024]; static __thread char content[32768];
     jar_entry jar;
     if (jar_lookup(path, &jar)) {
@@ -599,7 +615,15 @@ static bool net_trace_fd(int fd);
 static int g_evfd_peer[1024];
 void tl_eventfd_register(int rd, int wr) { if (rd >= 0 && rd < 1024) g_evfd_peer[rd] = wr + 1; }
 static int evfd_peer(int fd) { return fd >= 0 && fd < 1024 ? g_evfd_peer[fd] - 1 : -1; }
-static int b_close(int fd) { if (evfd_peer(fd) >= 0) { close(evfd_peer(fd)); g_evfd_peer[fd] = 0; } if (vfd_is(fd)) g_vfd[fd].on = false; bool sock = net_trace_fd(fd); TL_ERRNO_BEGIN(); int r = close(fd); tl_atomic_closed(fd); TL_ERRNO_END(); if (sock) tl_log_line("net: close(fd %d)", fd); return r; }
+static int b_close(int fd) {
+    if (husk_binder_is_fd(fd)) husk_binder_close(fd);
+    if (evfd_peer(fd) >= 0) { close(evfd_peer(fd)); g_evfd_peer[fd] = 0; }
+    if (vfd_is(fd)) g_vfd[fd].on = false;
+    bool sock = net_trace_fd(fd);
+    TL_ERRNO_BEGIN(); int r = close(fd); tl_atomic_closed(fd); TL_ERRNO_END();
+    if (sock) tl_log_line("net: close(fd %d)", fd);
+    return r;
+}
 /* close() as the guest calls it (for other shims that close on its behalf: fdsan's close_with_tag) */
 int tl_guest_close(int fd) { return b_close(fd); }
 static bool net_trace_fd(int fd)
@@ -637,6 +661,15 @@ static long b___read_chk(int fd, void *p, size_t n, size_t bufsz)
 static long b_write(int fd, const void *p, size_t n)
 {
     if (evfd_peer(fd) >= 0) fd = evfd_peer(fd);
+    if ((fd == 1 || fd == 2) && p && n > 0 && n < 2000) {
+        static int said;
+        if (said < 24) {
+            char buf[2004];
+            memcpy(buf, p, n); buf[n] = 0;
+            for (size_t i = 0; i < n; i++) if ((unsigned char)buf[i] < 9) { buf[0] = 0; break; }
+            if (buf[0]) { said++; tl_log_line("guest %s: %s", fd == 2 ? "stderr" : "stdout", buf); }
+        }
+    }
     TL_ERRNO_BEGIN(); long r = write(fd, p, n); int e = errno; TL_ERRNO_END();
     if (net_trace_fd(fd)) tl_log_line("net: write(fd %d, %zu) -> %ld errno %d", fd, n, r, r < 0 ? e : 0);
     return r;
@@ -901,6 +934,12 @@ static int b_fcntl(int fd, int cmd, long arg)
 
 static int b_ioctl(int fd, unsigned long req, long arg)
 {
+    if (husk_binder_is_fd(fd)) {
+        TL_ERRNO_BEGIN();
+        int r = husk_binder_ioctl(fd, req, (void *)arg);
+        TL_ERRNO_END();
+        return r;
+    }
     if (req == 0x541B) { int n = 0; int r = ioctl(fd, FIONREAD, &n); if (r == 0) *(int *)arg = n; else TL_ERRNO_END(); return r; }  /* FIONREAD */
     if (req == 0x5421) { int on = *(int *)arg; int fl = fcntl(fd, F_GETFL); fcntl(fd, F_SETFL, on ? fl | O_NONBLOCK : fl & ~O_NONBLOCK); return 0; }   /* FIONBIO */
     tl_set_guest_errno(25);                                                                                                                    /* ENOTTY */
@@ -1039,6 +1078,28 @@ static void anon_add(void *addr, size_t len)
     pthread_mutex_unlock(&g_anon_lock);
 }
 
+/* Mimalloc reserves a large anonymous range and munmaps the unused ends to align. Keep the list matching that. */
+static void anon_remove(uintptr_t addr, size_t len)
+{
+    uintptr_t end = addr + len;
+    pthread_mutex_lock(&g_anon_lock);
+    for (int i = 0; i < g_nanon; i++) {
+        uintptr_t a = g_anon[i].addr, e = a + g_anon[i].len;
+        if (end <= a || addr >= e) continue;
+        uintptr_t left = addr > a ? addr - a : 0;
+        uintptr_t right_a = end < e ? end : e, right = e > right_a ? e - right_a : 0;
+        if (left) {
+            g_anon[i].len = left;
+            if (right && g_nanon < MAX_ANON) { g_anon[g_nanon].addr = right_a; g_anon[g_nanon].len = right; g_nanon++; }
+        } else if (right) {
+            g_anon[i].addr = right_a; g_anon[i].len = right;
+        } else {
+            g_anon[i] = g_anon[--g_nanon]; i--;
+        }
+    }
+    pthread_mutex_unlock(&g_anon_lock);
+}
+
 static void anon_zap(uintptr_t addr, size_t len)
 {
     uintptr_t end = addr + len;
@@ -1053,6 +1114,9 @@ static void anon_zap(uintptr_t addr, size_t len)
             if (vm_region_64(mach_task_self(), &ra, &rs, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info, &cnt, &obj) != KERN_SUCCESS) break;
             if (ra > p) { p = ra; continue; }
             uintptr_t re = ra + rs < e ? ra + rs : e;
+            if (tl_ld_covers((const void *)(uintptr_t)p, re - p) || tl_xmem_contains((const void *)(uintptr_t)p)) {
+                p = re; continue;
+            }
             int prot = (info.protection & VM_PROT_READ ? PROT_READ : 0) | (info.protection & VM_PROT_WRITE ? PROT_WRITE : 0);
             mmap((void *)p, re - p, prot, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0);
             p = re;
@@ -1088,10 +1152,49 @@ static void mm_trace(const char *what, void *a, size_t l, long x, long y)
 static struct { uintptr_t base; size_t len, real; } g_phantom[4];
 static int g_nphantom;
 
+/* Reserve before JIT aliases fragment the available aligned address range.
+ * This owns address space only; guest commits still happen on demand. */
+static vm_address_t g_compressed_heap;
+static pthread_mutex_t g_compressed_heap_lock = PTHREAD_MUTEX_INITIALIZER;
+void husk_prepare_compressed_heap(void)
+{
+    pthread_mutex_lock(&g_compressed_heap_lock);
+    if (!g_compressed_heap) {
+        vm_address_t address = 0;
+        kern_return_t kr = vm_map(mach_task_self(), &address, PHANTOM_HALF,
+            PHANTOM_HALF - 1, VM_FLAGS_ANYWHERE, MACH_PORT_NULL, 0, FALSE,
+            VM_PROT_NONE, VM_PROT_ALL, VM_INHERIT_COPY);
+        if (kr == KERN_SUCCESS) g_compressed_heap = address;
+    }
+    pthread_mutex_unlock(&g_compressed_heap_lock);
+}
+void husk_release_unused_compressed_heap(void)
+{
+    pthread_mutex_lock(&g_compressed_heap_lock);
+    if (g_compressed_heap && vm_deallocate(mach_task_self(), g_compressed_heap, PHANTOM_HALF) == KERN_SUCCESS)
+        g_compressed_heap = 0;
+    pthread_mutex_unlock(&g_compressed_heap_lock);
+}
+static bool compressed_heap_request(size_t len)
+{
+    /* V8 asks for 8 GiB; Dart omits the final host page from that request. */
+    return len == 2 * PHANTOM_HALF || len == 2 * PHANTOM_HALF - (size_t)getpagesize();
+}
+
 static void *phantom_reserve(size_t len)
 {
-    if (len != 2 * PHANTOM_HALF || g_nphantom >= 4) return MAP_FAILED;
-    void *res = MAP_FAILED;
+    if (!compressed_heap_request(len) || g_nphantom >= 4) return MAP_FAILED;
+    pthread_mutex_lock(&g_compressed_heap_lock);
+    vm_address_t address = g_compressed_heap;
+    g_compressed_heap = 0; /* ownership transfers to g_phantom below */
+    pthread_mutex_unlock(&g_compressed_heap_lock);
+    if (!address) {
+        if (vm_map(mach_task_self(), &address, PHANTOM_HALF, PHANTOM_HALF - 1,
+                   VM_FLAGS_ANYWHERE, MACH_PORT_NULL, 0, FALSE,
+                   VM_PROT_NONE, VM_PROT_ALL, VM_INHERIT_COPY) != KERN_SUCCESS)
+            address = 0;
+    }
+    void *res = address ? (void *)address : MAP_FAILED;
     /* Reserve 5 GiB, which holds an aligned 4 GiB only when it starts in the first GiB of an alignment period. Mappings come one after
      * another, so a miss is kept (it moves the next one on by a GiB) and given back once there is a hit. */
     void *held[8]; int nheld = 0;
@@ -1184,8 +1287,26 @@ static bool shifted_unmap(void *a, int *ret)
     pthread_mutex_unlock(&g_shifted_lock);
     return false;
 }
+void *tl_ld_map_code(const char *path, uint64_t off, size_t len, void *at);
 static void *b_mmap(void *addr, size_t len, int prot, int flags, int fd, long off)
 {
+    if (fd >= 0 && husk_binder_is_fd(fd)) return husk_binder_mmap(fd, len);
+    /* A library file mapped executable (libffi's static trampolines): for a library imported from a dylib, its own signed code */
+    if ((prot & PROT_EXEC) && !(flags & 0x20) && fd >= 0 && off >= 0) {
+        char path[PATH_MAX];
+        if (fcntl(fd, F_GETPATH, path) != -1) {
+            void *r = tl_ld_map_code(path, (uint64_t)off, len, (flags & 0x10) ? addr : NULL);
+            if (r) { tl_note_once("a library's file mapped executable (libffi trampolines): its signed code is mapped again"); mm_trace("mmap-code", r, len, prot, flags); return r; }
+        }
+    }
+    /* JIT-less mode (TL_NO_XMEM): no executable memory exists, so a guest's own executable mapping (a regex or script JIT:
+     * PCRE2 under Qt) fails outright and the guest falls back to its interpreter; handing it plain memory would have it jump
+     * into data */
+    if ((prot & PROT_EXEC) && (flags & 0x20) && getenv("TL_NO_XMEM")) {
+        tl_note_once("JIT-less: the guest asked for executable memory of its own: refused (EACCES)");
+        tl_set_guest_errno(13);
+        return MAP_FAILED;
+    }
     /* A hooking library's trampolines (Geode): executable memory is a piece of the JIT region, written through the other view. */
     if ((prot & PROT_EXEC) && (flags & 0x20) && !(flags & 0x10) && tl_codewrite_enabled()) {
         uint8_t *rx, *rw;
@@ -1222,7 +1343,12 @@ static void *b_mmap(void *addr, size_t len, int prot, int flags, int fd, long of
     bool refuse = len > max_map && (flags & 0x20) && !(flags & 0x10);
     if (refuse) { tl_log_line("mm: refusing %#zx bytes (TL_MM_MAX_GIB)", len); errno = ENOMEM; }
     bool shifted = !(flags & 0x20) && fd >= 0 && (off & (getpagesize() - 1)) != 0 && (off & 4095) == 0;
-    void *r = refuse || (force_phantom && len == 2 * PHANTOM_HALF && prot == 0 && (flags & 0x20) && !(flags & 0x10)) ? MAP_FAILED
+    if ((flags & 0x10) && addr && tl_ld_covers(addr, len)) {
+        tl_note_once("mmap(MAP_FIXED) over a loaded library: refused");
+        errno = ENOMEM;
+        refuse = true;
+    }
+    void *r = refuse || (force_phantom && compressed_heap_request(len) && prot == 0 && (flags & 0x20) && !(flags & 0x10)) ? MAP_FAILED
             : shifted ? shifted_file_map(addr, len, prot_filter(prot, "mmap"), df, fd, off)
             : mmap(addr, len, prot_filter(prot, "mmap"), df, (flags & 0x20) ? -1 : fd, off);
     if (r == MAP_FAILED && (errno == ENOMEM || force_phantom) && prot == 0 && (flags & 0x20) && !(flags & 0x10)) { r = phantom_reserve(len); if (r != MAP_FAILED) errno = 0; }
@@ -1243,9 +1369,17 @@ static void *b_mmap(void *addr, size_t len, int prot, int flags, int fd, long of
 static int b_munmap(void *a, size_t l)
 {
     if (tl_xmem_contains(a)) return 0;                       /* JIT memory handed out above: kept, as the region only grows */
+    if (tl_ld_covers(a, l)) {
+        /* Mimalloc trims a large reservation to an aligned arena. Under AOT that reservation can
+         * sit next to a dylib; unmapping the overlap would drop signed code. Leave the library. */
+        tl_note_once("munmap of a loaded library: ignored");
+        mm_trace("munmap", a, l, 0, 0);
+        return 0;
+    }
     { int sr; if (shifted_unmap(a, &sr)) { mm_trace("munmap", a, l, sr, errno); return sr; } }
     size_t real = phantom_clamp((uintptr_t)a, l);
     if (real == 0) return 0;                                 /* the half of a phantom range that was never mapped */
+    anon_remove((uintptr_t)a, real);
     TL_ERRNO_BEGIN(); int r = munmap(a, real); TL_ERRNO_END(); mm_trace("munmap", a, real, r, errno); return r;
 }
 /* Whether a range is inside memory the guest mapped for itself (not a library's own pages). */
@@ -1266,10 +1400,13 @@ static int b_mprotect(void *a, size_t l, int prot)
     /* Code a hooking library is about to patch: its permissions stay as they are, and its stores are carried out through
      * the writable view as they fault (husk-tl-codewrite.c). */
     if (tl_codewrite_enabled() && tl_xmem_contains(a)) { mm_trace("mprotect", a, l, prot, 0); return 0; }
+    /* An imported AOT dylib is signed r-x; the guest asking to write its RELRO or patch a constructor is told yes, and
+     * stores go to the writable copies (husk-tl-codewrite). */
+    if (tl_ld_aot_contains(a)) { mm_trace("mprotect", a, l, prot, 0); return 0; }
     if (prot & PROT_EXEC) {
         /* the host's own code (a guest that patches "the linker", which here is Apple's): never touched */
         Dl_info di;
-        if (dladdr(a, &di) && di.dli_fname && !tl_xmem_contains(a)) {
+        if (dladdr(a, &di) && di.dli_fname && !tl_xmem_contains(a) && !tl_ld_aot_contains(a)) {
             { const char *lib = NULL; const void *sa = NULL; const char *sym = tl_ld_symbol_at(__builtin_return_address(0), &lib, &sa);
               static int said; if (said++ < 4) tl_log_line("bionic: mprotect(%p, %#zx, %d) on the host's code (%s %s) asked by %s %s: refused", a, l, prot,
                   di.dli_fname ? strrchr(di.dli_fname, '/') + 1 : "?", di.dli_sname ? di.dli_sname : "?", lib ? lib : "?", sym ? sym : "?"); }
@@ -1292,7 +1429,7 @@ static int b_mprotect(void *a, size_t l, int prot)
             }
         }
         static int allow = -1;
-        if (allow < 0) allow = getenv("TL_NO_GUEST_JIT") ? 0 : 1;
+        if (allow < 0) allow = getenv("TL_NO_GUEST_JIT") || getenv("TL_NO_XMEM") ? 0 : 1;   /* JIT-less: as a phone with no debugger */
         int r = -1;
         if (allow) {
             TL_ERRNO_BEGIN();

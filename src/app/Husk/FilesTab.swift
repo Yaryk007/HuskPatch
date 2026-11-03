@@ -45,7 +45,7 @@ struct DirectoryView: View {
     @State private var installing: AndroidHost.GuestEntry?
 
     var body: some View {
-        List {
+        HuskPageList {
             if let space {
                 Section { storage(space) }
             }

@@ -164,7 +164,7 @@ struct TLAppSettingsView: View {
     }
 
     var body: some View {
-        Form {
+        HuskForm {
             Section {
                 HStack(spacing: 14) {
                     AppIcon(path: app.iconPath, size: 52)

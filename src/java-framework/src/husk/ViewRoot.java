@@ -63,7 +63,46 @@ public final class ViewRoot implements ViewParent {
     }
     private WindowInsets computeInsets() {
         boolean full = mLp.type == WindowManager.LayoutParams.TYPE_BASE_APPLICATION || mLp.type == WindowManager.LayoutParams.TYPE_APPLICATION;
-        return full ? screenInsets() : WindowInsets.huskOf(0, 0, 0, 0, Math.max(0, sImeBottom - (screenH() - mY - mH)), null);
+        if (!full) return WindowInsets.huskOf(0, 0, 0, 0, Math.max(0, sImeBottom - (screenH() - mY - mH)), null);
+        if (!barsHidden()) {
+            // bars showing: the top is the status bar, the bottom the home indicator, the sides only the notch and the screen's
+            // corners -- a cutout, which a window that lays out into it (short edges, always) covers. A fullscreen window (no status
+            // bar) is a game's: on iOS it draws under the home indicator too, so it gets the whole screen from the first layout
+            // (games that size themselves once, as PvZ does, otherwise keep the smaller size after hiding the bars)
+            WindowManager.LayoutParams wa = windowAttrs();
+            int mode = wa.layoutInDisplayCutoutMode;
+            boolean into = mode == WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES || mode == WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+            boolean fs = (wa.flags & WindowManager.LayoutParams.FLAG_FULLSCREEN) != 0;
+            if (!into && !fs) return screenInsets();
+            return WindowInsets.huskOf(into ? 0 : sInsets[0], sInsets[1], into ? 0 : sInsets[2], fs ? 0 : sInsets[3], sImeBottom, cutout());
+        }
+        // bars hidden (immersive): no bar insets; what is left is the cutout, unless the window lays out into it (short edges, always),
+        // in which case the app gets the whole screen and keeps its UI clear of the notch itself (getDisplayCutout)
+        DisplayCutout c = cutout();
+        int mode = windowAttrs().layoutInDisplayCutoutMode;
+        boolean into = mode == WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES || mode == WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+        if (into || c == null) return WindowInsets.huskOf(0, 0, 0, 0, sImeBottom, c);
+        return WindowInsets.huskOf(c.getSafeInsetLeft(), c.getSafeInsetTop(), c.getSafeInsetRight(), 0, sImeBottom, c);
+    }
+    /** The window's attributes as the app last set them (an activity may change getWindow().getAttributes() in place). */
+    private WindowManager.LayoutParams windowAttrs() {
+        if (mView instanceof DecorView) return ((DecorView) mView).getWindowHusk().getAttributes();
+        return mLp;
+    }
+    /** The app hid the status and navigation bars (WindowInsetsController.hide, or the old immersive flags). */
+    private boolean barsHidden() {
+        int ui = mSystemUi | mView.getSystemUiVisibility() | windowAttrs().systemUiVisibility;
+        return mBarsHidden || (ui & (View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION)) == (View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
+    }
+    private boolean mBarsHidden;
+    private int mSysUiTold = -1;
+    /** As ViewRootImpl: the window's views hear the bars' visibility when it is first laid out and whenever it changes
+     *  (OnSystemUiVisibilityChangeListener; games re-hide the bars from it). */
+    private void tellSystemUi() {
+        int v = barsHidden() ? View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION : 0;
+        if (v == mSysUiTold || mRemoved) return;
+        mSysUiTold = v;
+        mainHandler().post(() -> { if (!mRemoved) mView.dispatchSystemUiVisibilityChanged(v); });
     }
     private void attach() {
         // as ViewRootImpl: the window's insets are known by the time its views hear they are attached (getRootWindowInsets)
@@ -116,13 +155,19 @@ public final class ViewRoot implements ViewParent {
     public void requestApplyInsets() { mInsetsDirty = true; mLayoutRequested = true; scheduleFrame(); }
     public WindowInsets insets() { return mWindowInsets; }
     public int systemUi() { return mSystemUi; }
-    public void systemUiChanged(int v) { mSystemUi = v; requestApplyInsets(); }
+    public void systemUiChanged(int v) { mSystemUi = v; requestApplyInsets(); if (mSysUiTold >= 0) tellSystemUi(); }
     public void visibleDisplayFrame(Rect r) { r.set(sInsets[0], sInsets[1], screenW() - sInsets[2], screenH() - Math.max(sInsets[3], sImeBottom)); }
     public WindowInsetsController insetsController() {
         if (mInsetsController == null) mInsetsController = new WindowInsetsController() {
             int appearance, behavior;
-            public void show(int types) { if ((types & WindowInsets.Type.ime()) != 0 && mFocused != null) InputMethods.show(mFocused); }
-            public void hide(int types) { if ((types & WindowInsets.Type.ime()) != 0) InputMethods.hide(); }
+            public void show(int types) {
+                if ((types & WindowInsets.Type.ime()) != 0 && mFocused != null) InputMethods.show(mFocused);
+                if ((types & WindowInsets.Type.systemBars()) != 0 && mBarsHidden) { mBarsHidden = false; requestApplyInsets(); }
+            }
+            public void hide(int types) {
+                if ((types & WindowInsets.Type.ime()) != 0) InputMethods.hide();
+                if ((types & WindowInsets.Type.systemBars()) != 0 && !mBarsHidden) { mBarsHidden = true; requestApplyInsets(); }
+            }
             public void setSystemBarsAppearance(int a, int mask) { appearance = (appearance & ~mask) | (a & mask); }
             public int getSystemBarsAppearance() { return appearance; }
             public void setSystemBarsBehavior(int b) { behavior = b; }
@@ -154,7 +199,10 @@ public final class ViewRoot implements ViewParent {
     }
     public static int[] screenInsetsHusk() { return sInsets; }
     public static WindowInsets screenInsets() { return WindowInsets.huskOf(sInsets[0], sInsets[1], sInsets[2], sInsets[3], sImeBottom, cutout()); }
-    public static DisplayCutout cutout() { return sInsets[1] > 0 ? new DisplayCutout(new Rect(0, sInsets[1], 0, 0), null) : null; }
+    /** The notch and the screen's rounded corners: the host's safe area on the sides and top (the bottom is the home indicator, a bar). */
+    public static DisplayCutout cutout() {
+        return sInsets[0] > 0 || sInsets[1] > 0 || sInsets[2] > 0 ? new DisplayCutout(new Rect(sInsets[0], sInsets[1], sInsets[2], 0), null) : null;
+    }
     static int screenW() { return Native.screenWidth(); }
     static int screenH() { return Native.screenHeight(); }
 
@@ -225,6 +273,7 @@ public final class ViewRoot implements ViewParent {
             mWindowInsets = computeInsets();
             mView.dispatchApplyWindowInsets(mWindowInsets);
             mLayoutRequested = true;
+            if (mSysUiTold >= 0) tellSystemUi();
         }
         if (!mLayoutRequested && !mView.isLayoutRequested()) return;
         mLayoutRequested = false;
@@ -269,6 +318,7 @@ public final class ViewRoot implements ViewParent {
         }
         if (mFirst) {
             mFirst = false;
+            tellSystemUi();
             if (mHasFocus) { mView.dispatchWindowFocusChanged(true); mObserver.huskWindowFocus(true); }
             if (mView.findFocus() == null && mView instanceof ViewGroup) { /* the first focusable view takes focus when it asks; nothing forced */ }
         }
@@ -347,13 +397,18 @@ public final class ViewRoot implements ViewParent {
         return h;
     }
     public static boolean dispatchKey(KeyEvent e) {
+        ViewRoot r = keyTarget();
+        if (r == null) return false;
+        if (r.mView.dispatchKeyEventPreIme(e)) return true;
+        return r.mView.dispatchKeyEvent(e);
+    }
+    /** The window keys go to: the top focusable, visible one (its decor hands them to its activity or dialog). */
+    public static ViewRoot keyTarget() {
         for (int i = sRoots.size() - 1; i >= 0; i--) {
             ViewRoot r = sRoots.get(i);
-            if (!r.focusable() || r.mView.getVisibility() != View.VISIBLE) continue;
-            if (r.mView.dispatchKeyEventPreIme(e)) return true;
-            return r.mView.dispatchKeyEvent(e);
+            if (r.focusable() && r.mView.getVisibility() == View.VISIBLE) return r;
         }
-        return false;
+        return null;
     }
     public static boolean dispatchGeneric(MotionEvent e) {
         for (int i = sRoots.size() - 1; i >= 0; i--) {

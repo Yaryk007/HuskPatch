@@ -29,6 +29,12 @@ enum LibraryRoute: Hashable {
     @Published var platform: PlatformFilter = .all
     /// Downloads, as a sheet: Home's Downloads tile opens it.
     @Published var showDownloads = false
+    /// The Husk account's profile page.
+    @Published var showProfile = false
+    /// Import APK: pick a file, or get one from a link or the Store.
+    @Published var showImport = false
+    /// A game link (husk://game/<package>) for something not added yet: the Store opens its page.
+    @Published var storePackage: String?
     /// Android's storage, as a sheet over whatever is showing.
     @Published var showFiles = false
     /// Directories pushed on top of the Files root.
@@ -96,7 +102,7 @@ struct AppDetailView: View {
     private var canOpen: Bool { host.isReady && host.busy == nil }
 
     var body: some View {
-        List {
+        HuskPageList {
             Section {
                 header
                 Button {

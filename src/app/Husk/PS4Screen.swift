@@ -187,6 +187,7 @@ struct PS4PlayView: View {
             HuskOrientation.set(.landscape)
             UIApplication.shared.isIdleTimerDisabled = true
             game.markPlayed()
+            Playtime.begin(game.libraryID)
             if husk_console_state() != Int32(HUSK_CONSOLE_IDLE.rawValue) { husk_console_set_paused(false) }
             model.start()
         }
@@ -199,6 +200,7 @@ struct PS4PlayView: View {
             husk_console_set_paused(false)
         }
         .onDisappear {
+            Playtime.end(game.libraryID)
             husk_console_set_paused(true)
             virtualPad.disconnect()
             UIApplication.shared.isIdleTimerDisabled = false

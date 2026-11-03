@@ -12,12 +12,14 @@ enum Console {
         Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? dark : light })
     }
 
-    /// The page: black, or near-white.
-    static let page = adaptive(dark: .black, light: UIColor(white: 0.965, alpha: 1))
+    /// The page: Husk's deep navy, or near-white.
+    static let page = adaptive(dark: UIColor(red: 0.035, green: 0.047, blue: 0.098, alpha: 1), light: UIColor(white: 0.965, alpha: 1))
     /// Cards and wells on the page.
-    static let card = adaptive(dark: UIColor(white: 0.11, alpha: 1), light: UIColor(white: 0.905, alpha: 1))
+    static let card = adaptive(dark: UIColor(red: 0.075, green: 0.094, blue: 0.161, alpha: 1), light: UIColor(white: 0.905, alpha: 1))
     /// One step up from a card: buttons beside Play.
-    static let raised = adaptive(dark: UIColor(white: 0.16, alpha: 1), light: UIColor(white: 0.865, alpha: 1))
+    static let raised = adaptive(dark: UIColor(red: 0.110, green: 0.133, blue: 0.220, alpha: 1), light: UIColor(white: 0.865, alpha: 1))
+    /// A card's outline on the navy page.
+    static let outline = adaptive(dark: UIColor(red: 0.20, green: 0.24, blue: 0.40, alpha: 0.55), light: UIColor(white: 0, alpha: 0.06))
     /// An unselected chip.
     static let chip = adaptive(dark: UIColor(white: 1, alpha: 0.12), light: UIColor(white: 0, alpha: 0.07))
     static let hairline = adaptive(dark: UIColor(white: 1, alpha: 0.08), light: UIColor(white: 0, alpha: 0.08))
@@ -144,10 +146,10 @@ struct ConsoleChip: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: compact ? 13 : 14, weight: .semibold))
-                .foregroundStyle(selected ? Console.onText : Console.text.opacity(0.85))
+                .foregroundStyle(selected ? Color.white : Console.text.opacity(0.85))
                 .padding(.horizontal, compact ? 11 : 14)
                 .frame(height: compact ? 28 : 32)
-                .background(selected ? Console.text : Console.chip, in: Capsule())
+                .background(selected ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Console.chip), in: Capsule())
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)

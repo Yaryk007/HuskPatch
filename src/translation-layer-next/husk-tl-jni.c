@@ -284,6 +284,8 @@ static tl_jmeth *lookup_method(tl_jclass *cls, const char *name, const char *sig
             tl_jmeth *m = calloc(1, sizeof(*m));
             m->cls = cls; m->name = strdup(name); m->sig = strdup(sig); m->is_static = is_static;
             m->dvm = dm; m->exists = true;
+            m->fn = hle_find(cls->name, name, sig);
+            if (!m->fn) m->fn = hle_find_loose(cls->name, name, sig);
             parse_sig(m);
             pthread_mutex_lock(&g_lock);
             if (cls->nmeths == cls->capm) { cls->capm = cls->capm ? cls->capm * 2 : 8; cls->meths = realloc(cls->meths, (size_t)cls->capm * sizeof(*cls->meths)); }
@@ -471,15 +473,8 @@ static jvalue g_zero;
 
 static jvalue invoke(jobj *self, tl_jmeth *m, bool nonvirtual, const jvalue *args)
 {
-    if (m->dvm && tl_dvm) {
-        jvalue r = tl_dvm->invoke(m->dvm, self, nonvirtual, args);
-        if (g_trace >= 3) {
-            tl_log_line("jni: java call %s.%s%s on %p -> %#llx%s", m->cls->name, m->name, m->sig, (void *)self, (unsigned long long)r.j, t_pending ? " (threw)" : "");
-            if (t_pending) jni_ExceptionDescribe(NULL);
-        }
-        if (m->retk == 'L' && r.l && ((jobj *)r.l)->kind != TL_K_CLASS) tl_jni_ref(r.l);
-        return r;
-    }
+    /* A host implementation wins over the APK's bytecode: Subway's AnalyticsBridge.SetupWorkerForAppClosed
+     * is in the DEX and throws if WorkManager is missing. */
     tl_jcall c = { .self = self, .cls = m->cls, .args = args };
     c.ret.j = 0;
     tl_jhle_fn fn = m->fn;
@@ -492,12 +487,46 @@ static jvalue invoke(jobj *self, tl_jmeth *m, bool nonvirtual, const jvalue *arg
     }
     if (fn) {
         if (g_trace >= 2) tl_log_line("jni: call %s.%s%s", m->cls->name, m->name, m->sig);
+        /* A leftover Java exception from an earlier lookup would make Unity's CallStatic throw
+         * AndroidJavaException even when this method itself succeeded. */
+        tl_jni_clear();
         fn(&c);
         /* A method that returns an object hands the caller a new local reference. The implementations
          * return objects they keep (the Activity, the Display), so without this a caller releasing its
          * reference would free an object that is still in use. */
         if (m->retk == 'L' && c.ret.l && ((jobj *)c.ret.l)->kind != TL_K_CLASS) tl_jni_ref(c.ret.l);
         return c.ret;
+    }
+    if (m->dvm && tl_dvm) {
+        jvalue r = tl_dvm->invoke(m->dvm, self, nonvirtual, args);
+        if (g_trace >= 3) {
+            tl_log_line("jni: java call %s.%s%s on %p -> %#llx%s", m->cls->name, m->name, m->sig, (void *)self, (unsigned long long)r.j, t_pending ? " (threw)" : "");
+            if (t_pending) jni_ExceptionDescribe(NULL);
+        }
+        if (m->retk == 'L' && r.l && ((jobj *)r.l)->kind != TL_K_CLASS) tl_jni_ref(r.l);
+        return r;
+    }
+    /* Ad SDKs (IronSource / LevelPlay) probe a large Java surface; a missing getInstance is an uncaught C# NRE. */
+    if (m->cls && m->cls->name && !strncmp(m->cls->name, "com/ironsource/", 15)) {
+        if (!m->warned) {
+            m->warned = true;
+            tl_log_line("jni: stub %s.%s%s", m->cls->name, m->name, m->sig);
+        }
+        if (m->retk == 'L') {
+            const char *s = strchr(m->sig, ')');
+            if (s && s[1] == 'L') {
+                char name[256];
+                const char *e = strchr(s + 2, ';');
+                size_t n = e ? (size_t)(e - (s + 2)) : 0;
+                if (n && n < sizeof name) {
+                    memcpy(name, s + 2, n); name[n] = 0;
+                    jvalue v; v.j = 0; v.l = tl_jni_new_object(tl_jni_class(name));
+                    if (v.l && ((jobj *)v.l)->kind != TL_K_CLASS) tl_jni_ref(v.l);
+                    return v;
+                }
+            }
+        }
+        return g_zero;
     }
     if (!m->warned) {
         m->warned = true;
@@ -1051,6 +1080,7 @@ static void jni_ReleaseStringCritical(void *env, jo s, const uint16_t *c) { jni_
 /* --- natives, monitors, misc --- */
 
 typedef struct { const char *name, *sig; void *fn; } native_method;
+static unsigned g_natives_generation;
 
 static int32_t jni_RegisterNatives(void *env, jo cls, const native_method *m, int32_t n)
 {
@@ -1073,8 +1103,16 @@ static int32_t jni_RegisterNatives(void *env, jo cls, const native_method *m, in
         TRACE("jni: RegisterNatives %s.%s%s -> %p", c->name, m[i].name, m[i].sig, m[i].fn);
     }
     pthread_mutex_unlock(&g_lock);
+    __atomic_add_fetch(&g_natives_generation, 1, __ATOMIC_RELEASE);
     return 0;
 }
+int32_t tl_jni_register_one(jobj *cls, const char *name, const char *sig, void *fn)
+{
+    native_method m = { .name = name, .sig = sig, .fn = fn };
+    return jni_RegisterNatives(NULL, cls, &m, 1);
+}
+/* Bumped by every RegisterNatives: a method's cached native is looked up again after one (a later registration wins, as in ART). */
+unsigned tl_jni_natives_generation(void) { return __atomic_load_n(&g_natives_generation, __ATOMIC_ACQUIRE); }
 static int32_t jni_UnregisterNatives(void *env, jo cls) { (void)env; (void)cls; return 0; }
 
 void *tl_jni_native(const char *cls, const char *name, const char *sig)
@@ -1202,6 +1240,25 @@ void tl_jni_each_declared(void (*fn)(tl_jclass *jc))
     pthread_mutex_unlock(&g_lock);
     for (int i = 0; i < n; i++) fn(list[i]);
     free(list);
+}
+
+void tl_jni_forget_if(bool (*drop)(tl_jclass *jc, void *user), void *user)
+{
+    pthread_mutex_lock(&g_lock);
+    for (int b = 0; b < NBUCKETS; b++) {
+        tl_jclass **pp = &g_classes[b];
+        while (*pp) {
+            if (drop(*pp, user)) {
+                tl_jclass *c = *pp;
+                *pp = c->next;
+                c->dvm = NULL;
+                c->nmeths = 0;
+                c->nfields = 0;
+                c->next = NULL;
+            } else pp = &(*pp)->next;
+        }
+    }
+    pthread_mutex_unlock(&g_lock);
 }
 
 tl_jclass *tl_jni_find_declared(const char *name)

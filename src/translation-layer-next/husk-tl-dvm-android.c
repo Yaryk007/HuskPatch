@@ -9,6 +9,8 @@
 #define _DARWIN_C_SOURCE
 #include "husk-tl-dvm-javaapp.h"
 #include "husk-tl-dvm-gl.h"
+#include "husk-tl-aosp.h"
+#include "husk-tl-dvm.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <fcntl.h>
@@ -40,8 +42,8 @@ static struct {
     atomic_bool ended, paused, render_requested;
     jobj *gl_view, *gl_renderer;
     int gl_version;
-    pthread_t gl_thread;
-    bool gl_started;
+    pthread_t gl_thread, app_thread;
+    bool gl_started, app_started;
     jobj *content;
     char fwres[1024];
     tl_zip fwres_zip; bool fwres_tried, fwres_ok;
@@ -383,6 +385,7 @@ NAT(N_setAppClassLoader) { (void)self; (void)ret; dvm_set_app_loader(a[0].l); re
 /* The NDK's ALooper for a Java Looper's thread: native code that asks for its UI thread's looper (ALooper_forThread) and watches
  * file descriptors on it (Unity 6, GameActivity-style code) has its callbacks run between that thread's messages */
 NAT(N_looperPrepare) { (void)self; (void)a; (void)ret; void *(*prep)(int) = tl_bionic_find("ALooper_prepare"); if (prep) prep(0); return true; }
+NAT(N_sessionEnded) { (void)self; (void)a; *ret = I(atomic_load(&A.ended) ? 1 : 0); return true; }
 NAT(N_looperPoll)
 {
     (void)self; (void)a;
@@ -563,6 +566,7 @@ static const struct { const char *name, *sig; dvm_native_fn fn; } k_native[] = {
     { "splitPaths", "()[Ljava/lang/String;", N_splitPaths },
     { "nativeLooperPrepare", "()V", N_looperPrepare },
     { "nativeLooperPoll", "()Z", N_looperPoll },
+    { "sessionEnded", "()Z", N_sessionEnded },
     { "setAppClassLoader", "(Ljava/lang/ClassLoader;)V", N_setAppClassLoader },
     { "apkFileFd", "(ILjava/lang/String;)J", N_apkFileFd },
     { "apkFileLength", "(ILjava/lang/String;)J", N_apkFileLength },
@@ -1058,6 +1062,16 @@ static void *gl_main(void *arg)
             makeCurrent(dpy, surf, surf, app);
             jvalue draw = tl_jni_call(A.gl_view, "huskBeginFrame", "()Z", NULL);
             if (tl_jni_pending()) log_pending("a queued GL event");
+            /* the view's surface changed size (laid out again: the app hid the bars, or turned): onSurfaceChanged again, as GLThread does */
+            jvalue rs = tl_jni_call(A.gl_view, "huskTakeResize", "()J", NULL);
+            if (tl_jni_pending()) log_pending("huskTakeResize");
+            if (rs.j) {
+                jvalue p3[3] = { L(gl10), I((int)(rs.j >> 32)), I((int)(rs.j & 0xffffffff)) };
+                tl_log_line("javaapp: the GL view is now %dx%d", (int)(rs.j >> 32), (int)(rs.j & 0xffffffff));
+                tl_jni_call(A.gl_renderer, "onSurfaceChanged", "(Ljavax/microedition/khronos/opengles/GL10;II)V", p3);
+                if (tl_jni_pending()) log_pending("onSurfaceChanged");
+                draw.z = true;
+            }
             /* a new frame of views needs the scene under it again: what was swapped is gone */
             if (draw.z || fresh || atomic_exchange(&A.render_requested, false)) {
                 tl_jni_call(A.gl_renderer, "onDrawFrame", "(Ljavax/microedition/khronos/opengles/GL10;)V", p1);
@@ -1191,9 +1205,20 @@ static void *app_main(void *arg)
     void tl_thread_altstack(void); tl_thread_altstack();
     (void)arg;
     pthread_setname_np("main");
-    jvalue a[2] = { L(dvm_new_string_utf8(A.activity)), L(A.application[0] ? dvm_new_string_utf8(A.application) : NULL) };
     jvalue r;
-    if (!tl_dvm_call_static("husk/AppRunner", "run", "(Ljava/lang/String;Ljava/lang/String;)V", a, &r)) {
+    bool ok = false;
+    if (tl_dvm_defines_class("husk/AppRunner")) {
+        jvalue a[2] = { L(dvm_new_string_utf8(A.activity)), L(A.application[0] ? dvm_new_string_utf8(A.application) : NULL) };
+        ok = tl_dvm_call_static("husk/AppRunner", "run", "(Ljava/lang/String;Ljava/lang/String;)V", a, &r);
+    } else if (tl_dvm_defines_class("android/app/ActivityThread")) {
+        tl_log_line("javaapp: AOSP ActivityThread on the boot path");
+        jobj *args = tl_jni_new_obj_array(tl_jni_class("java/lang/String"), 0);
+        jvalue a[1] = { L(args) };
+        ok = tl_dvm_call_static("android/app/ActivityThread", "main", "([Ljava/lang/String;)V", a, &r);
+    } else {
+        tl_log_line("javaapp: no AppRunner and no ActivityThread on the boot path");
+    }
+    if (!ok) {
         char buf[800];
         tl_log_line("javaapp: the app's main thread ended with %s", tl_dvm_describe_pending(buf, sizeof(buf)) ? buf : "?");
         log_pending_stack();
@@ -1214,10 +1239,16 @@ static void stub_lib(const char *name, uint64_t size, void *dir)
 
 bool tl_javaapp_start(const tl_javaapp_config *cfg)
 {
+    atomic_store(&A.ended, false);
+    atomic_store(&A.paused, false);
+    atomic_store(&A.frames, 0);
+    A.qn = 0; A.gl_view = NULL; A.gl_renderer = NULL; A.content = NULL;
     /* stores into a library's executable view (data sharing a page with its code, as Unity's does) go through the writable one */
     { void tl_codewrite_enable(void); tl_codewrite_enable(); }
     A.cfg = *cfg;
     snprintf(A.apk, sizeof(A.apk), "%s", cfg->apk_path);
+    /* JIT-less mode: LuaJIT (LÖVE games) runs its interpreter, as the SDL driver already has it do */
+    if (getenv("TL_NO_XMEM")) { void tl_luajit_interpreter_only(void); tl_luajit_interpreter_only(); }
     /* an app whose manifest needs OpenGL ES 3.1 or 3.2 is told the driver has it (ANGLE over Metal stops at 3.0; the shim writes
        its 310/320 es shaders down), as it would otherwise refuse to start */
     { int tl_manifest_gles(const char *); void tl_egl_es3_claim(int); int gv = tl_manifest_gles(cfg->apk_path);
@@ -1232,6 +1263,7 @@ bool tl_javaapp_start(const tl_javaapp_config *cfg)
         return false;
     }
     if (cfg->package_name && cfg->package_name[0]) snprintf(A.pkg, sizeof(A.pkg), "%s", cfg->package_name);
+    husk_aosp_set_session(A.pkg, cfg->width, cfg->height);
     tl_log_line("javaapp: %s, launcher %s, application %s", A.pkg, A.activity, A.application[0] ? A.application : "(none)");
     tl_nwindow_configure(cfg->width, cfg->height, cfg->metal_layer);
     if (cfg->angle_egl && !tl_egl_init(cfg->angle_egl, cfg->angle_gles, cfg->frame_dir, cfg->frame_every)) return false;
@@ -1244,8 +1276,23 @@ bool tl_javaapp_start(const tl_javaapp_config *cfg)
     { char lib[1100]; snprintf(lib, sizeof(lib), "%s/lib", A.data); mkdir(lib, 0755); tl_ld_apk_libs(stub_lib, lib); }
     { pthread_attr_t rt; pthread_attr_init(&rt); pthread_attr_setstacksize(&rt, 64u << 20); pthread_create(&A.gl_thread, &rt, gl_main, NULL); }
     pthread_attr_t at; pthread_attr_init(&at); pthread_attr_setstacksize(&at, 256u << 20);
-    pthread_t t;
-    return pthread_create(&t, &at, app_main, NULL) == 0;
+    A.app_started = pthread_create(&A.app_thread, &at, app_main, NULL) == 0;
+    A.gl_started = true;
+    return A.app_started;
+}
+
+void tl_javaapp_stop(void)
+{
+    atomic_store(&A.ended, true);
+    if (A.app_started) { pthread_join(A.app_thread, NULL); A.app_started = false; }
+    if (A.gl_started) { pthread_join(A.gl_thread, NULL); A.gl_started = false; }
+    A.gl_view = NULL; A.gl_renderer = NULL; A.content = NULL;
+    pthread_mutex_lock(&A.q_lock); A.qn = 0; pthread_mutex_unlock(&A.q_lock);
+    jvalue r;
+    if (tl_dvm_defines_class("husk/AppRunner")) tl_dvm_call_static("husk/AppRunner", "resetSession", "()V", NULL, &r);
+    atomic_store(&A.ended, false);
+    atomic_store(&A.paused, false);
+    atomic_store(&A.frames, 0);
 }
 
 void tl_javaapp_touch(int phase, int id, float x, float y)

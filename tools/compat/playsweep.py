@@ -41,6 +41,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('folder'); ap.add_argument('--out', default='/Volumes/GTAV/husk2/sweep'); ap.add_argument('--secs', type=int, default=45)
     ap.add_argument('--only', nargs='*')
+    ap.add_argument('--jitless', action='store_true', help="Husk 3.2's JIT-less mode: each app's libraries (and the Java runtime's) become "
+                    'dylibs first (BIN/elf2macho-test --prepare, cached in --aot), and the app runs with no executable memory (TL_NO_XMEM=1)')
+    ap.add_argument('--aot', default=os.path.expanduser('~/Library/Caches/husk-regress/aot'))
     ap.add_argument('--resume', action='store_true', help='skip apps that already have a log in --out, and add to its summary.json')
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -68,6 +71,13 @@ def main():
         if abis and 'arm64-v8a' not in abis:
             rows.append({'pkg': pkg, 'engine': engine, 'harness': None, 'verdict': 'no arm64 code'}); print(pkg, 'no arm64 code'); continue
         libs = [l['name'] for l in rep.get('libraries', []) if l.get('abi') == 'arm64-v8a']
+        if a.jitless:
+            runtime = glob.glob(os.path.join(ROOT, 'build', 'java-runtime', '**', '*.so'), recursive=True)
+            p = subprocess.run([os.path.join(BIN, 'elf2macho-test'), '--prepare', a.aot, base] + splits + runtime, capture_output=True, text=True, errors='replace')
+            if p.returncode != 0:
+                rows.append({'pkg': pkg, 'engine': engine, 'harness': None, 'verdict': 'preparing dylibs failed: ' + (p.stdout + p.stderr)[-200:]})
+                print(pkg, 'preparing dylibs failed'); continue
+            env.update(TL_NO_XMEM='1', TL_AOT_DIR=a.aot)
         if engine == 'Cocos' and 'libfmod.so' not in libs: engine = 'Java'          # the app's rule: other cocos2d-x games run on Java
         if engine in NATIVE:
             harness = NATIVE[engine]

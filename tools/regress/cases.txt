@@ -1,6 +1,6 @@
 # The games the regression run plays, one per line:
 #   name | harness | APK | seconds before the screenshot | width height | extra environment | text the log must have
-# $HUSK_ENGINES is a folder of GitHub-release APKs for the newer drivers (GameMaker, Kivy).
+# $HUSK_PLAYAW is the folder of installed Play apps (one folder per package, base + split APKs). $HUSK_ENGINES is a folder of GitHub-release APKs for the newer drivers (GameMaker, Kivy).
 # An APK path starting with fdroid: is downloaded from F-Droid into the cache (package_versioncode). Paths may use ~ and
 # $VARIABLES; a case whose APK is not there is skipped, not failed. ANGLE comes from TL_ANGLE_EGL/TL_ANGLE_GLES (the
 # harnesses default to the copy inside Steam's Chromium Embedded Framework on this Mac).
@@ -18,3 +18,5 @@ rnd-java   | javaapp-test | fdroid:org.artsoft.rocksndiamonds_4020200           
 mousepounce-java | javaapp-test | fdroid:com.dozingcatsoftware.mouse_pounce_10        | 30 | 804 1748 | TL_PACKAGE=com.dozingcatsoftware.mouse_pounce TL_FRAMEWORK=$R/build/java-runtime/husk-framework.dex |
 pysolfc-java | javaapp-test | fdroid:org.lufebe16.pysolfc_102130601                    | 45 | 1748 804 | TL_PACKAGE=org.lufebe16.pysolfc TL_FRAMEWORK=$R/build/java-runtime/husk-framework.dex |
 catashoot-jit | javaapp-test | fdroid:org.xolatgames.catashoot_6                        | 30 | 1748 804 | TL_PACKAGE=org.xolatgames.catashoot TL_PHONE_JIT=1 TL_FRAMEWORK=$R/build/java-runtime/husk-framework.dex |
+fishing    | unity-test | $HUSK_PLAYAW/com.learningplace.howtofish/com.learningplace.howtofish.apk | 60 | 1748 804 | TL_PACKAGE=com.learningplace.howtofish TL_SPLITS=$HUSK_PLAYAW/com.learningplace.howtofish/com.learningplace.howtofish.config.arm64_v8a.apk:$HUSK_PLAYAW/com.learningplace.howtofish/com.learningplace.howtofish.UnityDataAssetPack.apk |
+drg        | unity-test | $HUSK_PLAYAW/com.ghostshippublishing.deeprockgalacticsurvivor/com.ghostshippublishing.deeprockgalacticsurvivor.apk | 60 | 1748 804 | TL_PACKAGE=com.ghostshippublishing.deeprockgalacticsurvivor TL_SPLITS=$HUSK_PLAYAW/com.ghostshippublishing.deeprockgalacticsurvivor/com.ghostshippublishing.deeprockgalacticsurvivor.AfterInstallPack.apk:$HUSK_PLAYAW/com.ghostshippublishing.deeprockgalacticsurvivor/com.ghostshippublishing.deeprockgalacticsurvivor.UnityDataAssetPack.apk:$HUSK_PLAYAW/com.ghostshippublishing.deeprockgalacticsurvivor/com.ghostshippublishing.deeprockgalacticsurvivor.config.arm64_v8a.apk |

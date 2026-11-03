@@ -48,10 +48,7 @@ public final class InputMethods {
             if (it.isEmpty()) continue;
             char k = it.charAt(0);
             if (k == 'h') { sShown = false; continue; }           /* the host closed the keyboard */
-            if (sConn == null) {
-                if (sFocused != null) { long t = android.os.SystemClock.uptimeMillis(); if (k == 'd') { sFocused.dispatchKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL, 0)); sFocused.dispatchKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL, 0)); } }
-                continue;
-            }
+            if (sConn == null) { typeKeys(k, it); continue; }
             switch (k) {
             case 't': sConn.commitText(it.substring(1), 1); break;
             case 'd': {
@@ -75,6 +72,33 @@ public final class InputMethods {
             }
         }
     }
+    /**
+     * Typing with no text field to take it: the keyboard was opened by hand (the screen's keyboard button), for a game or terminal that
+     * reads keys itself. Each character is a key press, as a hardware keyboard would send it, to the focused view or the activity; a
+     * character no key types arrives as one ACTION_MULTIPLE event carrying it.
+     */
+    private static void typeKeys(char k, String it) {
+        long t = android.os.SystemClock.uptimeMillis();
+        if (k == 'd' || k == 'e') {
+            int code = k == 'd' ? KeyEvent.KEYCODE_DEL : KeyEvent.KEYCODE_ENTER;
+            dispatch(new KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0));
+            dispatch(new KeyEvent(t, t, KeyEvent.ACTION_UP, code, 0));
+            return;
+        }
+        if (k != 't') return;
+        android.view.KeyCharacterMap map = android.view.KeyCharacterMap.load(android.view.KeyCharacterMap.VIRTUAL_KEYBOARD);
+        String text = it.substring(1);
+        for (int i = 0; i < text.length(); ) {
+            int cp = text.codePointAt(i);
+            int n = Character.charCount(cp);
+            KeyEvent[] evs = n == 1 ? map.getEvents(new char[] { text.charAt(i) }) : null;
+            if (evs != null) for (KeyEvent e : evs) dispatch(e);
+            else dispatch(new KeyEvent(t, text.substring(i, i + n), -1, 0));
+            i += n;
+        }
+    }
+    /** As a hardware key arrives: the top window's views (the focused one first), then the activity. */
+    private static void dispatch(KeyEvent e) { AppRunner.ViewRootDispatch.key(e); }
     /** A hardware key with a text view focused: printable keys become text there. */
     public static boolean key(KeyEvent e) { return false; }
 }

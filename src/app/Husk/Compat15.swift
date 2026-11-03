@@ -47,7 +47,7 @@ extension LabeledContent where Label == Text {
 /// The pushed screens of an iOS 15 stack: the path, as values, and how to make each value's screen.
 final class HuskNavigation: ObservableObject {
     @Published var path: [AnyHashable] = []
-    var destinations: [ObjectIdentifier: (AnyHashable) -> AnyView] = [:]
+    var destinations: [ObjectIdentifier: (AnyHashable) -> AnyView?] = [:]
     /// A binding the stack was given: changes go both ways.
     var external: (get: () -> [AnyHashable], set: ([AnyHashable]) -> Void)?
 
@@ -57,7 +57,18 @@ final class HuskNavigation: ObservableObject {
         external?.set(new)
     }
     func screen(for value: AnyHashable) -> AnyView {
-        destinations[ObjectIdentifier(type(of: value.base))]?(value) ?? AnyView(EmptyView())
+        let typed = ObjectIdentifier(type(of: value.base))
+        if let view = destinations[typed]?(value) { return view }
+        // NavigationView on iOS 15 sometimes boxes the path value so type(of:) misses;
+        // try every registered destination (each returns nil when the type is wrong).
+        for build in destinations.values {
+            if let view = build(value) { return view }
+        }
+        return AnyView(
+            Text("This page could not be opened.")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        )
     }
 }
 
@@ -104,10 +115,35 @@ struct NavigationStack<Root: View>: View {
         if #available(iOS 16, *) {
             modern()
         } else {
-            NavigationView {
-                root.background(HuskNavigationLevel(level: 0, navigation: navigation))
+            // iOS 15 (#159, #181): hidden NavigationLinks (isActive) pushed empty screens there, so the top of the path is shown
+            // instead, in a navigation view of its own over the root, with a Back button that pops it
+            ZStack {
+                // NavigationView does not pass custom environment values to its root on iOS 15.
+                NavigationView {
+                    root.environment(\.huskNavigation, navigation)
+                }
+                .navigationViewStyle(.stack)
+                if let top = navigation.path.last {
+                    NavigationView {
+                        navigation.screen(for: top)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .toolbar {
+                                ToolbarItem(placement: .navigationBarLeading) {
+                                    Button { navigation.setPath(Array(navigation.path.dropLast())) } label: {
+                                        Label("Back", systemImage: "chevron.left").labelStyle(.titleAndIcon)
+                                    }
+                                }
+                            }
+                            .environment(\.huskNavigation, navigation)
+                    }
+                    .navigationViewStyle(.stack)
+                    .background(Console.page.ignoresSafeArea())
+                    .id(navigation.path.count)
+                    .transition(.move(edge: .trailing))
+                    .zIndex(Double(navigation.path.count))
+                }
             }
-            .navigationViewStyle(.stack)
+            .animation(.easeOut(duration: 0.25), value: navigation.path.count)
             .environment(\.huskNavigation, navigation)
             .onAppear {
                 if let pathGet, let pathSet {
@@ -148,13 +184,14 @@ private struct HuskDestinationRegistrar<D: Hashable, Screen: View>: ViewModifier
     let builder: (D) -> Screen
 
     func body(content: Content) -> some View {
-        if let navigation {
-            navigation.destinations[ObjectIdentifier(D.self)] = { value in
-                guard let v = value.base as? D else { return AnyView(EmptyView()) }
-                return AnyView(builder(v))
-            }
+        register()
+        return content.onAppear(perform: register)
+    }
+
+    private func register() {
+        navigation?.destinations[ObjectIdentifier(D.self)] = { value in
+            (value.base as? D).map { AnyView(builder($0)) }
         }
-        return content
     }
 }
 
@@ -289,5 +326,36 @@ extension Locale {
     var huskRegionCode: String? {
         if #available(iOS 16, *) { return region?.identifier }
         return regionCode
+    }
+}
+
+// MARK: - pages
+
+/// A page's List on Husk's navy: the page colour behind it and cards for its rows (iOS 15 keeps the system's grouped
+/// background, which it cannot hide).
+struct HuskPageList<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        if #available(iOS 16, *) {
+            List { Group { content }.listRowBackground(Console.card) }
+                .scrollContentBackground(.hidden)
+                .background(Console.page.ignoresSafeArea())
+        } else {
+            List { content }
+        }
+    }
+}
+
+/// The same for a Form: settings pages on the navy too.
+struct HuskForm<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        if #available(iOS 16, *) {
+            Form { Group { content }.listRowBackground(Console.card) }
+                .scrollContentBackground(.hidden)
+                .background(Console.page.ignoresSafeArea())
+        } else {
+            Form { content }
+        }
     }
 }

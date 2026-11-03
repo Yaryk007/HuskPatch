@@ -131,6 +131,17 @@ struct ContentView: View {
                     }
             }
 
+            if confirmAndroid {
+                ZStack {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                    AndroidStartWarning(
+                        onStart: { confirmAndroid = false; startFromLibrary() },
+                        onCancel: { confirmAndroid = false }
+                    )
+                }
+                .zIndex(20)
+            }
+
         }
         .tint(theme.accentColor)
         // HuskPatch: the Android 16 style's switches and type, when it is on.
@@ -151,13 +162,6 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showLogs) { LogView() }
-        .alert("Start Android?", isPresented: $confirmAndroid) {
-            Button("Start") { startFromLibrary() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Full Android emulation is experimental. It is slow, takes minutes to start, and can freeze or crash Husk. "
-               + "Games and apps run much better in the Translation Layer.")
-        }
         // A game that ended Husk last time: say so, with its report.
         .sheet(item: Binding(get: { showOnboarding ? nil : crash.pending }, set: { crash.pending = $0 }),
                onDismiss: { if WhatsNew.due { showWhatsNew = true } }) { r in
@@ -183,6 +187,9 @@ struct ContentView: View {
         .task { await CompatibilityStore.shared.refresh() }
         .sheet(isPresented: $router.showFiles) { FilesTab() }
         .sheet(isPresented: $router.showDownloads) { DownloadsTab() }
+        .sheet(isPresented: $router.showProfile) { ProfileView() }
+        .sheet(isPresented: $router.showImport) { ImportView() }
+        .task { await Account.shared.refresh() }
         // Pictures for the apps here: read the index on launch and whenever the set of apps changes.
         .task(id: showcasePackages) { showcase.refresh(for: showcasePackages) }
         .alert("Metadata Updated", isPresented: Binding(get: { showcase.shouldAsk && !showOnboarding },
@@ -717,6 +724,40 @@ struct ControlsSheet: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .contentShape(Rectangle())
+    }
+}
+
+/// Full Android start: they have to sit through the warning. A normal alert is one tap and people skip it.
+private struct AndroidStartWarning: View {
+    var onStart: () -> Void
+    var onCancel: () -> Void
+    @State private var wait = 5
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Start Android?").font(.title2.weight(.bold))
+            Text("This is the emulator. It's slow and it crashes. Don't use it for games.")
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button("Cancel", action: onCancel)
+                Spacer()
+                Button(wait > 0 ? "Wait \(wait)" : "Start") { onStart() }
+                    .disabled(wait > 0)
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(22)
+        .frame(maxWidth: 360)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding(.horizontal, 28)
+        .task {
+            while wait > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if Task.isCancelled { return }
+                wait -= 1
+            }
+        }
     }
 }
 

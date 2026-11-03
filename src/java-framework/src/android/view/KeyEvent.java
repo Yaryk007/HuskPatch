@@ -129,11 +129,8 @@ public class KeyEvent extends InputEvent {
     public static boolean isModifierKey(int c) { return c >= KEYCODE_ALT_LEFT && c <= KEYCODE_SHIFT_RIGHT || c == KEYCODE_CTRL_LEFT || c == KEYCODE_CTRL_RIGHT; }
     public int getUnicodeChar() { return getUnicodeChar(meta); }
     public int getUnicodeChar(int m) {
-        boolean shift = (m & META_SHIFT_ON) != 0;
-        if (code >= KEYCODE_A && code <= KEYCODE_Z) return (shift ? 'A' : 'a') + code - KEYCODE_A;
-        if (code >= KEYCODE_0 && code <= KEYCODE_9) return '0' + code - KEYCODE_0;
-        switch (code) { case KEYCODE_SPACE: return ' '; case KEYCODE_ENTER: return '\n'; case KEYCODE_PERIOD: return '.'; case KEYCODE_COMMA: return ',';
-            case KEYCODE_MINUS: return '-'; case KEYCODE_EQUALS: return '='; case KEYCODE_SLASH: return '/'; case KEYCODE_TAB: return '\t'; default: return 0; }
+        if (action == ACTION_MULTIPLE && code == KEYCODE_UNKNOWN && chars != null && chars.length() == 1) return chars.charAt(0);
+        return KeyCharacterMap.huskChar(code, (m & META_SHIFT_ON) != 0);
     }
     public char getDisplayLabel() { return (char) getUnicodeChar(0); }
     public KeyCharacterMap getKeyCharacterMap() { return KeyCharacterMap.load(0); }

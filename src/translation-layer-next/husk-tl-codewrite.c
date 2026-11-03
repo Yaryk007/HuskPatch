@@ -27,6 +27,7 @@
 #include <sys/ucontext.h>
 
 #include "husk-tl-bionic.h"
+#include "husk-tl-ld.h"
 #include "husk-tl-xmem.h"
 
 static volatile bool g_on;
@@ -57,9 +58,15 @@ static void set_xreg(struct __darwin_arm_thread_state64 *ss, unsigned r, uint64_
 /* Store `bytes` of a register's value at the executable address `addr`, through the writable view. */
 static bool put(uint64_t addr, const void *value, unsigned bytes)
 {
-    if (!tl_xmem_is_rx((const void *)addr) || !tl_xmem_is_rx((const void *)(addr + bytes - 1))) return false;
-    memcpy((void *)(addr + (uint64_t)tl_xmem_delta()), value, bytes);
-    tl_xmem_flush((const void *)addr, bytes);
+    if (tl_xmem_is_rx((const void *)addr) && tl_xmem_is_rx((const void *)(addr + bytes - 1))) {
+        memcpy((void *)(addr + (uint64_t)tl_xmem_delta()), value, bytes);
+        tl_xmem_flush((const void *)addr, bytes);
+        return true;
+    }
+    /* An AOT dylib's image is r-x; the loader keeps a writable copy of each data page after it. */
+    void *w = tl_ld_aot_writable((const void *)addr, bytes);
+    if (!w) return false;
+    memcpy(w, value, bytes);
     return true;
 }
 
@@ -109,7 +116,8 @@ static bool emulate(mcontext_t mc)
         if ((insn & 0x3FA07C00u) == 0x08A07C00u) {                 /* CAS{A}{L} Rs, Rt, [Xn]: store Rt if [Xn] == Rs; Rs gets the old value */
             unsigned rs = (insn >> 16) & 31;
             uint64_t old = 0, want = xreg(ss, rs, false), mask = bytes == 8 ? ~0ull : ((1ull << (8 * bytes)) - 1);
-            memcpy(&old, (const void *)a, bytes);
+            const void *src = tl_ld_aot_writable((const void *)a, bytes);
+            memcpy(&old, src ? src : (const void *)a, bytes);
             if ((old & mask) == (want & mask)) {
                 reg_bytes(mc, false, rt, bytes, buf);
                 if (!put(a, buf, bytes)) return false;
@@ -184,10 +192,22 @@ static void chain(struct sigaction *prev, int sig, siginfo_t *info, void *uc)
 static void on_fault(int sig, siginfo_t *info, void *uc)
 {
     ucontext_t *u = uc;
-    if (g_on && info && tl_xmem_is_rx(info->si_addr) && emulate(u->uc_mcontext)) {
-        u->uc_mcontext->__ss.__pc += 4;
-        g_emulated++;
-        return;
+    if (g_on) {
+        /* Relative C++ vtables: `add xN, vtable, slot` with a vtable in the writable copy
+         * lands on the copy of .text, which is not mapped executable. Run the same offset
+         * in the signed image. Must not decode the instruction at the faulting PC first:
+         * that address is often unmapped. */
+        void *exec = tl_ld_aot_exec((const void *)(uintptr_t)u->uc_mcontext->__ss.__pc);
+        if (exec) {
+            u->uc_mcontext->__ss.__pc = (uint64_t)(uintptr_t)exec;
+            g_emulated++;
+            return;
+        }
+        if (info && (tl_xmem_is_rx(info->si_addr) || tl_ld_aot_writable(info->si_addr, 1)) && emulate(u->uc_mcontext)) {
+            u->uc_mcontext->__ss.__pc += 4;
+            g_emulated++;
+            return;
+        }
     }
     chain(sig == SIGBUS ? &g_prev_bus : &g_prev_segv, sig, info, uc);
 }

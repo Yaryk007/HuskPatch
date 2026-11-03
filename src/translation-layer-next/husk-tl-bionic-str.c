@@ -29,6 +29,9 @@
 #include <xlocale.h>
 
 #include "husk-tl-va.h"
+#include "husk-tl-ld.h"
+
+bool tl_xmem_contains(const void *p);
 
 const char *tl_path_resolve(const char *path, char *buf, size_t n);   /* husk-tl-bionic-io.c */
 int tl_synth_open(const char *path);
@@ -513,6 +516,31 @@ static void *b_memalign(size_t align, size_t size)
     return posix_memalign(&p, align, size) ? NULL : p;
 }
 
+/* Darwin's malloc aborts on free of a pointer that is not from malloc. AOT mixed pages
+ * can hand Unity a pointer into the signed image (a global, or the unrelocated view of a
+ * heap field); that is not a heap block. */
+static bool heap_is_image(const void *p)
+{
+    return p && (tl_ld_covers(p, 1) || tl_xmem_contains(p));
+}
+static void b_free(void *p)
+{
+    if (!p) return;
+    if (heap_is_image(p)) {
+        static int n; if (n++ < 12) tl_log_line("bionic: free(%p) of a loaded library: ignored", p);
+        return;
+    }
+    free(p);
+}
+static void *b_realloc(void *p, size_t n)
+{
+    if (heap_is_image(p)) {
+        static int k; if (k++ < 8) tl_log_line("bionic: realloc(%p, %zu) of a loaded library: a fresh block", p, n);
+        return malloc(n);
+    }
+    return realloc(p, n);
+}
+
 /* The floating-point environment: bionic's fenv_t is two words of its own layout, and nothing here turns on exceptions or rounding, so these report success. */
 static int b_fe_env(void *env) { if (env) memset(env, 0, 8); return 0; }
 static int b_fe_ok(void) { return 0; }
@@ -595,8 +623,9 @@ static const char *b_nl_langinfo(int item)
     return "";
 }
 static const char *b_nl_langinfo_l(int item, void *loc) { (void)loc; return b_nl_langinfo(item); }
-/* setlocale as bionic's: the C locale, in UTF-8 or not; "", "C", "POSIX", "C.UTF-8" and "en_US.UTF-8" are the names it knows, and
- * it answers "C.UTF-8" or "C" (Qt reads the answer back: macOS's NULL for an unknown name crashed it) */
+/* setlocale as bionic's: the C locale, in UTF-8 or not; "", "C", "POSIX", "C.UTF-8" and "en_US.UTF-8" are the names it knows.
+ * The name handed back is en_US.UTF-8 (or en_US): Qt reads it and must not see NULL, and IL2CPP CultureInfo cannot construct
+ * from "C" / "C.UTF-8" (Gobandroid: CultureNotFoundException, culture name "c"). */
 static char *b_setlocale(int cat, const char *name)
 {
     static _Atomic int utf8 = 1;
@@ -609,7 +638,21 @@ static char *b_setlocale(int cat, const char *name)
         if (cat == 6) { setlocale(LC_ALL, "C"); if (u) setlocale(LC_CTYPE, "UTF-8"); }
         else setlocale(cat_to_darwin(cat), cat == 0 && u ? "UTF-8" : "C");
     }
-    return atomic_load(&utf8) ? "C.UTF-8" : "C";
+    return atomic_load(&utf8) ? "en_US.UTF-8" : "en_US";
+}
+
+static int locale_is_c(const char *v)
+{
+    return !v || !*v || !strcmp(v, "C") || !strcmp(v, "POSIX")
+        || !strncasecmp(v, "C.", 2) || !strncasecmp(v, "POSIX.", 6);
+}
+/* IL2CPP CultureInfo reads LANG / LC_* before setlocale: a POSIX "C" becomes culture name "c" and throws. */
+static char *b_getenv(const char *name)
+{
+    char *v = getenv(name);
+    if (name && (!strcmp(name, "LANG") || !strncmp(name, "LC_", 3)) && locale_is_c(v))
+        return "en_US.UTF-8";
+    return v;
 }
 static locale_t b_newlocale(int mask, const char *name, locale_t base)
 {
@@ -712,14 +755,14 @@ const tl_bionic_entry tl_tab_str[] = {
     TL_WRAP("wcstold", b_wcstold),
     TL_WRAP("swprintf", tl_va_swprintf),
     /* stdlib.h */
-    TL_DIRECT(malloc), TL_DIRECT(calloc), TL_DIRECT(realloc), TL_DIRECT(free), TL_DIRECT(posix_memalign),
+    TL_DIRECT(malloc), TL_DIRECT(calloc), TL_WRAP("realloc", b_realloc), TL_WRAP("free", b_free), TL_DIRECT(posix_memalign),
     TL_WRAP("memalign", b_memalign),
     TL_DIRECT(atoi), TL_DIRECT(atol), TL_DIRECT(atoll), TL_DIRECT(bsearch), TL_DIRECT(qsort), TL_DIRECT(div), TL_DIRECT(lldiv),
     TL_DIRECT(rand), TL_DIRECT(srand), TL_DIRECT(srand48), TL_DIRECT(lrand48),
     TL_WRAP("strtol", b_strtol), TL_WRAP("strtoll", b_strtoll), TL_WRAP("strtoul", b_strtoul), TL_WRAP("strtoull", b_strtoull),
     TL_WRAP("strtoll_l", b_strtoll_l), TL_WRAP("strtoull_l", b_strtoull_l), TL_WRAP("strtod", b_strtod), TL_WRAP("strtof", b_strtof),
     TL_WRAP("strtold", b_strtold), TL_WRAP("strtold_l", b_strtold_l),
-    TL_DIRECT(getenv), TL_WRAP("setenv", b_setenv), TL_DIRECT(unsetenv), TL_DIRECT(putenv), TL_DATA("environ", &g_environ_var),
+    TL_WRAP("getenv", b_getenv), TL_WRAP("setenv", b_setenv), TL_DIRECT(unsetenv), TL_DIRECT(putenv), TL_DATA("environ", &g_environ_var),
     TL_DIRECT(setjmp), TL_DIRECT(longjmp), TL_DIRECT(_setjmp), TL_DIRECT(_longjmp), TL_DIRECT(fnmatch), TL_DIRECT(getopt_long),
     TL_DATA("optarg", &optarg), TL_DATA("optind", &optind),
     /* math.h */
@@ -894,5 +937,7 @@ const tl_bionic_entry tl_tab_str2[] = {
     TL_WRAP("feholdexcept", b_fe_env), TL_WRAP("fegetenv", b_fe_env), TL_WRAP("fesetenv", b_fe_env), TL_WRAP("feupdateenv", b_fe_env), TL_WRAP("fegetround", b_fe_ok), TL_WRAP("fesetround", b_fe_ok), TL_WRAP("feclearexcept", b_fe_ok), TL_WRAP("feraiseexcept", b_fe_ok), TL_WRAP("fetestexcept", b_fe_ok),
     TL_DIRECT(regcomp), TL_DIRECT(regexec), TL_DIRECT(regfree), TL_DIRECT(regerror), TL_DIRECT(sinh), TL_DIRECT(sinhf), TL_DIRECT(scalbnf), TL_DIRECT(mbstowcs), TL_DIRECT(wcstombs), TL_DIRECT(exp2), TL_DIRECT(expm1), TL_DIRECT(log1p), TL_DIRECT(hypotf), TL_DIRECT(ilogbf), TL_DIRECT(nextafter),
     TL_DIRECT(nextafterf), TL_DIRECT(frexpf), TL_DIRECT(if_indextoname),
+    /* C99: the neighbour of a value, and of a value in the direction of another (Unity's il2cpp calls these) */
+    TL_DIRECT(nexttoward), TL_DIRECT(nexttowardf),
     TL_END
 };

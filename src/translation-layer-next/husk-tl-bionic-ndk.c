@@ -327,6 +327,19 @@ static void *b_AAssetManager_open(void *mgr, const char *name, int mode)
             tl_log_line("assets: %s: %s", name, err);
             return NULL;
         }
+        /* Unity 6's Mimalloc aborts under AOT: its arena trim munmaps huge reservations that
+         * can overlap dylibs. The Dynamic Heap allocator does not. */
+        if (getenv("TL_NO_XMEM") && name && strstr(name, "boot.config")
+            && !memmem(data, n, "memorysetup-main-allocator-mimalloc-enabled=0", 45)) {
+            static const char extra[] = "\nmemorysetup-main-allocator-mimalloc-enabled=0\n";
+            uint8_t *b = malloc(n + sizeof(extra));
+            if (b) {
+                memcpy(b, data, n); memcpy(b + n, extra, sizeof(extra) - 1);
+                if (owned) free((void *)data);
+                data = b; n += sizeof(extra) - 1; owned = true;
+                tl_log_line("unity: boot.config: Mimalloc disabled (JIT-less)");
+            }
+        }
         tl_asset *a = calloc(1, sizeof(*a));
         a->data = data; a->len = n;
         if (owned) a->owned = (uint8_t *)data;

@@ -218,11 +218,13 @@ static void *run(void *p)
     { void tl_set_system_fonts_dir(const char *); tl_set_system_fonts_dir(getenv("TL_SYSFONTS") ? getenv("TL_SYSFONTS") : "/Volumes/GTAV/husk2/root/system"); }
     { void tl_set_cacerts_dir(const char *); static char d[800]; snprintf(d, sizeof(d), "%s/../com.android.conscrypt/cacerts", art); tl_set_cacerts_dir(d); }   /* the trusted roots, as the app ships them */
     { char d[800]; snprintf(d, sizeof(d), "%s/lib64", art); tl_dvm_load_natives(d); }
-    char tmp[600] = "/Volumes/GTAV/husk2/tmp/husk-javaapp-XXXXXX";
+    /* scratch (data, frames) under TL_TMP: by default the work folder on the big drive, not the GTAV drive, which drops under load */
+    const char *scratch = getenv("TL_TMP") ? getenv("TL_TMP") : "/Users/davi/husk-work/tmp";
+    char tmp[600]; snprintf(tmp, sizeof(tmp), "%s/husk-javaapp-XXXXXX", scratch);
     if (getenv("TL_DATA")) { snprintf(tmp, sizeof(tmp), "%s", getenv("TL_DATA")); mkdir(tmp, 0755); } else mkdtemp(tmp);
     const char *cef = "/Users/davi/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/Frameworks/Chromium Embedded Framework.framework/Versions/A/Libraries";
     static char egl[700], gles[700]; snprintf(egl, sizeof(egl), "%s/libEGL.dylib", cef); snprintf(gles, sizeof(gles), "%s/libGLESv2.dylib", cef);
-    static char frames[] = "/Volumes/GTAV/husk2/tmp/husk-jframes-XXXXXX"; mkdtemp(frames);
+    static char frames[600]; snprintf(frames, sizeof(frames), "%s/husk-jframes-XXXXXX", scratch); mkdtemp(frames);
     g_frame_dir = frames;
     fprintf(stderr, "frames: %s\ndata: %s\n", frames, tmp);
     int w = argc > 4 ? atoi(argv[3]) : 804, h = argc > 4 ? atoi(argv[4]) : 1748;

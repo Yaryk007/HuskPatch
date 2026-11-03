@@ -115,6 +115,56 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     }
 }
 
+/// How big the Library's icons are: large (three across on a phone), or small, for a long library (five across).
+enum LibraryIconSize: String, CaseIterable, Identifiable {
+    case list, large, small
+    static let key = "husk.library.iconSize"
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .list: return "List"
+        case .large: return "Large Icons"
+        case .small: return "Small Icons"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .list: return "list.bullet"
+        case .large: return "square.grid.2x2"
+        case .small: return "square.grid.3x3"
+        }
+    }
+    var columns: Int {
+        let pad = UIDevice.current.userInterfaceIdiom == .pad
+        switch self {
+        case .large, .list: return pad ? 6 : 3
+        case .small: return pad ? 9 : 5
+        }
+    }
+}
+
+/// The Library's pills: everything, Android games, PS4 games, or apps.
+enum LibraryPill: String, CaseIterable, Identifiable {
+    case all, android, ps4, apps
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .all: return "All"
+        case .android: return "Android"
+        case .ps4: return "PS4"
+        case .apps: return "Apps"
+        }
+    }
+    func includes(_ i: LibraryItem) -> Bool {
+        switch self {
+        case .all: return true
+        case .android: return !i.isPS4 && i.isGame
+        case .ps4: return i.isPS4
+        case .apps: return !i.isPS4 && !i.isGame
+        }
+    }
+}
+
 /// Everything, from both stores, in one list.
 @MainActor
 enum Launcher {
@@ -149,8 +199,7 @@ enum Launcher {
 
 // MARK: - Home
 
-/// Home as a console's home screen: the selected game's artwork across the top, a shelf of everything (most recently
-/// played first), what the selected one is and Play, then what was added lately.
+/// Home: search, the game played last as a big card, and every game and app in a grid.
 struct HomeView: View {
     @ObservedObject private var router = Router.shared
     @ObservedObject private var store = TranslationLayerStore.shared
@@ -162,56 +211,61 @@ struct HomeView: View {
     @ObservedObject private var compat = CompatibilityStore.shared
     @ObservedObject private var showcase = ShowcaseStore.shared
     @AppStorage(Holiday.key) private var holiday = true
-    /// The tile the shelf has selected; nil means the first (the one played last).
-    @State private var selectedID: String?
+    @State private var query = ""
 
-    /// Everything on the chosen platform, most recent first.
-    private var items: [LibraryItem] {
-        Launcher.byRecent(Launcher.items(store: store, host: host)).filter(router.platform.includes)
-    }
+    /// Everything, most recent first.
+    private var items: [LibraryItem] { Launcher.byRecent(Launcher.items(store: store, host: host)) }
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
+                                count: UIDevice.current.userInterfaceIdiom == .pad ? 6 : 3)
 
     var body: some View {
         NavigationStack(path: $router.home) {
-            GeometryReader { geo in
-                let items = self.items
-                let selected = items.first { $0.id == selectedID } ?? items.first
-                let heroHeight = (geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom) * 0.55
-                ZStack(alignment: .top) {
-                    Console.page.ignoresSafeArea()
-                    HomeHero(item: selected, width: geo.size.width, height: heroHeight)
-                        .ignoresSafeArea(edges: .top)
-
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            topBar
-                                .padding(.horizontal, 20)
-                                .padding(.top, 6)
-                                .environment(\.colorScheme, .dark)
-                            notices
-                                .padding(.horizontal, 20)
-                                .padding(.top, 10)
-                                // over the artwork: drawn as on dark in either appearance
-                                .environment(\.colorScheme, .dark)
-
-                            if let selected {
-                                Color.clear.frame(height: max(12, heroHeight - geo.safeAreaInsets.top - 62 - 150))
-                                shelf(items, selected: selected)
-                                details(selected)
-                                    .padding(.horizontal, 20)
-                                    .padding(.top, 14)
-                                recentlyAdded(items)
-                                    .padding(.top, 30)
-                            } else {
-                                Color.clear.frame(height: max(12, heroHeight - geo.safeAreaInsets.top - 62 - 200))
-                                empty.padding(.horizontal, 20)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    topBar
+                    SearchField(text: $query, prompt: "Search your games…")
+                    notices
+                    let items = self.items
+                    if items.isEmpty {
+                        WelcomeCard()
+                    } else {
+                        let shown = items.filter { matches(query, $0.title, $0.packageName ?? "") }
+                        if query.isEmpty, let recent = items.first(where: { $0.lastUsed != nil }) ?? items.first {
+                            RecentlyPlayedCard(item: recent) { Launcher.play(recent) { router.home.append($0) } }
+                        }
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(query.isEmpty ? "Your Games" : "Results")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundStyle(Console.text)
+                            Spacer()
+                            if query.isEmpty, items.count > 6 {
+                                Button("See All") { router.tab = .library }
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(Theme.accent)
                             }
                         }
-                        .padding(.bottom, 24)
-                        .id(jit.attachGeneration)
+                        .padding(.top, 4)
+                        if shown.isEmpty {
+                            NoResults(query: query)
+                        } else {
+                            LazyVGrid(columns: columns, spacing: 16) {
+                                ForEach(shown.prefix(query.isEmpty ? 12 : 90)) { item in
+                                    HuskLink(value: item.route) { HomeGameTile(item: item) }
+                                        .buttonStyle(CardButtonStyle())
+                                        .accessibilityLabel(item.title)
+                                        .libraryItemMenu(item) { router.home.append($0) }
+                                }
+                            }
+                        }
                     }
-                    .huskHideScrollIndicators()
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 6)
+                .padding(.bottom, 24)
+                .id(jit.attachGeneration)
             }
+            .huskHideScrollIndicators()
             .background(Console.page.ignoresSafeArea())
             .huskNavigationBar(hidden: true)
             .libraryDestinations()
@@ -223,18 +277,25 @@ struct HomeView: View {
     private var topBar: some View {
         HStack(spacing: 10) {
             Text("HuskPatch")
-                .font(.system(size: 24, weight: .heavy, design: .rounded))
-                .foregroundStyle(.white)
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .foregroundStyle(Console.text)
                 .fixedSize()
             if holiday && Holiday.inSeason { ChristmasTree(size: 22) }
-            PlatformChips(selection: $router.platform, compact: true)
             Spacer(minLength: 4)
+            Button { router.addSomething() } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Console.text)
+                    .frame(width: 36, height: 36)
+                    .background(Console.raised, in: Circle())
+            }
+            .accessibilityLabel("Add a game or app")
             HomeAvatar()
         }
-        .frame(height: 44)
+        .frame(height: 48)
     }
 
-    /// Work under way, and JIT when it is off: what Home's tiles used to say.
+    /// Work under way, and JIT when it is off.
     @ViewBuilder
     private var notices: some View {
         VStack(spacing: 8) {
@@ -242,151 +303,91 @@ struct HomeView: View {
             if let busy = store.busy { BusyStrip(text: busy) }
             if let busy = host.busy { BusyStrip(text: busy) }
             DownloadsNotice()
-            if !Launcher.jitOn { JITNotice() }
+            if !Launcher.jitOn && !JITLess.enabled { JITNotice() }
         }
     }
+}
 
-    // MARK: shelf
+/// The game played last, as a wide card: its picture, its name, "Recently Played" and a round Play button.
+private struct RecentlyPlayedCard: View {
+    let item: LibraryItem
+    let play: () -> Void
+    @ObservedObject private var router = Router.shared
 
-    private func shelf(_ items: [LibraryItem], selected: LibraryItem) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .center, spacing: 12) {
-                    ForEach(items.prefix(30)) { item in
-                        let isSelected = item == selected
-                        Button {
-                            if isSelected {
-                                Launcher.play(item) { router.home.append($0) }
-                            } else {
-                                withAnimation(.snappy(duration: 0.25)) { selectedID = item.id }
-                            }
-                        } label: {
-                            ShelfTile(item: item, selected: isSelected)
-                        }
-                        .buttonStyle(CardButtonStyle())
-                        .id(item.id)
-                        .accessibilityLabel(item.title)
-                        .accessibilityHint(isSelected ? (item.isGame ? "Plays it" : "Opens it") : "Selects it")
-                        .libraryItemMenu(item) { router.home.append($0) }
-                    }
-                    if items.count > 1 {
-                        Button { router.tab = .library } label: {
-                            VStack(spacing: 6) {
-                                Image(systemName: "square.grid.2x2.fill").font(.system(size: 20, weight: .semibold))
-                                Text("All").font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundStyle(Console.text.opacity(0.8))
-                            .frame(width: 72, height: 72)
-                            .background(Console.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        }
-                        .buttonStyle(CardButtonStyle())
-                        .accessibilityLabel("Open the Library")
-                    }
-                }
-                .padding(.horizontal, 20)
-                .frame(height: 112)
-            }
-            .onChange(of: selectedID) { id in
-                guard let id else { return }
-                withAnimation(.snappy(duration: 0.3)) { proxy.scrollTo(id, anchor: .center) }
-            }
-            .onChange(of: router.platform) { _ in selectedID = nil }
-        }
-    }
-
-    // MARK: details
-
-    private func details(_ item: LibraryItem) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(item.platformName.uppercased())
-                    .font(.system(size: 12, weight: .bold))
-                    .tracking(0.8)
-                    .foregroundStyle(Console.textDim)
-                if let status = item.status {
-                    HStack(spacing: 5) {
-                        StatusDot(status: status)
-                        Text(status.label)
+    var body: some View {
+        HuskLink(value: item.route) {
+            ZStack(alignment: .bottomLeading) {
+                ItemBackdrop(item: item, pixels: 1200, fallback: Console.card)
+                // a scrim under the words, so they read on any picture
+                LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .center, endPoint: .bottom)
+                HStack(alignment: .bottom) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(item.title)
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        Text(item.lastUsed == nil ? "Recently Added" : "Recently Played")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(status.color)
+                            .foregroundStyle(.white.opacity(0.9))
+                            .padding(.horizontal, 8).frame(height: 22)
+                            .background(.white.opacity(0.18), in: Capsule())
                     }
+                    Spacer(minLength: 8)
+                    Button(action: play) {
+                        Image(systemName: item.isGame ? "play.fill" : "arrow.up.forward")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(.black)
+                            .frame(width: 46, height: 46)
+                            .background(Color.white, in: Circle())
+                    }
+                    .accessibilityLabel((item.isGame ? "Play " : "Open ") + item.title)
                 }
+                .padding(16)
             }
+            .frame(height: 180)
+            .frame(maxWidth: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Console.outline, lineWidth: 0.5))
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(CardButtonStyle())
+        .libraryItemMenu(item) { router.home.append($0) }
+    }
+}
+
+/// One game in Home's grid: the icon as a rounded square, the name, and the platform with its status dot.
+struct HomeGameTile: View {
+    let item: LibraryItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)
+                .overlay { GeometryReader { geo in ItemIcon(item: item, size: geo.size.width) } }
+                .shadow(color: .black.opacity(0.3), radius: 5, y: 3)
             Text(item.title)
-                .font(.system(size: 32, weight: .heavy))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Console.text)
-                .lineLimit(2)
-                .minimumScaleFactor(0.7)
-                .fixedSize(horizontal: false, vertical: true)
-            if let used = item.lastPlayedText {
-                Text(used)
-                    .font(.system(size: 15))
+                .lineLimit(1)
+            HStack(spacing: 4) {
+                Circle().fill(item.status?.color ?? Console.textDim).frame(width: 6, height: 6)
+                Text(item.platformShort)
+                    .font(.system(size: 11))
                     .foregroundStyle(Console.textDim)
-            }
-            HStack(spacing: 10) {
-                Button { Launcher.play(item) { router.home.append($0) } } label: {
-                    Label(item.isGame ? "Play" : "Open", systemImage: item.isGame ? "play.fill" : "arrow.up.forward.app.fill")
-                }
-                .buttonStyle(ConsolePlayButtonStyle())
-                .accessibilityLabel((item.isGame ? "Play " : "Open ") + item.title)
-                HomeMoreButton(item: item)
-            }
-            .padding(.top, 10)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(nil, value: item.id)
-    }
-
-    // MARK: recently added
-
-    @ViewBuilder
-    private func recentlyAdded(_ items: [LibraryItem]) -> some View {
-        let added = items.compactMap { i in i.addedDate.map { (i, $0) } }
-            .sorted { $0.1 > $1.1 }
-            .prefix(10)
-            .map(\.0)
-        if !added.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Recently added")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Console.text)
-                    .padding(.horizontal, 20)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(added) { item in
-                            HuskLink(value: item.route) { WideCard(item: item) }
-                                .buttonStyle(CardButtonStyle())
-                                .accessibilityLabel(item.title)
-                                .libraryItemMenu(item) { router.home.append($0) }
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                }
+                    .lineLimit(1)
             }
         }
     }
+}
 
-    // MARK: empty
-
-    @ViewBuilder
-    private var empty: some View {
-        if router.platform != .all, !Launcher.items(store: store, host: host).isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(router.platform == .ps4 ? "No PS4 games yet" : "No Android games or apps yet")
-                    .font(.system(size: 26, weight: .heavy))
-                    .foregroundStyle(Console.text)
-                Text(router.platform == .ps4
-                     ? "Put an extracted PS4 game folder in Files, in Husk's PS4 Games folder, or add one with the + in the menu."
-                     : "Add an APK or a bundle from the menu, or share one to Husk.")
-                    .font(.subheadline)
-                    .foregroundStyle(Console.textDim)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Show All") { router.platform = .all }
-                    .buttonStyle(ConsolePlayButtonStyle())
-                    .padding(.top, 6)
-            }
-        } else {
-            WelcomeCard()
+extension LibraryItem {
+    /// "Android", "PS4" or "App": the platform as a word under a tile.
+    var platformShort: String {
+        switch self {
+        case .ps4: return "PS4"
+        case .app, .android: return "Android"
+        case .game: return "Android"
         }
     }
 }
@@ -496,10 +497,10 @@ struct ConsolePlayButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 17, weight: .bold))
-            .foregroundStyle(Console.onText)
+            .foregroundStyle(Theme.accent.isLight ? Color.black : Color.white)
             .frame(maxWidth: .infinity)
             .frame(height: 52)
-            .background(Console.text, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Theme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .opacity(configuration.isPressed ? 0.85 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
@@ -527,15 +528,20 @@ private struct HomeMoreButton: View {
     }
 }
 
-/// The avatar in Home's corner: adding things, Downloads, Files, JIT and Settings. Its dot is JIT: green on, orange off.
+/// The avatar in Home's corner: the account, adding things, Downloads, Files, JIT and Settings. Its dot is JIT: green on, orange off.
 private struct HomeAvatar: View {
     @ObservedObject private var router = Router.shared
     @ObservedObject private var jit = JITCoordinator.shared
-    @ObservedObject private var downloads = Downloads.shared
+    @ObservedObject private var account = Account.shared
 
     var body: some View {
         Menu {
-            Button { router.addSomething() } label: { Label("Add a Game or App", systemImage: "plus") }
+            Button { router.showProfile = true } label: {
+                if let u = account.user, account.signedIn { Label(u.displayName, systemImage: "person.crop.circle") }
+                else { Label("Sign In", systemImage: "person.crop.circle.badge.plus") }
+            }
+            Divider()
+            Button { router.showImport = true } label: { Label("Import APK", systemImage: "square.and.arrow.down") }
             Button { router.showDownloads = true } label: { Label("Downloads", systemImage: "arrow.down.circle") }
             Button { router.showFiles = true } label: { Label("Files", systemImage: "folder") }
             Divider()
@@ -546,26 +552,23 @@ private struct HomeAvatar: View {
             Button { router.tab = .settings } label: { Label("Settings", systemImage: "gearshape") }
         } label: {
             ZStack(alignment: .topTrailing) {
-                Image(systemName: "person.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(Console.raised, in: Circle())
-                    .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+                AccountAvatar(size: 36)
                 Circle()
                     .fill(Launcher.jitOn ? Color.green : Color.orange)
                     .frame(width: 10, height: 10)
-                    .overlay(Circle().stroke(Color.black, lineWidth: 2))
+                    .overlay(Circle().stroke(Console.page, lineWidth: 2))
                     .offset(x: 1, y: -1)
             }
         }
         .accessibilityLabel("Menu")
+        .accessibilityValue(Launcher.jitOn ? "JIT on" : "JIT off")
     }
 }
 
 /// JIT is off: say so, and the way to turn it on.
 private struct JITNotice: View {
     @ObservedObject private var jit = JITCoordinator.shared
+    @ObservedObject private var router = Router.shared
 
     static func via(_ jit: JITCoordinator) -> String {
         let m = jit.resolvedMethod
@@ -585,11 +588,7 @@ private struct JITNotice: View {
                     Image(systemName: "bolt.fill")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(.orange)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("JIT is off").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
-                        Text(jit.busy ? (jit.status ?? "Turning on…") : "Games need it. Tap to turn it on.")
-                            .font(.system(size: 12)).foregroundStyle(Console.textDim).lineLimit(1)
-                    }
+                    Text("JIT is off").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
                     Spacer(minLength: 0)
                     if jit.busy { ProgressView() } else {
                         Text("Turn On")
@@ -605,6 +604,16 @@ private struct JITNotice: View {
             }
             .buttonStyle(CardButtonStyle())
             .disabled(jit.busy)
+            Button { router.tab = .settings } label: {
+                Text("Play without JIT")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Console.hairline, lineWidth: 0.5))
+            }
+            .buttonStyle(CardButtonStyle())
             if let error = jit.error {
                 Text(error).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
@@ -784,53 +793,54 @@ struct LibraryScreen: View {
     @ObservedObject private var statuses = GameStatusStore.shared
     @ObservedObject private var compat = CompatibilityStore.shared
     @State private var query = ""
+    @AppStorage(LibraryIconSize.key) private var iconSize: LibraryIconSize = .list
+    @State private var pill: LibraryPill = .all
 
     private var columns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: 14, alignment: .top),
-              count: UIDevice.current.userInterfaceIdiom == .pad ? 6 : 3)
+        Array(repeating: GridItem(.flexible(), spacing: iconSize == .small ? 10 : 14, alignment: .top), count: iconSize.columns)
     }
 
     var body: some View {
         NavigationStack(path: $router.library) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    SearchField(text: $query, prompt: "Search your games…")
                     HStack(spacing: 8) {
-                        PlatformChips(selection: $router.platform)
+                        ForEach(LibraryPill.allCases) { p in
+                            ConsoleChip(title: p.title, selected: pill == p) { withAnimation(.easeOut(duration: 0.18)) { pill = p } }
+                        }
                         Spacer(minLength: 0)
                         Menu {
-                            Picker("Show", selection: $router.libraryFilter) {
-                                ForEach(LibraryFilter.allCases) { Text($0.title).tag($0) }
+                            Picker("View", selection: $iconSize) {
+                                ForEach(LibraryIconSize.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
                             }
                         } label: {
-                            Image(systemName: router.libraryFilter == .all ? "line.3.horizontal.decrease.circle"
-                                                                            : "line.3.horizontal.decrease.circle.fill")
-                                .font(.system(size: 22, weight: .regular))
-                                .foregroundStyle(router.libraryFilter == .all ? Console.textDim : Theme.accent)
+                            Image(systemName: iconSize.symbol)
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(Console.textDim)
                                 .frame(width: 36, height: 36)
                         }
-                        .accessibilityLabel("Games or Apps")
+                        .accessibilityLabel("View")
                     }
-                    SearchField(text: $query, prompt: "Search games and apps")
                     if let busy = store.busy { BusyStrip(text: busy) }
                     if let busy = host.busy { BusyStrip(text: busy) }
 
                     let items = Launcher.items(store: store, host: host)
-                        .filter(router.platform.includes)
-                        .filter { router.libraryFilter == .all || (router.libraryFilter == .games) == $0.isGame }
+                        .filter(pill.includes)
                         .filter { matches(query, $0.title) }
                         .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
                     let playstation = items.filter(\.isPS4)
                     let android = items.filter { !$0.isPS4 }
 
-                    if router.platform != .android {
+                    if pill == .all || pill == .ps4 {
                         section("PlayStation 4", playstation,
-                                empty: router.platform == .ps4 && query.isEmpty
+                                empty: pill == .ps4 && query.isEmpty
                                     ? (PS4Store.available ? "Put an extracted game folder in Husk's PS4 Games folder in Files."
                                                           : "PS4 games need iOS 17.4 or later.")
                                     : nil)
                     }
-                    if router.platform != .ps4 {
-                        section("Android", android, empty: query.isEmpty && router.libraryFilter == .all ? "Add a game with the + button." : nil)
+                    if pill != .ps4 {
+                        section(pill == .apps ? "Apps" : "Android", android, empty: query.isEmpty && pill == .all ? "Add a game with the + button." : nil)
                     }
                     if !query.isEmpty, items.isEmpty { NoResults(query: query) }
                 }
@@ -868,10 +878,19 @@ struct LibraryScreen: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(16)
                         .background(Console.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                } else {
-                    LazyVGrid(columns: columns, spacing: 20) {
+                } else if iconSize == .list {
+                    LazyVStack(spacing: 2) {
                         ForEach(items) { item in
-                            HuskLink(value: item.route) { LibraryCell(item: item, caption: caption(item)) }
+                            HuskLink(value: item.route) { LibraryRow(item: item, caption: caption(item)) }
+                                .buttonStyle(CardButtonStyle())
+                                .accessibilityLabel(item.title)
+                                .libraryItemMenu(item) { router.library.append($0) }
+                        }
+                    }
+                } else {
+                    LazyVGrid(columns: columns, spacing: iconSize == .small ? 14 : 20) {
+                        ForEach(items) { item in
+                            HuskLink(value: item.route) { LibraryCell(item: item, caption: caption(item), small: iconSize == .small) }
                                 .buttonStyle(CardButtonStyle())
                                 .accessibilityLabel(item.title)
                                 .libraryItemMenu(item) { router.library.append($0) }
@@ -897,29 +916,71 @@ struct LibraryScreen: View {
     }
 }
 
+/// One item in the Library list: its icon, its name, the platform with its status dot, and a "⋯" for its actions.
+private struct LibraryRow: View {
+    let item: LibraryItem
+    let caption: String?
+    @ObservedObject private var router = Router.shared
+    @State private var confirmRemove = false
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ItemIcon(item: item, size: 50)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Console.text)
+                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Circle().fill(item.status?.color ?? Console.textDim).frame(width: 6, height: 6)
+                    Text([item.platformShort, caption].compactMap { $0 }.joined(separator: " · "))
+                        .font(.system(size: 12))
+                        .foregroundStyle(Console.textDim)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
+            Menu {
+                LibraryItemActions(item: item, showsDetails: true, push: { router.library.append($0) }) { confirmRemove = true }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Console.textDim)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("More for \(item.title)")
+        }
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .removeItemDialog(item, isPresented: $confirmRemove)
+    }
+}
+
 /// One item in the Library grid: a rounded square icon, its name with the status dot, and a caption when there is one.
 private struct LibraryCell: View {
     let item: LibraryItem
     let caption: String?
+    var small = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: small ? 5 : 8) {
             Color.clear
                 .aspectRatio(1, contentMode: .fit)
                 .overlay { GeometryReader { geo in ItemIcon(item: item, size: geo.size.width) } }
-                .overlay(alignment: .topTrailing) { if item.runsInAndroid { AndroidBadge().padding(6) } }
-                .snowCap(height: 7)
-                .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+                .overlay(alignment: .topTrailing) { if item.runsInAndroid, !small { AndroidBadge().padding(6) } }
+                .snowCap(height: small ? 4 : 7)
+                .shadow(color: .black.opacity(0.25), radius: small ? 3 : 6, y: small ? 2 : 3)
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 5) {
+                HStack(spacing: small ? 3 : 5) {
                     if let status = item.status { StatusDot(status: status) }
                     Text(item.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: small ? 11 : 13, weight: .semibold))
                         .foregroundStyle(Console.text)
                         .lineLimit(1)
                 }
                 if let caption {
-                    Text(caption).font(.system(size: 11)).foregroundStyle(Console.textDim).lineLimit(1)
+                    Text(caption).font(.system(size: small ? 9 : 11)).foregroundStyle(Console.textDim).lineLimit(1)
                 }
             }
         }

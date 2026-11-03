@@ -630,10 +630,24 @@ static const struct { const char *name; void *wrap; void **real; } k_adapt[] = {
     ADAPT(glBlitFramebuffer), ADAPT(glTexSubImage3D), ADAPT(glCompressedTexSubImage3D), ADAPT(glCopyImageSubData),
     ADAPT(glColorMask), ADAPT(glDepthMask), ADAPT(glVertexAttribPointer), ADAPT(glUniformMatrix2fv),
     ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),
+    ADAPT(glGetProgramInterfaceiv), ADAPT(glGetProgramResourceIndex), ADAPT(glGetProgramResourceName), ADAPT(glGetProgramResourceiv), ADAPT(glGetIntegeri_v),
     ADAPT(eglClientWaitSyncKHR), ADAPT(eglDestroySyncKHR), ADAPT(eglGetSyncAttribKHR), ADAPT(eglClientWaitSync), ADAPT(eglDestroySync),
 };
 
+/* Labels are never kept (setting one is a no-op above), so every label read back is empty. ANGLE's own getter raises an error for
+ * an object type its context does not have (a 3.1 one, under the shim) and then writes nothing, not even the length, which a game
+ * then uses to copy the label. */
+static void w_glGetObjectLabel(unsigned type, unsigned obj, int bufsize, int *length, char *label)
+{
+    (void)type; (void)obj;
+    if (length) *length = 0;
+    if (label && bufsize > 0) label[0] = 0;
+}
+static void w_glGetObjectPtrLabel(const void *ptr, int bufsize, int *length, char *label) { w_glGetObjectLabel(0, 0, bufsize, length, label); (void)ptr; }
+
 static const struct { const char *name; void *fn; } k_egl[] = {
+    { "glGetObjectLabelEXT", w_glGetObjectLabel }, { "glGetObjectLabel", w_glGetObjectLabel }, { "glGetObjectLabelKHR", w_glGetObjectLabel },
+    { "glGetObjectPtrLabel", w_glGetObjectPtrLabel }, { "glGetObjectPtrLabelKHR", w_glGetObjectPtrLabel },
     { "eglGetDisplay", w_eglGetDisplay }, { "eglInitialize", w_eglInitialize }, { "eglTerminate", w_eglTerminate },
     { "eglQueryString", w_eglQueryString }, { "eglGetConfigs", w_eglGetConfigs }, { "eglChooseConfig", w_eglChooseConfig },
     { "eglGetConfigAttrib", w_eglGetConfigAttrib }, { "eglCreateContext", w_eglCreateContext },

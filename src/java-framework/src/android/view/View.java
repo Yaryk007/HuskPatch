@@ -943,7 +943,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
         return mOnApplyInsets != null ? mOnApplyInsets.onApplyWindowInsets(this, i) : onApplyWindowInsets(i);
     }
     public void setOnApplyWindowInsetsListener(OnApplyWindowInsetsListener l) { mOnApplyInsets = l; }
-    public WindowInsets getRootWindowInsets() { return mRoot != null ? mRoot.insets() : null; }
+    /* null on Android only before the view is attached; Unity reads it from a posted runnable that can run before Husk attaches its view */
+    public WindowInsets getRootWindowInsets() { return mRoot != null ? mRoot.insets() : husk.ViewRoot.screenInsets(); }
     public WindowInsets computeSystemWindowInsets(WindowInsets in, Rect outLocal) { outLocal.set(in.getSystemWindowInsetLeft(), in.getSystemWindowInsetTop(), in.getSystemWindowInsetRight(), in.getSystemWindowInsetBottom()); return in.consumeSystemWindowInsets(); }
     public void requestApplyInsets() { if (mRoot != null) mRoot.requestApplyInsets(); }
     @Deprecated public void requestFitSystemWindows() { requestApplyInsets(); }

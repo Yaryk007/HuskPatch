@@ -84,6 +84,7 @@ HuskDualMapping husk_ios_jit_allocate(size_t bytes);
  * will ask for (tb-size).
  */
 HUSK_EXPORT bool husk_ios_jit_prewarm(size_t bytes);
+HUSK_EXPORT bool husk_ios_jit_prewarm_self(size_t bytes);
 
 /*
  * The native runtime shares the prewarmed region with QEMU: it takes bytes from the bottom, QEMU the top. Call before

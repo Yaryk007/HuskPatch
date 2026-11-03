@@ -19,6 +19,8 @@ public final class Manifest {
         public final ArrayList<String> actions = new ArrayList<>(), categories = new ArrayList<>(), schemes = new ArrayList<>(), mimeTypes = new ArrayList<>(), hosts = new ArrayList<>();
     }
     public static String packageName, applicationClass, versionName, appComponentFactory;
+    /** android:installLocation (-1 when the manifest does not say; some apps check theirs, #167). */
+    public static int installLocation = -1;
     public static int versionCode, minSdk = 21, targetSdk = 34, appTheme, appLabel, appIcon, appFlags;
     public static boolean debuggable, largeHeap, hardwareAccelerated = true, extractNativeLibs = true;
     public static Bundle appMetaData = new Bundle();
@@ -32,6 +34,16 @@ public final class Manifest {
         if (n.startsWith(".")) return packageName + n;
         if (n.indexOf('.') < 0) return packageName + "." + n;
         return n;
+    }
+    /** Another APK is about to start in this process: forget this one. */
+    public static synchronized void reset() {
+        sRead = false;
+        packageName = applicationClass = versionName = appComponentFactory = null;
+        installLocation = -1; versionCode = 0; minSdk = 21; targetSdk = 34; appTheme = appLabel = appIcon = appFlags = 0;
+        debuggable = largeHeap = false; hardwareAccelerated = extractNativeLibs = true;
+        appMetaData = new Bundle();
+        activities.clear(); services.clear(); receivers.clear(); providers.clear();
+        permissions.clear(); libraries.clear();
     }
     public static synchronized void read() {
         if (sRead) return;
@@ -59,6 +71,7 @@ public final class Manifest {
                     packageName = p.getAttributeValue(null, "package");
                     versionCode = p.getAttributeIntValue(NS, "versionCode", 1);
                     versionName = p.getAttributeValue(NS, "versionName");
+                    installLocation = p.getAttributeIntValue(NS, "installLocation", -1);
                     break;
                 case "uses-sdk":
                     minSdk = p.getAttributeIntValue(NS, "minSdkVersion", 21);

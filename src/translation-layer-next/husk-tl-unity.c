@@ -3,6 +3,7 @@
 #include "husk-tl-unity.h"
 
 #include <pthread.h>
+#include <setjmp.h>
 #include <stdarg.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -16,6 +17,7 @@
 #include "husk-tl-egl.h"
 #include "husk-tl-gamepad.h"
 #include "husk-tl-jni.h"
+#include "husk-tl-arm32.h"
 #include "husk-tl-ld.h"
 
 void tl_jni_hle_install(void);
@@ -39,6 +41,110 @@ static struct {
 } U;
 
 typedef int32_t (*onload_fn)(void *vm, void *reserved);
+
+static void il2cpp_log_cb(const char *s) { tl_log_line("I/IL2CPP: %s", s ? s : ""); }
+
+static void (*il2_fmt_ex)(void *, char *, int);
+static void (*il2_fmt_st)(void *, char *, int);
+static void *(*il2_cxa_cur)(void);
+static void (*il2_raise)(void *);
+static void (*il2_unhandled)(void *);
+static void *(*il2_begin_catch)(void *);
+static void (*il2_end_catch)(void);
+
+/* AOT mixed pages put C++ typeinfo on the writable copy and .eh_frame on the r-x image, so a throw's
+ * catch never matches. The terminate handler longjmps back to the UnityMain call that was in flight. */
+static _Thread_local jmp_buf g_unity_jmp;
+static _Thread_local int g_unity_jmp_armed;   /* 1: init on UnityMain (longjmp); 2: a frame (do not longjmp out of nativeRender) */
+
+static void il2cpp_dump_ex(void *ex, const char *why)
+{
+    char msg[1024] = {0}, st[4096] = {0};
+    if (il2_fmt_ex && ex) il2_fmt_ex(ex, msg, (int)sizeof msg);
+    if (il2_fmt_st && ex) il2_fmt_st(ex, st, (int)sizeof st);
+    tl_log_line("unity: %s: %s", why, msg[0] ? msg : "(no IL2CPP message)");
+    if (st[0]) tl_log_line("unity: IL2CPP stack:\n%s", st);
+}
+
+/* Il2CppExceptionWrapper is `struct { Il2CppException *ex; }` thrown as a C++ object. */
+static void *il2cpp_from_wrapper(void *obj)
+{
+    if (!obj) return NULL;
+    void *ex = *(void **)obj;
+    return ex;
+}
+
+static void il2cpp_terminate(void)
+{
+    static _Thread_local int in_term;
+    if (in_term) pthread_exit(NULL);
+    in_term = 1;
+    void *obj = il2_cxa_cur ? il2_cxa_cur() : NULL;
+    void *ex = il2cpp_from_wrapper(obj);
+    if (ex) il2cpp_dump_ex(ex, "uncaught Il2CppExceptionWrapper");
+    else il2cpp_dump_ex(obj, "uncaught thrown object");
+    if (g_unity_jmp_armed == 1) {
+        in_term = 0;
+        g_unity_jmp_armed = 0;
+        longjmp(g_unity_jmp, 1);
+    }
+    tl_log_line("unity: uncaught IL2CPP exception on %s; that thread exits", g_unity_jmp_armed == 2 ? "UnityMain (a frame)" : "a worker");
+    pthread_exit(NULL);
+}
+
+static void il2cpp_raise_wrap(void *ex)
+{
+    il2cpp_dump_ex(ex, "il2cpp_raise_exception");
+    if (il2_raise) il2_raise(ex);
+    abort();
+}
+
+static void *il2_sym(tl_lib *il2, const char *name)
+{
+    void *p = tl_ld_sym(il2, name);
+    if (!p) p = tl_ld_sym_deep(il2, name, NULL);
+    return p;
+}
+
+static int g_il2_hooks;
+
+static void il2cpp_host_hooks(void)
+{
+    /* Uncaught C# otherwise aborts as Il2CppExceptionWrapper with no message. */
+    if (g_il2_hooks) return;
+    tl_lib *il2 = tl_ld_find_lib("libil2cpp.so");
+    if (!il2) il2 = tl_ld_find_lib("/data/app/lib/arm64/libil2cpp.so");
+    if (!il2) return;
+    g_il2_hooks = 1;
+    void (*reg)(void (*)(const char *)) = (void (*)(void (*)(const char *)))il2_sym(il2, "il2cpp_register_log_callback");
+    if (reg) { reg(il2cpp_log_cb); tl_log_line("unity: IL2CPP log callback installed"); }
+    void (*pol)(int) = (void (*)(int))il2_sym(il2, "il2cpp_runtime_unhandled_exception_policy_set");
+    if (pol) { pol(0); tl_log_line("unity: IL2CPP unhandled-exception policy is legacy"); }
+    il2_fmt_ex = (void (*)(void *, char *, int))il2_sym(il2, "il2cpp_format_exception");
+    il2_fmt_st = (void (*)(void *, char *, int))il2_sym(il2, "il2cpp_format_stack_trace");
+    il2_cxa_cur = (void *(*)(void))il2_sym(il2, "__cxa_current_primary_exception");
+    if (!il2_cxa_cur) il2_cxa_cur = (void *(*)(void))il2_sym(il2, "_ZSt17current_exceptionv");
+    void (*set_term)(void (*)(void)) = (void (*)(void (*)(void)))il2_sym(il2, "_ZSt13set_terminatePFvvE");
+    if (!set_term) set_term = (void (*)(void (*)(void)))il2_sym(il2, "set_terminate");
+    if (set_term) { set_term(il2cpp_terminate); tl_log_line("unity: IL2CPP terminate handler installed"); }
+    il2_raise = (void (*)(void *))il2_sym(il2, "il2cpp_raise_exception");
+    if (il2_raise) tl_ld_interpose("il2cpp_raise_exception", (void *)il2cpp_raise_wrap);
+    il2_unhandled = (void (*)(void *))il2_sym(il2, "il2cpp_unhandled_exception");
+    il2_begin_catch = (void *(*)(void *))il2_sym(il2, "__cxa_begin_catch");
+    il2_end_catch = (void (*)(void))il2_sym(il2, "__cxa_end_catch");
+    tl_log_line("unity: IL2CPP dump fmt=%d stack=%d cxa=%d term=%d raise=%d unhandled=%d catch=%d",
+                il2_fmt_ex != NULL, il2_fmt_st != NULL, il2_cxa_cur != NULL, set_term != NULL, il2_raise != NULL,
+                il2_unhandled != NULL, il2_begin_catch != NULL && il2_end_catch != NULL);
+}
+
+static void il2cpp_on_lib_init(tl_lib *L)
+{
+    const char *n = tl_ld_lib_name(L);
+    if (!n) return;
+    const char *b = strrchr(n, '/');
+    b = b ? b + 1 : n;
+    if (!strcmp(b, "libil2cpp.so")) il2cpp_host_hooks();
+}
 
 static void keyboard_install(void);
 static void keyboard_deliver(void);
@@ -64,23 +170,33 @@ bool tl_unity_start(const tl_unity_config *cfg)
     int n = tl_dexidx_open(cfg->apk_path);
     tl_log_line("unity: %d classes in the APK's DEX", n);
     if (!tl_ld_add_apk(cfg->apk_path)) return false;
+    /* A player built to require ES 3.1 or 3.2 (its manifest's glEsVersion) asks only for those contexts and gives up on "your
+     * device does not match the hardware requirements" when ANGLE refuses: it gets the 3.0 context described as 3.1/3.2 */
+    { int tl_manifest_gles(const char *); void tl_egl_es3_claim(int); int gv = tl_manifest_gles(cfg->apk_path);
+      if (getenv("TL_GLES_CLAIM")) gv = 0x30000 | atoi(getenv("TL_GLES_CLAIM"));   /* TL_GLES_CLAIM=<minor>: as if the manifest said 3.<minor> */
+      if (gv >= 0x30001) { tl_egl_es3_claim(gv & 0xffff); tl_log_line("egl: the manifest asks for OpenGL ES 3.%d: the driver is described so", gv & 0xffff); } }
     if (cfg->angle_egl && !tl_egl_init(cfg->angle_egl, cfg->angle_gles, cfg->frame_dir, cfg->frame_every)) return false;
     tl_jni_init();
     tl_hle_configure(cfg->package_name, cfg->apk_path, cfg->data_dir, cfg->width, cfg->height);
     tl_jni_hle_install();
     keyboard_install();
+    tl_ld_on_init(il2cpp_on_lib_init);
 
     /* new UnityPlayer(activity): the Java side's own constructor calls loadNative(dir),
      * which is System.load(dir + "/libmain.so") followed by NativeLoader.load(dir). */
     U.activity = tl_hle_activity();
     U.player = tl_jni_new_object(tl_jni_class("com/unity3d/player/UnityPlayer"));
 
+    /* Android's main thread has its Looper before any app code runs: Unity's libmain asks for it while loading (JNI_OnLoad
+     * -> ALooper_forThread), and the NULL it gets here is kept as the engine's main-thread queue and dereferenced later. */
+    { void *(*looper_prepare)(int) = tl_bionic_find("ALooper_prepare"); if (looper_prepare) looper_prepare(0); }
+
     tl_lib *main_lib = tl_ld_load("libmain.so");
     if (!main_lib) return false;
     tl_ld_init(main_lib);
     onload_fn onload = (onload_fn)tl_ld_sym(main_lib, "JNI_OnLoad");
     if (!onload) { tl_log_line("unity: libmain.so has no JNI_OnLoad"); return false; }
-    int32_t ver = onload(tl_jni_vm(), NULL);
+    int32_t ver = tl_a32_is_fn((void *)onload) ? tl_a32_jni_onload(main_lib) : onload(tl_jni_vm(), NULL);
     tl_log_line("unity: libmain JNI_OnLoad -> %#x", ver);
     if (tl_jni_pending()) { tl_log_line("unity: an exception is pending after libmain's JNI_OnLoad"); return false; }
 
@@ -90,6 +206,7 @@ bool tl_unity_start(const tl_unity_config *cfg)
     jobj *dir = tl_jni_new_string("/data/app/lib/arm64");
     uint8_t ok = load(tl_jni_env(), tl_jni_class_object("com/unity3d/player/NativeLoader"), dir);
     tl_log_line("unity: NativeLoader.load -> %d", ok);
+    if (ok) il2cpp_host_hooks();
     return ok != 0;
 }
 
@@ -116,17 +233,25 @@ static void *unity_main(void *arg)
     pthread_setname_np("UnityMain");
     tl_log_line("unity: UnityMain thread started");
 
+    volatile int phase = 0;
+    if (setjmp(g_unity_jmp)) tl_log_line("unity: continuing after an uncaught IL2CPP exception (phase %d)", phase);
+    g_unity_jmp_armed = 1;
+
     /* The jobs UnityPlayer queues for this thread, in the order it queues them. */
-    jobj *surface = tl_jni_new_object(tl_jni_class("android/view/Surface"));
-    NATIVE_VOID("nativeRecreateGfxState", "(ILandroid/view/Surface;)V", 0, surface);
-    tl_log_line("unity: nativeRecreateGfxState done");
-    NATIVE_VOID("nativeSendSurfaceChangedEvent", "()V", 0, 0);
-    NATIVE_VOID("nativeResume", "()V", 0, 0);
-    tl_log_line("unity: nativeResume done");
-    NATIVE_VOID("nativeFocusChanged", "(Z)V", 1, 0);
+    if (phase < 1) {
+        phase = 1;
+        jobj *surface = tl_jni_new_object(tl_jni_class("android/view/Surface"));
+        NATIVE_VOID("nativeRecreateGfxState", "(ILandroid/view/Surface;)V", 0, surface);
+        tl_log_line("unity: nativeRecreateGfxState done");
+        NATIVE_VOID("nativeSendSurfaceChangedEvent", "()V", 0, 0);
+        NATIVE_VOID("nativeResume", "()V", 0, 0);
+        tl_log_line("unity: nativeResume done");
+        NATIVE_VOID("nativeFocusChanged", "(Z)V", 1, 0);
+    }
     /* What Unity's Java side tells the engine as it starts on a phone: the media volume (AudioVolumeHandler reports it, and
      * an engine that never hears it takes the device as muted) and that its sound is not muted. */
-    {
+    if (phase < 2) {
+        phase = 2;
         jobj *volume = tl_jni_new_object(tl_jni_class("com/unity3d/player/AudioVolumeHandler"));
         call_native_on("com/unity3d/player/AudioVolumeHandler", volume, "onAudioVolumeChanged", "(I)V", 7, 0);
         NATIVE_VOID("nativeMuteMasterAudio", "(Z)V", 0, 0);
@@ -135,6 +260,8 @@ static void *unity_main(void *arg)
 
     void *render = native_of("com/unity3d/player/UnityPlayer", "nativeRender", "()Z");
     bool was_paused = false;
+    phase = 3;
+    g_unity_jmp_armed = 2;
     while (render && !atomic_load(&U.stop)) {
         if (atomic_load(&U.paused)) {
             if (!was_paused) { NATIVE_VOID("nativeFocusChanged", "(Z)V", 0, 0); NATIVE_VOID("nativePause", "()Z", 0, 0); was_paused = true; tl_log_line("unity: paused"); }
@@ -158,15 +285,26 @@ static void *unity_main(void *arg)
         if (!keep) { tl_log_line("unity: nativeRender returned false: the engine asked to quit"); break; }
         usleep(2000);
     }
+    g_unity_jmp_armed = 0;
     return NULL;
 }
 
 bool tl_unity_run(void)
 {
     /* The UnityPlayer constructor's last native step before it starts the thread. */
-    /* Unity 6 adds the kind of host it runs in (0: an activity or service, 1: a GameActivity) */
-    if (tl_jni_native("com/unity3d/player/UnityPlayer", "initJni", "(Landroid/content/Context;)V")) NATIVE_VOID("initJni", "(Landroid/content/Context;)V", U.activity, 0);
-    else NATIVE_VOID("initJni", "(Landroid/content/Context;I)V", U.activity, 0);
+    /* Unity 6 adds the kind of host it runs in (0: an activity or service, 1: a GameActivity) and, in some players, a
+     * string beside it; which one a player has is its RegisterNatives' to say. Asking for the wrong one means initJni
+     * never runs, and the engine then holds NULL for the Java side's classes (GetMethodID(NULL class, ...) later). */
+    void *init3 = tl_jni_native("com/unity3d/player/UnityPlayer", "initJni", "(Landroid/content/Context;ILjava/lang/String;)V");
+    void *init2 = init3 ? NULL : tl_jni_native("com/unity3d/player/UnityPlayer", "initJni", "(Landroid/content/Context;I)V");
+    if (init3) {
+        jobj *kind = tl_jni_new_string("");
+        ((void (*)(void *, jobj *, jobj *, int, jobj *))init3)(tl_jni_env(), U.player, U.activity, 0, kind);
+    } else if (init2) {
+        ((void (*)(void *, jobj *, jobj *, int))init2)(tl_jni_env(), U.player, U.activity, 0);
+    } else {
+        NATIVE_VOID("initJni", "(Landroid/content/Context;)V", U.activity, 0);
+    }
     tl_log_line("unity: initJni done");
     /* The rest of the UnityPlayer constructor: the helpers it builds, whose constructors each call a
      * native that gives the engine its reference to the helper's Java class. Without these the engine
@@ -449,5 +587,6 @@ void tl_unity_poke(int signo) { if (U.thread_started) pthread_kill(U.thread, sig
 void tl_unity_stop(void)
 {
     atomic_store(&U.stop, true);
-    if (U.thread_started) pthread_join(U.thread, NULL);
+    if (U.thread_started) { pthread_join(U.thread, NULL); U.thread_started = false; }
+    atomic_store(&U.stop, false);
 }

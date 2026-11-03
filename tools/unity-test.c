@@ -113,6 +113,8 @@ static int safe_read(uintptr_t addr, void *out, size_t n)
     return vm_read_overwrite(mach_task_self(), (vm_address_t)addr, n, (vm_address_t)out, &got) == KERN_SUCCESS && got == n;
 }
 
+void tl_egl_recent_calls(char *out, size_t n, int count);
+void tl_egl_gl_histogram(char *out, size_t cap);
 static void on_crash(int sig, siginfo_t *info, void *uctx)
 {
     ucontext_t *uc = uctx;
@@ -131,7 +133,16 @@ static void on_crash(int sig, siginfo_t *info, void *uctx)
     }
     for (int i = 0; i < 29; i += 4)
         fprintf(stderr, "  x%d=%#llx x%d=%#llx x%d=%#llx x%d=%#llx\n", i, ss->__x[i], i + 1, ss->__x[i + 1], i + 2, i + 2 < 29 ? ss->__x[i + 2] : 0, i + 3, i + 3 < 29 ? ss->__x[i + 3] : 0);
+    for (int i = 0; i < 29; i++) {
+        char s[96];
+        if (!safe_read(ss->__x[i], s, sizeof(s))) continue;
+        int n = 0;
+        while (n < 80 && s[n] >= 32 && s[n] < 127) n++;
+        if (n >= 4) { s[n] = 0; fprintf(stderr, "  x%d str \"%s\"\n", i, s); }
+    }
     fprintf(stderr, "  sp=%#llx fp=%#llx\n", ss->__sp, ss->__fp);
+    { char gl[2048]; tl_egl_recent_calls(gl, sizeof(gl), 40); if (gl[0]) fprintf(stderr, "  last GL calls: %s\n", gl); }
+    { static char h[1024 * 48]; tl_egl_gl_histogram(h, sizeof(h)); if (h[0]) fprintf(stderr, "  GL calls by function: %s\n", h); }
     uint64_t dump_base = getenv("TL_CRASH_DUMP_REG") ? ss->__x[atoi(getenv("TL_CRASH_DUMP_REG"))] : ss->__x[0];
     for (int i = 0; i < 0x120; i += 16) {
         uint64_t q[2];
@@ -378,8 +389,9 @@ int main(int argc, char **argv)
     { struct sigaction sd; memset(&sd, 0, sizeof(sd)); sd.sa_sigaction = on_dump; sd.sa_flags = SA_SIGINFO | SA_ONSTACK; sigemptyset(&sd.sa_mask); sigaction(SIGUSR2, &sd, NULL); }
     tl_ld_set_verbosity(getenv("TL_VERBOSE") ? atoi(getenv("TL_VERBOSE")) : 1);
     tl_jni_set_trace(getenv("TL_JNI_TRACE") ? atoi(getenv("TL_JNI_TRACE")) : 1);
-    char tmp[] = "/Volumes/GTAV/husk2/tmp/husk-unity-XXXXXX";
-    mkdtemp(tmp);
+    char tmp_buf[] = "/tmp/husk-unity-XXXXXX";
+    const char *tmp = getenv("TL_DATA");
+    if (!tmp) { mkdtemp(tmp_buf); tmp = tmp_buf; }
     const char *cef = "/Users/davi/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/Frameworks/Chromium Embedded Framework.framework/Versions/A/Libraries";
     char egl[600], gles[600]; snprintf(egl, sizeof(egl), "%s/libEGL.dylib", cef); snprintf(gles, sizeof(gles), "%s/libGLESv2.dylib", cef);
     char frames[] = "/Volumes/GTAV/husk2/tmp/husk-frames-XXXXXX"; mkdtemp(frames);

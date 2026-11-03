@@ -141,6 +141,10 @@ static void luajit_openlibs(void *L)
     if (g_jit_setmode) g_jit_setmode(L, 0, 0 /* LUAJIT_MODE_ENGINE | LUAJIT_MODE_OFF */);
 }
 
+/* The same for any app (the Java runtime's), when there is no executable memory at all (JIT-less mode): LuaJIT's machine code
+ * could never run, and its answer to the refused mprotect is a panic. */
+void tl_luajit_interpreter_only(void) { tl_ld_interpose("luaL_openlibs", (void *)luajit_openlibs); }
+
 /* ------------------------------------------------------------------ install */
 
 /* python-for-android (Kivy): the statics PythonActivity.onCreate and Hardware's initialiser fill, which Python reads through pyjnius

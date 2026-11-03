@@ -5,8 +5,8 @@ import QuartzCore
 import AVFoundation
 import UniformTypeIdentifiers
 
-/// The engines the native runtime drives. Both draw into a CAMetalLayer through ANGLE, and both are one game per
-/// process: an engine cannot be unloaded once it has started.
+/// The engines the native runtime drives. Both draw into a CAMetalLayer through ANGLE. Starting a different APK
+/// stops the current session first.
 enum TLNativeEngine {
     /// HuskPatch: whether the app lays itself out again when its window changes size (Android views and Flutter do);
     /// the other engines draw at the size they started at.
@@ -274,10 +274,15 @@ final class TLUnityUIView: UIView, UIKeyInput {
         let ca = Bundle.main.path(forResource: "cacert", ofType: "pem") ?? ""
         try? FileManager.default.createDirectory(atPath: dataDir, withIntermediateDirectories: true)
         let layerPtr = Unmanaged.passUnretained(layer).toOpaque()
-        if husk_unity_state() != Int32(HUSK_UNITY_IDLE) {
-            // Already started this run: the engine cannot be loaded twice, so just show it again.
-            HuskLog.log("tl", "unity: already started; resuming")
-            if engine == .java { attachWebHost(fresh: false) }
+        let loaded = husk_native_loaded_apk().map { String(cString: $0) }
+        let st = husk_unity_state()
+        if st != Int32(HUSK_UNITY_IDLE) {
+            if loaded == apk, st == Int32(HUSK_UNITY_RUNNING) {
+                HuskLog.log("tl", "unity: already started; resuming")
+                if engine == .java { attachWebHost(fresh: false) }
+                return
+            }
+            HuskLog.log("tl", "native: \(loaded ?? "another app") is still loaded; close Husk to start \(apk)")
             return
         }
         // The game plays through the silent switch, like the guest's own audio, and mixes with other audio. Unity games too:
@@ -290,6 +295,7 @@ final class TLUnityUIView: UIView, UIKeyInput {
         HuskLog.log("tl", "native: launching \(apk) at \(width)x\(height) (\(engine == .cocos ? "cocos2d-x" : engine == .minecraft ? "gameactivity" : engine == .sdl ? "sdl" : engine == .ue4 ? "ue4" : engine == .gta ? "gta" : engine == .godot ? "godot" : engine == .nativeactivity ? "nativeactivity" : engine == .flutter ? "flutter" : engine == .gamemaker ? "gamemaker" : engine == .java ? "java" : "unity"))")
         // Splits and the asset pack are part of the app, whatever its engine; the game's libraries and data may be in any of
         // them (a Google Play install keeps a Unity game's libraries in one split and its data in an asset pack).
+        JITLess.prepareLaunch()
         for extra in extraApks.prefix(15) { husk_native_add_package(extra) }
         // Android's shared storage, one folder for every game: a game that keeps its data in a folder of its own on /sdcard finds it
         // in Husk's "Shared Storage", which can be filled from Files or Finder.
@@ -392,7 +398,53 @@ final class TLUnityUIView: UIView, UIKeyInput {
     }()
     override var inputAccessoryView: UIView? { engine == .cocos || engine == .sdl || engine == .minecraft || engine == .unity ? keyboardBar : nil }
 
+    /// The keyboard was opened from the screen's keyboard button, not by a field in the app: what is typed then is key presses for
+    /// apps that read keys themselves (an SDL game's menus, a terminal), where the engine has keys to send.
+    var openedByHand = false
+
+    /// Whether the screen's keyboard button can do anything for this engine.
+    var offersKeyboardButton: Bool { canBecomeFirstResponder }
+
+    /// The keyboard button: opens the keyboard when it is away (for an app that never asks for it), puts it away when it is up.
+    func toggleKeyboardByHand() {
+        if isFirstResponder { _ = resignFirstResponder(); return }
+        openedByHand = true
+        keyboardType = .default
+        isSecureTextEntry = false
+        returnKeyType = .default
+        setTyped("")
+        if !becomeFirstResponder() { openedByHand = false }
+    }
+
+    /// Android key codes for what the keyboard types (US layout), with whether shift goes with it.
+    private static func androidKey(_ ch: Character) -> (code: Int32, shift: Bool)? {
+        if let a = ch.asciiValue {
+            switch a {
+            case 97...122: return (29 + Int32(a - 97), false)          // a-z
+            case 65...90: return (29 + Int32(a - 65), true)           // A-Z
+            case 48...57: return (7 + Int32(a - 48), false)           // 0-9
+            default: break
+            }
+        }
+        let shifted: [Character: Int32] = ["!": 8, "@": 9, "#": 10, "$": 11, "%": 12, "^": 13, "&": 14, "*": 15, "(": 16, ")": 7,
+                                           "<": 55, ">": 56, "~": 68, "_": 69, "+": 70, "{": 71, "}": 72, "|": 73, ":": 74, "\"": 75, "?": 76]
+        let plain: [Character: Int32] = [",": 55, ".": 56, "\t": 61, " ": 62, "\n": 66, "`": 68, "-": 69, "=": 70, "[": 71, "]": 72,
+                                         "\\": 73, ";": 74, "'": 75, "/": 76]
+        if let c = plain[ch] { return (c, false) }
+        if let c = shifted[ch] { return (c, true) }
+        return nil
+    }
+    private func pressSDLKeys(_ text: String) {
+        for ch in text {
+            guard let k = Self.androidKey(ch) else { continue }
+            if k.shift { husk_sdl_key(59, 1) }                     // KEYCODE_SHIFT_LEFT
+            husk_sdl_key(k.code, 1); husk_sdl_key(k.code, 0)
+            if k.shift { husk_sdl_key(59, 0) }
+        }
+    }
+
     func insertText(_ text: String) {
+        if openedByHand, engine == .sdl { pressSDLKeys(text); return }
         if engine == .java {
             // The app's own text field shows what is typed; Return is the field's action (a new line in a multi-line one).
             if text == "\n" { husk_java_text_action() } else { husk_java_insert_text(text) }
@@ -419,6 +471,7 @@ final class TLUnityUIView: UIView, UIKeyInput {
     }
 
     func deleteBackward() {
+        if openedByHand, engine == .sdl { husk_sdl_key(67, 1); husk_sdl_key(67, 0); return }   // KEYCODE_DEL
         if engine == .java { husk_java_delete_backward(); return }
         if engine == .flutter { husk_flutter_delete_backward(); return }
         if engine == .unity { husk_unity_delete_backward() }
@@ -455,7 +508,7 @@ final class TLUnityUIView: UIView, UIKeyInput {
                     view.isSecureTextEntry = kind & 0x20 != 0
                     view.returnKeyType = kind & 0x10 != 0 ? .default : .done
                     view.autocapitalizationType = kind & 0xF == 0 && kind & 0x20 == 0 ? .sentences : .none
-                    if view.isFirstResponder { view.reloadInputViews() } else { view.becomeFirstResponder() }
+                    view.openedByHand = false; if view.isFirstResponder { view.reloadInputViews() } else { view.becomeFirstResponder() }
                 } else {
                     view.resignFirstResponder()
                 }
@@ -492,7 +545,7 @@ final class TLUnityUIView: UIView, UIKeyInput {
                 let caps = inputType & 0x7000
                 view.autocapitalizationType = cls != 1 || view.isSecureTextEntry ? .none : caps & 0x1000 != 0 ? .allCharacters : caps & 0x2000 != 0 ? .words : caps & 0x4000 != 0 ? .sentences : .none
                 view.autocorrectionType = cls == 1 && inputType & 0x8000 != 0 ? .yes : .no
-                if view.isFirstResponder { view.reloadInputViews() } else { view.becomeFirstResponder() }
+                view.openedByHand = false; if view.isFirstResponder { view.reloadInputViews() } else { view.becomeFirstResponder() }
             }
         }, { text in
             guard let text else { return }
@@ -519,7 +572,7 @@ final class TLUnityUIView: UIView, UIKeyInput {
         husk_java_set_document_picker { mimeTypes, multiple in
             let types = TLUnityUIView.contentTypes(mimeTypes.map { String(cString: $0) } ?? "*/*")
             DispatchQueue.main.async {
-                HuskFilePicker.present(types: types, multiple: multiple != 0, onPick: { urls in
+                HuskFilePicker.present(types: types, multiple: multiple != 0, asCopy: true, onPick: { urls in
                     // copies in a folder of their own: the app reads them by path, long after the picker's access ends
                     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("picked/\(UUID().uuidString)", isDirectory: true)
                     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -566,6 +619,8 @@ final class TLUnityUIView: UIView, UIKeyInput {
 
     /// A Flutter app closed itself (back on its first screen): whatever shows it closes.
     static let appClosedItself = Notification.Name("husk.tl.appClosedItself")
+    /// The current translation-layer session was stopped so another app can start.
+    static let huskStopPlaying = Notification.Name("husk.stopPlaying")
 
     /// The game's own requests, from its GL thread: 0 toggles, 1 shows, 2 hides.
     static func installKeyboardHandler() {
@@ -601,6 +656,7 @@ final class TLUnityUIView: UIView, UIKeyInput {
                     var buf = [CChar](repeating: 0, count: 16384)
                     husk_ga_text(&buf, UInt(buf.count))
                     view.setTyped(String(cString: buf))
+                    view.openedByHand = false
                     view.becomeFirstResponder()
                 } else {
                     view.resignFirstResponder()
@@ -637,7 +693,7 @@ final class TLUnityUIView: UIView, UIKeyInput {
                     var buf = [CChar](repeating: 0, count: 4096)
                     husk_unity_text(&buf, UInt(buf.count))
                     view.setTyped(view.isSecureTextEntry ? "" : String(cString: buf))
-                    if view.isFirstResponder { view.reloadInputViews() } else { view.becomeFirstResponder() }
+                    view.openedByHand = false; if view.isFirstResponder { view.reloadInputViews() } else { view.becomeFirstResponder() }
                 } else {
                     view.resignFirstResponder()
                 }
@@ -646,6 +702,7 @@ final class TLUnityUIView: UIView, UIKeyInput {
     }
 
     override func resignFirstResponder() -> Bool {
+        openedByHand = false
         // Put away without Done (the game hid it, or the view went): the field is dismissed, as the dialog's back button does.
         if engine == .unity { husk_unity_finish_text(0) }
         return super.resignFirstResponder()
@@ -656,7 +713,7 @@ final class TLUnityUIView: UIView, UIKeyInput {
         husk_sdl_set_keyboard_handler { action in
             DispatchQueue.main.async {
                 guard let view = TLUnityUIView.cocosView else { return }
-                if action == 1 { view.setTyped(""); view.becomeFirstResponder() } else { view.resignFirstResponder() }
+                if action == 1 { view.openedByHand = false; view.setTyped(""); view.becomeFirstResponder() } else { view.resignFirstResponder() }
             }
         }
     }
@@ -836,12 +893,6 @@ struct TLCocosAttemptView: View {
     /// A game that has no touch controls of its own, found once it is running.
     private var wantsController: Bool { model.state == Int32(HUSK_UNITY_RUNNING) && husk_native_wants_controller() }
 
-    /// Another game is already loaded in this session, and an engine cannot be loaded twice.
-    private var blockedBy: String? {
-        guard let loaded = husk_native_loaded_apk().map({ String(cString: $0) }), loaded != app.apks.first else { return nil }
-        return (loaded as NSString).lastPathComponent
-    }
-
     private func toggleInterface() {
         withAnimation(.easeInOut(duration: 0.15)) { uiHidden.toggle() }
         if uiHidden { showHint() }
@@ -856,16 +907,7 @@ struct TLCocosAttemptView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             Group {
-                if let other = blockedBy {
-                    VStack(spacing: 8) {
-                        Text("Another game is already loaded")
-                            .font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
-                        Text("\(other) was started in this session, and a game cannot be unloaded once it has started. Close Husk completely and open it again to run \(app.label).")
-                            .font(.system(size: 13)).foregroundStyle(.white.opacity(0.7))
-                            .multilineTextAlignment(.center).frame(maxWidth: 460)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let apk = app.apks.first {
+                if let apk = app.apks.first {
                     // The game always has the whole screen: it is told its size once, as it starts, so nothing may take space from it.
                     // The bar and the log are drawn over it instead, and hiding them shows everything underneath.
                     TLUnityScreen(apk: apk, extraApks: Array(app.apks.dropFirst()), dataDir: dataDir, engine: engine, portrait: portrait,
@@ -1022,6 +1064,13 @@ struct TLCocosAttemptView: View {
                     }
                     .tint(editingPad ? .yellow : .white)
                 }
+            }
+            if TLUnityUIView.cocosView?.offersKeyboardButton == true, model.state == Int32(HUSK_UNITY_RUNNING) {
+                Button { TLUnityUIView.cocosView?.toggleKeyboardByHand() } label: {
+                    Label("Keyboard", systemImage: "keyboard").font(.system(size: 12, weight: .semibold))
+                }
+                .tint(.white)
+                .accessibilityHint("Shows or hides the keyboard for the app")
             }
             if settings.showStats, model.state == Int32(HUSK_UNITY_RUNNING) {
                 Text(stats).font(.technical(11)).foregroundStyle(.white.opacity(0.7)).lineLimit(1)

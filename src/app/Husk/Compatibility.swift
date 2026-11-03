@@ -2,7 +2,7 @@
 import SwiftUI
 import UIKit
 
-/// Husk's compatibility list (antiweb.lol): how each app runs for everyone, next to how it ran on this iPhone (GameStatus).
+/// Husk's compatibility list (itslevii.dev): how each app runs for everyone, next to how it ran on this iPhone (GameStatus).
 ///
 /// The list is fetched now and then and kept on disk, so it shows offline and costs nothing at launch. Reports go to the
 /// same site: how a game ran, sent from Husk with the device, iOS, build and JIT method filled in.
@@ -10,25 +10,48 @@ import UIKit
 final class CompatibilityStore: ObservableObject {
     static let shared = CompatibilityStore()
 
-    /// The site, then its Render address for when the domain does not answer. A different one can be put first for testing
+    /// The site, then the old address for when it does not answer. A different one can be put first for testing
     /// (defaults write com.husk.app husk.compatURL http://…).
     static var sites: [URL] {
         let custom = UserDefaults.standard.string(forKey: "husk.compatURL").flatMap(URL.init(string:))
-        return [custom, URL(string: "https://antiweb.lol"), URL(string: "https://antiweb-website.onrender.com")].compactMap { $0 }
+        // itslevii.dev (one Cloudflare Worker: the site and /api); the old antiweb.lol while the move settles
+        return [custom, URL(string: "https://itslevii.dev"), URL(string: "https://antiweb.lol")].compactMap { $0 }
     }
     /// The one that answered last, for links.
     static var site: URL { shared.workingSite ?? sites[0] }
     @Published private(set) var workingSite: URL?
+    /// The site's database is down (it answers 503 with "maintenance": true): the list cannot be fetched, but reports
+    /// are kept by the site and added once it is back.
+    @Published private(set) var maintenance = false
+
+    static let maintenanceMessage =
+        "Our database is currently under maintenance. The app list will be unavailable, but all submitted reports and such will be added to the database once it\u{2019}s restored."
+
+    /// Whether an answer is the site saying its database is down (rather than the site being unreachable).
+    static func isMaintenance(_ http: HTTPURLResponse, _ data: Data) -> Bool {
+        http.statusCode == 503 && ((try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["maintenance"] as? Bool ?? false)
+    }
 
     /// The request on each site in turn until one answers with a status below 500 (a 4xx is the site's answer, not an outage).
-    private func call(_ path: String, _ prepare: (inout URLRequest) -> Void = { _ in }) async throws -> (Data, HTTPURLResponse) {
+    private func call(_ path: String, query: [URLQueryItem] = [], _ prepare: (inout URLRequest) -> Void = { _ in }) async throws -> (Data, HTTPURLResponse) {
         var last: Error = URLError(.cannotConnectToHost)
         for site in Self.sites {
-            var request = URLRequest(url: site.appendingPathComponent(path))
+            var url = site.appendingPathComponent(path)
+            if !query.isEmpty, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+                parts.queryItems = query
+                if let built = parts.url { url = built }
+            }
+            var request = URLRequest(url: url)
             request.timeoutInterval = 15
             prepare(&request)
             do {
                 let (data, response) = try await URLSession.shared.data(for: request)
+                // the site answered, but its database is down: that is its answer (the old address would not know more)
+                if let http = response as? HTTPURLResponse, Self.isMaintenance(http, data) {
+                    if workingSite != site { workingSite = site }
+                    maintenance = true
+                    return (data, http)
+                }
                 guard let http = response as? HTTPURLResponse, http.statusCode < 500 else { throw URLError(.badServerResponse) }
                 if workingSite != site { workingSite = site; HuskLog.log("compat", "using \(site.host ?? site.absoluteString)") }
                 return (data, http)
@@ -95,11 +118,15 @@ final class CompatibilityStore: ObservableObject {
     }
 
     @Published private(set) var entries: [String: Entry] = [:]
+    @Published private(set) var jitlessEntries: [String: Entry] = [:]
     @Published private(set) var updated: Date?
     private var fetching = false
 
     private static var cacheFile: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("compatibility.json")
+    }
+    private static var jitlessCacheFile: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("compatibility-jitless.json")
     }
 
     private init() {
@@ -107,9 +134,16 @@ final class CompatibilityStore: ObservableObject {
             entries = Dictionary(list.map { ($0.package, $0) }, uniquingKeysWith: { a, _ in a })
             updated = (try? FileManager.default.attributesOfItem(atPath: Self.cacheFile.path)[.modificationDate]) as? Date
         }
+        if let data = try? Data(contentsOf: Self.jitlessCacheFile), let list = try? JSONDecoder().decode([Entry].self, from: data) {
+            jitlessEntries = Dictionary(list.map { ($0.package, $0) }, uniquingKeysWith: { a, _ in a })
+        }
     }
 
-    func entry(_ package: String?) -> Entry? { package.flatMap { entries[$0] } }
+    func entry(_ package: String?) -> Entry? {
+        guard let package else { return nil }
+        if JITLess.enabled, let e = jitlessEntries[package] { return e }
+        return entries[package]
+    }
 
     /// The list again when the copy on disk is older than a few hours (or `force`).
     func refresh(force: Bool = false) async {
@@ -119,12 +153,20 @@ final class CompatibilityStore: ObservableObject {
         struct Response: Decodable { let apps: [Entry] }
         do {
             let (data, response) = try await call("api/apps")
+            if Self.isMaintenance(response, data) { HuskLog.log("compat", "the site's database is under maintenance"); return }
             guard response.statusCode == 200 else { throw URLError(.badServerResponse) }
+            maintenance = false
             let list = try JSONDecoder().decode(Response.self, from: data).apps
             entries = Dictionary(list.map { ($0.package, $0) }, uniquingKeysWith: { a, _ in a })
             updated = Date()
             try? JSONEncoder().encode(list).write(to: Self.cacheFile, options: .atomic)
-            HuskLog.log("compat", "list updated: \(list.count) apps")
+            if let (jlData, jlHttp) = try? await call("api/apps", query: [URLQueryItem(name: "jitless", value: "1")]),
+               (200..<300).contains(jlHttp.statusCode) {
+                let jl = try JSONDecoder().decode(Response.self, from: jlData).apps
+                jitlessEntries = Dictionary(jl.map { ($0.package, $0) }, uniquingKeysWith: { a, _ in a })
+                try? JSONEncoder().encode(jl).write(to: Self.jitlessCacheFile, options: .atomic)
+            }
+            HuskLog.log("compat", "list updated: \(list.count) apps, \(jitlessEntries.count) JIT-less")
         } catch {
             HuskLog.log("compat", "list not updated: \(error.localizedDescription)")
         }
@@ -139,7 +181,10 @@ final class CompatibilityStore: ObservableObject {
         let machine = withUnsafeBytes(of: &info.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
         return machine.isEmpty ? UIDevice.current.model : machine
     }
+    /// How this report ran: Play without JIT, or which debugger turned JIT on. The JIT-less list on the site is the
+    /// team's own results; player reports all go to the same list, tagged with this.
     static var jitMethod: String {
+        if JITLess.enabled { return "None (Play without JIT)" }
         switch JITCoordinator.shared.resolvedMethod {
         case .builtIn: return "StikJIT (built in)"
         case .stikDebug: return "StikDebug"
@@ -160,8 +205,10 @@ final class CompatibilityStore: ObservableObject {
         return png.count <= 60_000 ? png.base64EncodedString() : nil
     }
 
+    /// Sends a report. Returns the site's message when it kept the report for later (its database was down: 202, queued).
+    @discardableResult
     func send(package: String, name: String, isGame: Bool, status: Status, notes: String, author: String, iconPath: String? = nil,
-              attachLog: Bool = false) async throws {
+              attachLog: Bool = false) async throws -> String? {
         var body: [String: String] = [
             "package": package, "name": name, "type": isGame ? "game" : "app", "status": status.rawValue,
             "device": Self.device, "ios": UIDevice.current.systemVersion, "build": Self.build, "jit": Self.jitMethod,
@@ -177,13 +224,20 @@ final class CompatibilityStore: ObservableObject {
             $0.httpBody = payload
             $0.timeoutInterval = 20
         }
+        let answer = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         guard (200..<300).contains(http.statusCode) else {
-            let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+            let message = Self.isMaintenance(http, data) ? Self.maintenanceMessage : answer?["error"] as? String
             throw NSError(domain: "Compatibility", code: 1, userInfo: [NSLocalizedDescriptionKey: message ?? "The compatibility list could not be reached."])
         }
-        HuskLog.log("compat", "reported \(package): \(status.rawValue)")
         markAsked(package)
+        if answer?["queued"] as? Bool == true {
+            HuskLog.log("compat", "report on \(package) kept by the site until its database is back")
+            maintenance = true
+            return answer?["message"] as? String ?? Self.maintenanceMessage
+        }
+        HuskLog.log("compat", "reported \(package): \(status.rawValue)")
         await refresh(force: true)
+        return nil
     }
 
     /// The end of Husk's log, as the log export shares it (husk.log): at most the last 400,000 bytes, cut on a character boundary.
@@ -233,6 +287,11 @@ struct CompatibilitySection: View {
     var body: some View {
         let entry = compat.entry(subject.package)
         Section {
+            if compat.maintenance {
+                Label { Text(CompatibilityStore.maintenanceMessage).font(.footnote).fixedSize(horizontal: false, vertical: true) }
+                    icon: { Image(systemName: "wrench.and.screwdriver").foregroundStyle(.orange) }
+                    .padding(.vertical, 2)
+            }
             if let entry, let status = entry.status {
                 HStack(spacing: 12) {
                     Image(systemName: status.symbol).font(.title3).foregroundStyle(status.color)
@@ -251,7 +310,7 @@ struct CompatibilitySection: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Button { reporting = subject } label: { Label("Report How It Ran", systemImage: "square.and.pencil") }
-            Link(destination: compat.pageURL(subject.package)) { Label("Open on antiweb.lol", systemImage: "safari") }
+            Link(destination: compat.pageURL(subject.package)) { Label("Open on itslevii.dev", systemImage: "safari") }
         } header: {
             Text("Compatibility")
         } footer: {
@@ -270,11 +329,13 @@ struct CompatReportSheet: View {
     @State private var sending = false
     @State private var error: String?
     @State private var sent = false
+    /// The site kept the report for later (its database was down): what it said.
+    @State private var queued: String?
     @AppStorage("husk.compatAttachLog") private var attachLog = true
 
     var body: some View {
         NavigationStack {
-            Form {
+            HuskForm {
                 Section {
                     ForEach([CompatibilityStore.Status.works, .opens, .broken], id: \.self) { s in
                         Button { status = s } label: {
@@ -304,7 +365,7 @@ struct CompatReportSheet: View {
                 } header: {
                     Text("Your Name")
                 } footer: {
-                    Text("Sent with it: \(CompatibilityStore.device), iOS \(UIDevice.current.systemVersion), Husk build \(CompatibilityStore.build), JIT from \(CompatibilityStore.jitMethod). It shows on antiweb.lol for everyone.")
+                    Text("Sent with it: \(CompatibilityStore.device), iOS \(UIDevice.current.systemVersion), Husk build \(CompatibilityStore.build), \(JITLess.enabled ? "Play without JIT" : "JIT from \(CompatibilityStore.jitMethod)"). It shows on itslevii.dev for everyone.")
                 }
                 Section {
                     Toggle("Attach my log", isOn: $attachLog)
@@ -313,6 +374,12 @@ struct CompatReportSheet: View {
                 }
                 if let error {
                     Section { Text(error).foregroundStyle(.red) }
+                }
+                if let queued {
+                    Section {
+                        Label { Text(queued).fixedSize(horizontal: false, vertical: true) }
+                            icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                    } header: { Text("Report Saved") }
                 }
             }
             .navigationTitle(sent ? "Thanks!" : "Report")
@@ -346,11 +413,12 @@ struct CompatReportSheet: View {
         error = nil
         Task {
             do {
-                try await CompatibilityStore.shared.send(package: subject.package, name: subject.name, isGame: subject.isGame,
-                                                         status: status, notes: notes, author: author, iconPath: subject.iconPath,
-                                                         attachLog: attachLog)
+                queued = try await CompatibilityStore.shared.send(package: subject.package, name: subject.name, isGame: subject.isGame,
+                                                                  status: status, notes: notes, author: author, iconPath: subject.iconPath,
+                                                                  attachLog: attachLog)
                 sent = true
-                try? await Task.sleep(nanoseconds: 600_000_000)
+                // a report kept for later: long enough to read that it is saved
+                try? await Task.sleep(nanoseconds: queued == nil ? 600_000_000 : 3_500_000_000)
                 dismiss()
             } catch {
                 self.error = error.localizedDescription

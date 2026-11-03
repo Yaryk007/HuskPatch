@@ -26,6 +26,21 @@ public final class AppRunner {
     private static long downTime;
     private static boolean sPausedByHost;
 
+    /** Another APK is about to start: forget this app's activities, loader and factory. */
+    public static void resetSession() {
+        sStack.clear();
+        sApp = null;
+        sHandler = null;
+        down = 0;
+        downTime = 0;
+        sPausedByHost = false;
+        sLoader = null;
+        sAdopted = null;
+        sFactory = android.app.AppComponentFactory.DEFAULT;
+        Looper.setInputSink(null);
+        Manifest.reset();
+    }
+
     private static ClassLoader sLoader;
     /** The app's class loader, as Android gives every app: a PathClassLoader over its APK and splits. Its classes say they come from
      *  it (Class.getClassLoader), and resources in the APKs are found through it. */
@@ -109,6 +124,11 @@ public final class AppRunner {
         Looper.setInputSink(AppRunner::deliver);
         applyInsets();
         app.onCreate();
+        /* as the system after boot: receivers in the manifest hear the device is up and the user is present, so WorkManager
+           and the app's own start-up jobs run before the first activity */
+        Broadcasts.send(app, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        Broadcasts.send(app, new Intent(Intent.ACTION_LOCKED_BOOT_COMPLETED));
+        Broadcasts.send(app, new Intent("android.intent.action.USER_UNLOCKED"));
         Manifest.Component launcher = Manifest.activity(activityClass);
         Intent main = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
         // started through the launcher's alias, the activity's component is the alias (Android compares that, not the class, when
@@ -249,7 +269,10 @@ public final class AppRunner {
            result, the caller hears the user backed out, as it would on a phone; otherwise nothing opens */
         String pkg = i.getComponent() != null ? i.getComponent().getPackageName() : i.getPackage();
         boolean system = "android".equals(pkg) || "com.android.settings".equals(pkg) || "com.android.permissioncontroller".equals(pkg)
-            || (action != null && (action.startsWith("android.settings.") || action.startsWith("android.provider.Settings")));
+            || (action != null && (action.startsWith("android.settings.") || action.startsWith("android.provider.Settings")))
+            // the platform's own dialogs (turn on Bluetooth, NFC, device admin, the camera, request a role...): a phone always has
+            // a screen for these; Husk has none, so the caller hears the user said no (#170: SwagCycle asked for Bluetooth)
+            || (action != null && action.startsWith("android.") && pkg == null && i.getComponent() == null);
         /* HuskPatch: a Settings page for special app access (display over other apps, all files access...) is the host's
            page for it; the caller hears RESULT_CANCELED once it closes, as Settings answers, and reads the choice itself */
         String special = system ? Permissions.specialFor(action) : null;
@@ -393,5 +416,5 @@ public final class AppRunner {
             if (phase == 3) down = 0;
         }
     }
-    static final class ViewRootDispatch { static void key(KeyEvent e) { if (!ViewRoot.dispatchKey(e)) { Activity a = top(); if (a != null) a.dispatchKeyEvent(e); } } }
+    static final class ViewRootDispatch { static void key(KeyEvent e) { if (ViewRoot.keyTarget() != null) ViewRoot.dispatchKey(e); else { Activity a = top(); if (a != null) a.dispatchKeyEvent(e); } } }
 }

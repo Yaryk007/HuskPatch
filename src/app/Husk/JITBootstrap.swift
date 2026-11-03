@@ -9,6 +9,11 @@ import os
 private func csops(_ pid: Int32, _ ops: Int32,
                    _ useraddr: UnsafeMutableRawPointer?, _ usersize: Int) -> Int32
 
+@_silgen_name("husk_prepare_compressed_heap")
+private func prepareCompressedHeap()
+@_silgen_name("husk_release_unused_compressed_heap")
+private func releaseUnusedCompressedHeap()
+
 private let CS_OPS_STATUS = Int32(0)
 private let CS_DEBUGGED = UInt32(0x10000000)
 
@@ -71,9 +76,10 @@ enum JITBootstrap {
     @discardableResult
     static func prewarm() -> Bool {
         if prewarmed { return true }
-        // Before iOS 26 Husk can make the region itself where the device allows it (TrollStore's dynamic-codesigning, a
-        // jailbreak, or a debugger that attached and let go), so it does not wait for CS_DEBUGGED there: Dopamine hides that
-        // flag from apps unless "Allow JIT in Apps" is on, while still letting them run code they wrote.
+        // Before iOS 26 Husk can make the region itself where the device allows it (a jailbreak,
+        // a debugger that attached and let go such as TrollStore's enable-jit, or dynamic-codesigning),
+        // so it does not wait for CS_DEBUGGED there if jailbroken: Dopamine hides that flag from apps unless
+        // "Allow JIT in Apps" is on, while still letting them run code they wrote.
         guard isDebuggerAttached || (canGrantOwnJIT && !selfGrantTried) else {
             HuskLog.log("jit", "no debugger attached yet; not prewarming")
             return false
@@ -85,14 +91,29 @@ enum JITBootstrap {
         // buffer with MAP_JIT and the translation layer makes its region itself.
         if canGrantOwnJIT && !stikDebugMayServiceTraps {
             selfGrantTried = true
-            let works = mapJITWorks
-            HuskLog.log("jit", "not trapping for a JIT region (no StikDebug); MAP_JIT \(works ? "executes" : "does not execute") here")
-            if works { lastFailure = nil }
-            return works
+            if mapJITWorks {
+                HuskLog.log("jit", "not trapping for a JIT region (no StikDebug); MAP_JIT executes here")
+                lastFailure = nil
+                return true
+            }
+            // MAP_JIT refused (no dynamic-codesigning after all, or Dopamine): plain memory made executable, which a debugged
+            // process or a jailbreak allows -- made here, with no brk for an attach that answers none (#148)
+            HuskLog.log("jit", "not trapping for a JIT region (no StikDebug); MAP_JIT does not execute here, trying plain memory")
+            prepareCompressedHeap()
+            if husk_ios_jit_prewarm_self(jitBytes) {
+                prewarmed = true
+                lastFailure = nil
+                HuskLog.log("jit", "JIT region made by Husk itself (\(husk_ios_jit_self_route().map { String(cString: $0) } ?? "self"))")
+                return true
+            }
+            releaseUnusedCompressedHeap()
+            return false
         }
         HuskLog.log("jit", "claiming \(jitBytes / (1024 * 1024)) MiB of JIT memory now, "
                          + "before the guest download -- StikDebug does not stay attached")
+        prepareCompressedHeap()
         let ok = husk_ios_jit_prewarm(jitBytes)
+        if !ok { releaseUnusedCompressedHeap() }
         if ok {
             prewarmed = true
             lastFailure = nil
@@ -262,8 +283,7 @@ enum JITBootstrap {
     }()
 
     /// Whether this copy of Husk was installed by TrollStore (or TrollStore Lite): it leaves a marker file next to the app in
-    /// its bundle container (TrollStore's `TS_MARKER`). Only then is it a TrollStore app, which keeps the entitlements it was
-    /// built with -- including the memory ones.
+    /// its bundle container (TrollStore's `TS_MARKER`).
     static var isInstalledWithTrollStore: Bool {
         let container = Bundle.main.bundleURL.deletingLastPathComponent()
         return ["_TrollStore", "_TrollStoreLite"].contains {
@@ -323,7 +343,10 @@ enum JITBootstrap {
             return false
         }
 
-        var url = "stikjit://enable-jit?bundle-id=\(bundleID)"
+        // pid, not just bundle-id: StikDebug's bundle-id path launches that id via installd.
+        // A LiveContainer guest has no such record; only the container is installed. The pid
+        // path attaches to this already-running process. bundle-id stays as the fallback.
+        var url = "stikjit://enable-jit?bundle-id=\(bundleID)&pid=\(getpid())"
 
         // Sending the script inline makes Husk self-contained. StikDebug accepts
         // script-data unconditionally (HomeView.handleExternalURL), so we do not
@@ -343,16 +366,16 @@ enum JITBootstrap {
             return false
         }
 
-        guard UIApplication.shared.canOpenURL(launchURL) else {
-            HuskLog.log("jit", "FAIL: cannot open stikjit:// -- StikDebug is not "
-                             + "installed, or LSApplicationQueriesSchemes is missing "
-                             + "the 'stikjit' entry in Info.plist")
-            return false
-        }
-
-        HuskLog.log("jit", "opening stikjit:// for bundle \(bundleID); "
+        // Not canOpenURL first: that needs LSApplicationQueriesSchemes for 'stikjit', which is
+        // checked against whichever app iOS actually installed — a container app hosting Husk
+        // fails the query even when StikDebug is installed. open() has no such restriction.
+        HuskLog.log("jit", "opening stikjit:// for bundle \(bundleID), pid \(getpid()); "
                          + "Husk will be backgrounded and relaunched after attach")
-        UIApplication.shared.open(launchURL)
+        UIApplication.shared.open(launchURL, options: [:]) { success in
+            if !success {
+                HuskLog.log("jit", "FAIL: open(stikjit://) did not succeed -- StikDebug is not installed")
+            }
+        }
         return true
     }
 
