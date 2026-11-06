@@ -65,6 +65,7 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, Ke
      * Lifecycle on them (ON_CREATE after onCreate, ON_PAUSE before onPause...), and Compose sets its content once that is CREATED */
     private interface Step { void on(Application.ActivityLifecycleCallbacks c); }
     private void each(Step s) { for (Application.ActivityLifecycleCallbacks c : callbacks()) s.on(c); }
+    private boolean mPostCreate; private Bundle mPostCreateState;
     public final void huskCreate(Bundle state) {
         // as Activity.attach: the activity is its inflater's private factory, after any the app sets (FragmentActivity makes
         // <fragment> and FragmentContainerView there)
@@ -82,7 +83,11 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, Ke
             mVisibleFromClient = !ta.getBoolean(0, false);
             ta.recycle();
         } catch (RuntimeException e) { mVisibleFromClient = true; }
-        if (!mFinished) onPostCreate(state);            /* as ActivityThread: an activity that finished in onCreate goes no further */
+        /* onPostCreate comes after the first onStart (ActivityThread.handleStartActivity): fragments' views exist by then, and
+           JSettlers reaches the Toolbar one of them made its action bar */
+        mPostCreate = !mFinished; mPostCreateState = state;
+        /* the window has its decor by now (JankStats, which Slack attaches in onActivityPostCreated, requires one) */
+        getWindow().getDecorView();
         each(c -> c.onActivityPostCreated(this, state));
     }
     public final void huskStart() {
@@ -90,6 +95,7 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, Ke
         mCalled = false; onStart(); mStarted = true;
         fragmentHost(FragmentManager.HOST_STARTED);
         if (mLoaders != null) mLoaders.doStart();
+        if (mPostCreate) { mPostCreate = false; if (!mFinished) onPostCreate(mPostCreateState); mPostCreateState = null; }   /* an activity that finished goes no further */
         each(c -> c.onActivityPostStarted(this));
     }
     public final void huskRestart() { onRestart(); }
@@ -253,7 +259,8 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, Ke
     public LayoutInflater getLayoutInflater() { return getWindow().getLayoutInflater(); }
     public MenuInflater getMenuInflater() { return new MenuInflater(this); }
     public ActionBar getActionBar() { initWindowDecorActionBar(); return mActionBar; }
-    public void setActionBar(android.widget.Toolbar t) { if (t != null) t.setTitle(getTitle()); }
+    /* as AOSP: the toolbar is the action bar from now on (Bitcoin Wallet sets the up button through getActionBar() next) */
+    public void setActionBar(android.widget.Toolbar t) { mActionBar = t != null ? new husk.ToolbarActionBar(this, t) : null; }
     public void setTitle(CharSequence t) { mTitle = t; onTitleChanged(t, mTitleColor); }
     public void setTitle(int id) { setTitle(getText(id)); }
     public void setTitleColor(int c) { mTitleColor = c; }

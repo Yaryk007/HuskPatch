@@ -275,8 +275,12 @@ static void Mode_getPhysicalHeight(tl_jcall *c) { c->ret = vi(H.height); }
 static void Mode_getRefreshRate(tl_jcall *c) { c->ret = vf(60.f); }
 static void Display_isWideColorGamut(tl_jcall *c) { c->ret = vz(0); }
 static void Display_isHdr(tl_jcall *c) { c->ret = vz(0); }
-static void Display_getAppVsyncOffsetNanos(tl_jcall *c) { c->ret.j = 0; }
-static void Display_getPresentationDeadlineNanos(tl_jcall *c) { c->ret.j = 1000000; }
+/* When vsync reaches the app and the compositor, as a 60 Hz phone has it: a 1 ms app offset, a deadline 5 ms short of the period.
+ * Swappy (Unity's frame pacing) takes the compositor's offset to be period - (deadline - 1 ms) - app offset and keeps its own vsync
+ * clock by it: these give it 5 ms. With both at zero, as unimplemented methods left them, it was 17.7 ms, longer than a frame; its
+ * estimate of the period grew without end, and a game sank from 60 to under 10 frames a second within a minute. */
+static void Display_getAppVsyncOffsetNanos(tl_jcall *c) { c->ret.j = 1000000; }
+static void Display_getPresentationDeadlineNanos(tl_jcall *c) { c->ret.j = 1000000000ll / 60 - 5000000; }
 static void Window_setFlags(tl_jcall *c) { (void)c; }
 static void Window_getDecorView(tl_jcall *c) { c->ret = vl(H.activity); }
 static void UnityPlayer_getLaunchURL(tl_jcall *c) { c->ret = vl(STR("")); }
@@ -479,7 +483,7 @@ static void install_build(void)
     v.l = STR("14"); tl_jni_set_static("android/os/Build$VERSION", "RELEASE", "Ljava/lang/String;", v);
     v.l = STR("REL"); tl_jni_set_static("android/os/Build$VERSION", "CODENAME", "Ljava/lang/String;", v);
     v.l = STR("11000000"); tl_jni_set_static("android/os/Build$VERSION", "INCREMENTAL", "Ljava/lang/String;", v);
-    v.l = STR("2024-05-05"); tl_jni_set_static("android/os/Build$VERSION", "SECURITY_PATCH", "Ljava/lang/String;", v);
+    v.l = STR("2026-10-05"); tl_jni_set_static("android/os/Build$VERSION", "SECURITY_PATCH", "Ljava/lang/String;", v);
     v.j = 0; v.i = 34; tl_jni_set_static("android/os/Build$VERSION", "SDK_INT", "I", v);
     v.j = 0; v.i = 34; tl_jni_set_static("android/os/Build$VERSION", "PREVIEW_SDK_INT", "I", v);
     v.j = 0; v.l = STR("mounted"); tl_jni_set_static("android/os/Environment", "MEDIA_MOUNTED", "Ljava/lang/String;", v);
@@ -982,7 +986,32 @@ static void Set_iterator(tl_jcall *c) { c->ret = vl(make("java/util/Iterator"));
 static void Coll_size(tl_jcall *c) { c->ret = vi(0); }
 static void Coll_isEmpty(tl_jcall *c) { c->ret = vz(1); }
 static void SP_getAll(tl_jcall *c) { c->ret = vl(make("java/util/HashMap")); }
-static void Intent_getExtras(tl_jcall *c) { c->ret = vl(NULL); }
+/* The launch intent's extras, as an engine driver sets them: Unity takes its command line from the "unity" one. None, and
+ * getExtras() is null as for an app started from the launcher. */
+static struct { char key[64]; char *val; } g_extras[8];
+static int g_nextras;
+void tl_hle_set_intent_extra(const char *key, const char *val)
+{
+    int i = 0;
+    while (i < g_nextras && strcmp(g_extras[i].key, key)) i++;
+    if (i == g_nextras) { if (g_nextras == 8) return; g_nextras++; }
+    snprintf(g_extras[i].key, sizeof(g_extras[i].key), "%s", key);
+    free(g_extras[i].val); g_extras[i].val = strdup(val);
+}
+static const char *intent_extra(const char *key)
+{
+    for (int i = 0; i < g_nextras; i++) if (!strcmp(g_extras[i].key, key)) return g_extras[i].val;
+    return NULL;
+}
+static void Intent_getExtras(tl_jcall *c) { c->ret = vl(g_nextras ? make("android/os/Bundle") : NULL); }
+static void Intent_getStringExtra(tl_jcall *c) { const char *v = intent_extra(S(c->args[0].l)); c->ret = vl(v ? STR(v) : NULL); }
+static void Bundle_containsKey(tl_jcall *c) { c->ret = vz(intent_extra(S(c->args[0].l)) != NULL); }
+static void Bundle_getString(tl_jcall *c) { const char *v = intent_extra(S(c->args[0].l)); c->ret = vl(v ? STR(v) : NULL); }
+static void Bundle_getString_or(tl_jcall *c)
+{
+    const char *v = intent_extra(S(c->args[0].l));
+    c->ret = vl(v ? STR(v) : c->args[1].l ? tl_jni_ref(c->args[1].l) : NULL);
+}
 static void Intent_init_action(tl_jcall *c) { tl_jni_set_field(c->self, "action", "Ljava/lang/String;", vl(c->args[0].l)); }
 static void Intent_self(tl_jcall *c) { c->ret = vl(c->self); }
 static void PM_queryIntentActivities(tl_jcall *c) { (void)c; c->ret = vl(make("java/util/ArrayList")); }
@@ -1310,7 +1339,6 @@ static const tl_jhle k_hle[] = {
     M("android/os/Process", "myPid", "()I", Process_myPid), M("android/os/Process", "myTid", "()I", Process_myTid),
     M("java/lang/Object", "<init>", "()V", Noop),
     M("java/lang/Object", "getClass", "()Ljava/lang/Class;", Object_getClass),
-    M("android/os/Bundle", "getString", "(Ljava/lang/String;)Ljava/lang/String;", Intent_getExtras),
     M("java/lang/Class", "getClassLoader", "()Ljava/lang/ClassLoader;", Class_getClassLoader),
     M("android/provider/Settings$Secure", "getString", "(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;", Secure_getString),
     M("java/lang/ClassLoader", "findLibrary", "(Ljava/lang/String;)Ljava/lang/String;", ClassLoader_findLibrary),
@@ -1389,6 +1417,10 @@ static const tl_jhle k_hle[] = {
     M("java/util/ArrayList", "size", "()I", Coll_size), M("java/util/List", "size", "()I", Coll_size),
     M("java/util/ArrayList", "isEmpty", "()Z", Coll_isEmpty), M("java/util/List", "isEmpty", "()Z", Coll_isEmpty),
     M("java/util/ArrayList", "iterator", "()Ljava/util/Iterator;", Set_iterator), M("java/util/List", "iterator", "()Ljava/util/Iterator;", Set_iterator),
+    M("android/content/Intent", "getStringExtra", "(Ljava/lang/String;)Ljava/lang/String;", Intent_getStringExtra),
+    M("android/os/Bundle", "containsKey", "(Ljava/lang/String;)Z", Bundle_containsKey),
+    M("android/os/Bundle", "getString", "(Ljava/lang/String;)Ljava/lang/String;", Bundle_getString),
+    M("android/os/Bundle", "getString", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", Bundle_getString_or),
     M("android/content/Context", "getObbDir", "()Ljava/io/File;", Context_getObbDir), M("android/content/Context", "getObbDirs", "()[Ljava/io/File;", Context_getObbDirs),
     M("android/app/Activity", "setRequestedOrientation", "(I)V", Activity_setRequestedOrientation),
     M("android/hardware/display/DisplayManager", "getDisplay", "(I)Landroid/view/Display;", DM_getDisplay),

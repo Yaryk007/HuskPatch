@@ -56,13 +56,14 @@
 	<array>
 		<string>en</string>
 		<string>zh-Hans</string>
+		<string>ja</string>
 	</array>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>3.7.0</string>
+	<string>3.8.0</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -75,7 +76,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>149</string>
+	<string>150</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>stikjit</string>

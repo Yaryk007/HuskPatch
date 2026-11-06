@@ -24,7 +24,7 @@ public final class PhoneAccount implements android.os.Parcelable {
     public static final int CAPABILITY_VIDEO_CALLING = 8;
     public static final int CAPABILITY_VIDEO_CALLING_RELIES_ON_PRESENCE = 256;
     public static final int CAPABILITY_VOICE_CALLING_AVAILABLE = 131072;
-    public static android.os.Parcelable.Creator CREATOR;
+    public static android.os.Parcelable.Creator CREATOR = husk.StubCreator.of(PhoneAccount.class);
     public static final java.lang.String EXTRA_ADD_SELF_MANAGED_CALLS_TO_INCALLSERVICE = "android.telecom.extra.ADD_SELF_MANAGED_CALLS_TO_INCALLSERVICE";
     public static final java.lang.String EXTRA_ALWAYS_USE_VOIP_AUDIO_MODE = "android.telecom.extra.ALWAYS_USE_VOIP_AUDIO_MODE";
     public static final java.lang.String EXTRA_CALL_SUBJECT_CHARACTER_ENCODING = "android.telecom.extra.CALL_SUBJECT_CHARACTER_ENCODING";
@@ -42,7 +42,7 @@ public final class PhoneAccount implements android.os.Parcelable {
     public static final java.lang.String SCHEME_SIP = "sip";
     public static final java.lang.String SCHEME_TEL = "tel";
     public static final java.lang.String SCHEME_VOICEMAIL = "voicemail";
-    public static android.telecom.PhoneAccount.Builder builder(android.telecom.PhoneAccountHandle p0, java.lang.CharSequence p1) { return null; }
+    public static android.telecom.PhoneAccount.Builder builder(android.telecom.PhoneAccountHandle p0, java.lang.CharSequence p1) { return new android.telecom.PhoneAccount.Builder(p0, p1); }
     public java.lang.String capabilitiesToString() { return null; }
     public int describeContents() { return 0; }
     public android.telecom.PhoneAccountHandle getAccountHandle() { return (android.telecom.PhoneAccountHandle) huskProps.get("AccountHandle"); }

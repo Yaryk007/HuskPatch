@@ -369,7 +369,7 @@ public final class ContactsContract {
             private final java.util.HashMap<String, Object> huskProps = new java.util.HashMap<>();
             public static final java.lang.String CONTENT_DIRECTORY = "suggestions";
             public static final java.lang.String PARAMETER_MATCH_NAME = "name";
-            public static android.provider.ContactsContract.Contacts.AggregationSuggestions.Builder builder() { return null; }
+            public static android.provider.ContactsContract.Contacts.AggregationSuggestions.Builder builder() { return new android.provider.ContactsContract.Contacts.AggregationSuggestions.Builder(); }
             protected AggregationSuggestions() {}
             public static final class Builder {
                 private final java.util.HashMap<String, Object> huskProps = new java.util.HashMap<>();
@@ -924,7 +924,7 @@ public final class ContactsContract {
     public static final class SimAccount implements android.os.Parcelable {
         private final java.util.HashMap<String, Object> huskProps = new java.util.HashMap<>();
         public static final int ADN_EF_TYPE = 1;
-        public static android.os.Parcelable.Creator CREATOR;
+        public static android.os.Parcelable.Creator CREATOR = husk.StubCreator.of(SimAccount.class);
         public static final int FDN_EF_TYPE = 2;
         public static final int SDN_EF_TYPE = 3;
         public static int UNKNOWN_EF_TYPE;
