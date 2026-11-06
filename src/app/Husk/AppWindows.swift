@@ -66,11 +66,14 @@ struct AppWindowLayer: View {
         // and the dock keep to the safe area themselves.
         GeometryReader { geo in
             if let app = windows.app {
+                // HuskPatch: minimised, the window stays in the hierarchy, only unseen: leaving it pauses the engine, and an
+                // app that stops the moment it is minimised is not multitasking.
+                AppWindow(app: app, container: geo.size, safe: geo.safeAreaInsets)
+                    .opacity(windows.minimized ? 0 : 1)
+                    .allowsHitTesting(!windows.minimized)
+                    .transition(.scale(scale: 0.2).combined(with: .opacity))
                 if windows.minimized {
                     WindowDock(app: app, container: geo.size, safe: geo.safeAreaInsets)
-                } else {
-                    AppWindow(app: app, container: geo.size, safe: geo.safeAreaInsets)
-                        .transition(.scale(scale: 0.2).combined(with: .opacity))
                 }
             }
         }

@@ -9,10 +9,11 @@
 
 void tl_log_line(const char *fmt, ...);
 
+/* Android 16's IServiceManager.aidl (getService2 and checkService2 return a Service union, not written yet). */
 #define SM_GET    1
-#define SM_CHECK  2
-#define SM_ADD    3
-#define SM_LIST   4
+#define SM_CHECK  3
+#define SM_ADD    5
+#define SM_LIST   6
 
 #define BINDER_TYPE_HANDLE 0x73682a85U
 
@@ -44,6 +45,12 @@ static void skip_token(const uint8_t *d, size_t n, size_t *p)
         int32_t x;
         memcpy(&x, d + *p, 4);
         if (x < 0 || x > 512) *p += 4; /* work source uid */
+    }
+    /* 'SYST': Parcel.writeInterfaceToken puts it before the descriptor. Read as the length, the name became the descriptor. */
+    if (*p + 4 <= n) {
+        int32_t x;
+        memcpy(&x, d + *p, 4);
+        if (x == 0x53595354) *p += 4;
     }
     int32_t len = rd_i32(d, n, p);
     if (len < 0) return;
@@ -171,6 +178,16 @@ bool husk_sm_add(const char *name, uint32_t handle)
     pthread_mutex_unlock(&g_lk);
     tl_log_line("sm: add %s -> handle %u", name, handle);
     return true;
+}
+
+bool husk_sm_remove(const char *name)
+{
+    if (!name) return false;
+    bool found = false;
+    pthread_mutex_lock(&g_lk);
+    for (int i = 0; i < MAX_SVC; i++) if (g_svc[i].used && !strcmp(g_svc[i].name, name)) { g_svc[i].used = false; found = true; }
+    pthread_mutex_unlock(&g_lk);
+    return found;
 }
 
 uint32_t husk_sm_get(const char *name)

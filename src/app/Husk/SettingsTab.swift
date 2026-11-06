@@ -954,6 +954,7 @@ struct SavedMachineSettings: View {
 
 struct AppearanceSettings: View {
     @State private var appIcon = HuskAppIcon.current
+    @AppStorage(HuskAppIcon.ogKey) private var ogIcons = true
     @AppStorage(Theme.Appearance.key) private var appearance = Theme.Appearance.system
     @AppStorage(Holiday.key) private var holiday = true
     @AppStorage(Material3.key) private var material3 = false
@@ -1048,7 +1049,7 @@ struct AppearanceSettings: View {
 
             Section {
                 LazyVGrid(columns: iconColumns, spacing: 14) {
-                    ForEach(HuskAppIcon.allCases) { icon in
+                    ForEach(HuskAppIcon.allCases.filter { ogIcons || !$0.isOG }) { icon in
                         Button {
                             appIcon = icon
                             HuskAppIcon.apply(icon)
@@ -1065,7 +1066,7 @@ struct AppearanceSettings: View {
                                 Text(icon.title)
                                     .font(.caption)
                                     .foregroundStyle(appIcon == icon ? Color.accentColor : .primary)
-                                    .lineLimit(1)
+                                    .lineLimit(2).multilineTextAlignment(.center)
                             }
                             .frame(maxWidth: .infinity)
                         }
@@ -1073,11 +1074,17 @@ struct AppearanceSettings: View {
                     }
                 }
                 .padding(.vertical, 6)
+                Toggle("OG Icons", isOn: $ogIcons)
+                    .onChange(of: ogIcons) { on in
+                        // Turned off while one is in use: back to the blue icon.
+                        if !on, appIcon.isOG { appIcon = .automatic; HuskAppIcon.apply(.automatic) }
+                    }
             } header: {
                 Text("App Icon")
             } footer: {
-                Text("Automatic follows the system appearance — light, dark and tinted. The others pin "
-                   + "one look. iOS shows its own confirmation after a change; that alert cannot be turned off.")
+                Text("Blue, Green and OG follow the system appearance — light, dark and tinted. OG icons are Husk's own: "
+                   + "OG First is the flat one from before the glass (0.2.2). iOS shows its own confirmation after a change; "
+                   + "that alert cannot be turned off.")
             }
         }
         .navigationTitle("Appearance")

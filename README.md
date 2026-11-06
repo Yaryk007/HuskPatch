@@ -2,7 +2,7 @@
 
 The text bellow is not what huskpatch was used to be, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed, thank you guys for the support, i might still make updates but i will focus on my other projects more.
 
-> **HuskPatch 3.6.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (Husk 3.0 and after: Compatibility
+> **HuskPatch 3.8.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (Husk 3.0 and after: Compatibility
 > List, Godot 4, OBB expansion files, CJK fonts, .NET for Android, battery/clock/locale following the phone...) with these additions:
 >
 > - **Android OS mode** (Settings › Appearance › Android OS): HuskPatch's interface replaced by LineageOS 22's (Android
@@ -97,7 +97,12 @@ The text bellow is not what huskpatch was used to be, it was a fork of husk to f
 >   whole screen -- no rounded corners, no title bar (tap the handle at the top for it) -- and games start at
 >   full-screen resolution, so a maximised game has no black borders.
 > - **Android status bar** over apps in portrait, and **no grey borders** around apps.
-> - HuskPatch's own icon and name; Husk's original icon is still there as **Automatic Legacy**, with the others.
+> - HuskPatch's own icon and name. Settings › Appearance has **Blue**, **Green** and Husk's own **OG** icons, including
+>   **OG First**, the flat one from before the glass (0.2.2). The OG Icons switch hides them.
+> - **Android translation** (experimental: Developer options › Android translation): Android's real system services running
+>   in HuskPatch without QEMU, one by one. See [docs/07-android-translation.md](docs/07-android-translation.md).
+> - **Google Play services connection**: apps' Google libraries now reach a Play services broker and get a proper answer
+>   (`husk.GmsCore`, written from microG's open protocol definitions; none of Google's code is included).
 >
 > Upstream's PS4 games (libhuskps4) are not in these builds: the PS4 layer needs Leviidev's unpublished FEXCore fork.
 >

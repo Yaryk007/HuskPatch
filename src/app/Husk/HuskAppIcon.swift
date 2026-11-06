@@ -20,6 +20,8 @@ enum HuskAppIcon: String, CaseIterable, Identifiable {
     case green        = "AppIconGreen"
     /// HuskPatch: Husk's original icon, with its own light, dark and tinted versions.
     case legacy       = "AppIconLegacy"
+    /// HuskPatch: Husk's very first icon, flat black and white from before the glass (0.2.2, replaced in 0.3.0).
+    case ogFirst      = "AppIconOGFirst"
     case clearLight   = "AppIconClearLight"
     case clearDark    = "AppIconClearDark"
     case tintedLight  = "AppIconTintedLight"
@@ -29,13 +31,14 @@ enum HuskAppIcon: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .automatic:   return "Automatic"
-        case .green:       return "Automatic Green"
-        case .legacy:      return "Automatic Legacy"
-        case .clearLight:  return "Clear Light"
-        case .clearDark:   return "Clear Dark"
-        case .tintedLight: return "Tinted Light"
-        case .tintedDark:  return "Tinted Dark"
+        case .automatic:   return "Blue"
+        case .green:       return "Green"
+        case .legacy:      return "OG"
+        case .ogFirst:     return "OG First"
+        case .clearLight:  return "OG Clear Light"
+        case .clearDark:   return "OG Clear Dark"
+        case .tintedLight: return "OG Tinted Light"
+        case .tintedDark:  return "OG Tinted Dark"
         }
     }
 
@@ -43,6 +46,14 @@ enum HuskAppIcon: String, CaseIterable, Identifiable {
         self == .automatic || self == .green || self == .legacy
             ? "Follows the system: light, dark and tinted."
             : "Always this look."
+    }
+
+    /// Husk's own icons from before HuskPatch's. Settings › Appearance can hide them.
+    var isOG: Bool { self != .automatic && self != .green }
+    static let ogKey = "huskpatch.icons.og"
+    static var shown: [HuskAppIcon] {
+        let og = UserDefaults.standard.object(forKey: ogKey) as? Bool ?? true
+        return allCases.filter { og || !$0.isOG }
     }
 
     /// What UIKit wants: nil for the primary, the asset name otherwise.
@@ -63,6 +74,7 @@ enum HuskAppIcon: String, CaseIterable, Identifiable {
         case .automatic:   return UIImage(named: dark ? "icon-dark" : "icon-default")
         case .green:       return UIImage(named: dark ? "icon-green-dark" : "icon-green")
         case .legacy:      return UIImage(named: dark ? "icon-legacy-dark" : "icon-legacy")
+        case .ogFirst:     return UIImage(named: "icon-og-first")
         case .clearLight:  return UIImage(named: "icon-clearlight")
         case .clearDark:   return UIImage(named: "icon-cleardark")
         case .tintedLight: return UIImage(named: "icon-tintedlight")

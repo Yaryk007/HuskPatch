@@ -10,6 +10,7 @@
 #include "husk-tl-aosp.h"
 #include "husk-tl-binder.h"
 #include "husk-tl-servicemanager.h"
+#include "husk-tl-services.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -265,6 +266,7 @@ static void svc_txn(uint32_t code, uint32_t flags, const uint8_t *data, size_t d
 
 static void add_svc(const char *name)
 {
+    if (husk_services_running(name)) return;    /* Android translation's real one stays */
     uint32_t h = husk_binder_add_local(svc_txn, (void *)name);
     if (h) husk_sm_add(name, h);
 }

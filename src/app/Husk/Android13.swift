@@ -980,9 +980,18 @@ enum A13Screenshot {
 /// Developer options, once Build number has been tapped seven times: the Android 13 look lives here.
 struct AndroidDeveloperOptionsPage: View {
     @AppStorage(Android13.key) private var a13 = false
+    @AppStorage(AndroidTranslation.key) private var translation = false
 
     var body: some View {
         AndroidSettingsPage(title: "Developer options", onBack: AndroidSettingsRoute.pop) {
+            AndroidSettingsGroup(header: "Experimental") {
+                AndroidSettingsRow(icon: "flask.fill", tint: .systemPurple, title: "Android translation (currently at services stage)",
+                                   summary: "Android's real system services in HuskPatch, one by one, without QEMU") {
+                    Toggle("", isOn: Binding(get: { translation }, set: { translation = $0; AndroidTranslation.setEnabled($0) }))
+                        .labelsHidden().toggleStyle(Material3SwitchStyle())
+                }
+                if translation { AndroidTranslationServices().padding(16) }
+            }
             AndroidSettingsGroup(header: "Android OS look") {
                 AndroidSettingsRow(icon: "13.circle", tint: .systemTeal, title: "Android 13 (LineageOS 20)",
                                    summary: "Lock screen, shade and Quick Settings, home, app drawer, recents, icons and wallpaper as Android 13 draws them. Off: LineageOS 22.") {

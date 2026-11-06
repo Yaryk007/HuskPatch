@@ -185,9 +185,14 @@ struct AndroidDeveloperOptions: View {
     @AppStorage(AndroidDev.noHeadsUpKey) private var noHeadsUp = false
     @AppStorage(AndroidDev.plainWallpaperKey) private var plainWallpaper = false
     @AppStorage(AndroidOS.Navigation.key) private var navigation = AndroidOS.Navigation.buttons
+    @AppStorage(AndroidTranslation.key) private var translation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            section("Experimental")
+            row("Android translation (currently at services stage)", "Android's real system services in HuskPatch, one by one, without QEMU", $translation)
+            if translation { AndroidTranslationServices() }
+
             section("System UI")
             row("Hide status bar", "No clock or icons at the top; pull down from the top edge for the shade", $hideStatusBar)
             row(navigation == .gestures ? "Hide gesture bar" : "Hide navigation bar",
@@ -213,6 +218,7 @@ struct AndroidDeveloperOptions: View {
             row("Show taps", "A dot where you touch the screen", $showTouches)
             row("Show refresh rate", "The frames drawn each second, in the top corner", $refreshRate)
         }
+        .onChange(of: translation) { AndroidTranslation.setEnabled($0) }
         .onChange(of: showTouches) { _ in AndroidDev.applyOverlays() }
         .onChange(of: refreshRate) { _ in AndroidDev.applyOverlays() }
     }

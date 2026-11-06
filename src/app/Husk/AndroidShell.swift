@@ -202,6 +202,17 @@ final class AndroidShellState: ObservableObject {
 
     func launch(_ app: ShellApp) {
         if case .item(.game(let g)) = app, !canRun(g) { return }
+        // Settings › System › Open apps in windows, or the app's own setting: over the shell, as in HuskPatch's own interface.
+        if case .item(.game(let g)) = app {
+            if AppWindows.opensInWindow(g) {
+                recentApps.removeAll { $0 == app }
+                recentApps.insert(app, at: 0)
+                withAnimation(AndroidMotion.launch) { drawer = false; drawerPeek = 0; recents = false }
+                AppWindows.shared.open(g)
+                return
+            }
+            AppWindows.shared.close(g)
+        }
         TouchTracker.install()
         if open != app { captureSnapshot() }
         recentApps.removeAll { $0 == app }

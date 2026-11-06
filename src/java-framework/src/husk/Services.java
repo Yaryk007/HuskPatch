@@ -50,6 +50,12 @@ public final class Services {
             new Handler(Looper.getMainLooper()).post(() -> conn.onServiceConnected(cn, play));
             return true;
         }
+        final IBinder gms = GmsCore.bind(i);
+        if (gms != null) {
+            final ComponentName cn = new ComponentName(GooglePackages.GMS, i.getAction());
+            new Handler(Looper.getMainLooper()).post(() -> conn.onServiceConnected(cn, gms));
+            return true;
+        }
         Manifest.Component c = find(i);
         if (c == null) return false;
         new Handler(Looper.getMainLooper()).post(() -> {

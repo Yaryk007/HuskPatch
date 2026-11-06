@@ -117,5 +117,6 @@ void husk_balloon_set_bytes(int64_t target_bytes);
 void tl_ld_set_aot_dir(const char *dir);
 #include "../../translation-layer-next/husk-tl-aot.h"
 #include "../../translation-layer-next/husk-tl-codesign.h"
+#include "../../translation-layer-next/husk-tl-services.h"
 
 #endif /* HUSK_BRIDGE_H */

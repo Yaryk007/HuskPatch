@@ -15,5 +15,9 @@ $CC "$ROOT/tools/servicemanager-test.c" "$SRC/husk-tl-binder.c" "$SRC/husk-tl-se
 "$OUT/sm-test"
 
 $CC "$ROOT/tools/aosp-boot-test.c" "$SRC/husk-tl-binder.c" "$SRC/husk-tl-servicemanager.c" \
-  "$SRC/husk-tl-aosp.c" -o "$OUT/aosp-boot-test"
+  "$SRC/husk-tl-services.c" "$SRC/husk-tl-aosp.c" -o "$OUT/aosp-boot-test"
 "$OUT/aosp-boot-test"
+
+$CC "$ROOT/tools/services-test.c" "$SRC/husk-tl-binder.c" "$SRC/husk-tl-servicemanager.c" \
+  "$SRC/husk-tl-services.c" -o "$OUT/services-test"
+"$OUT/services-test"
