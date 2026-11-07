@@ -1,5 +1,7 @@
 import SwiftUI
 
+func * (size: CGSize, k: CGFloat) -> CGSize { CGSize(width: size.width * k, height: size.height * k) }
+
 func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat {
     a + (b - a) * t
 }
@@ -28,7 +30,8 @@ struct HomeLayout {
     var w: CGFloat { size.width }
     var h: CGFloat { size.height }
     var ch: CGFloat { min(size.width * 16 / 9, size.height) }
-    var u: CGFloat { size.width / 390 }
+    /// By the short side: in landscape the width would double everything.
+    var u: CGFloat { min(size.width, size.height) / 390 }
 
     // MARK: Status bar (a floating capsule that grows into the control panel)
 

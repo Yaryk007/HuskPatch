@@ -5,7 +5,9 @@ import SwiftUI
 /// Geometry Dash is a landscape game, and a fixed-size surface cannot follow a rotation.
 enum HuskOrientation {
     static var standard: UIInterfaceOrientationMask {
-        UIDevice.current.userInterfaceIdiom == .pad ? .all : [.portrait, .landscapeLeft, .landscapeRight]
+        if UIDevice.current.userInterfaceIdiom == .pad { return .all }
+        // HuskPatch: on a phone the OS itself stays upright, as a phone's launcher does. Only an app that wants landscape turns it.
+        return ModemOSLook.isOn || AndroidOS.isOn ? .portrait : [.portrait, .landscapeLeft, .landscapeRight]
     }
     static var mask: UIInterfaceOrientationMask = standard
 
@@ -64,6 +66,10 @@ struct HuskApp: App {
         // to lose the first line of.
         HuskLog.start()
         HuskLog.logFootprint("app-launch")
+        // HuskPatch: ModemOS is the system now, also for installs from before the merge.
+        ModemOSLook.adoptMergedSystem()
+        HuskOrientation.mask = HuskOrientation.standard
+        HuskMultiApp.apply()
         // HuskPatch: the Android 16 style's tab and navigation bars, before the first bar is built.
         Material3.applyBars()
         Material3.exportDynamicColors()

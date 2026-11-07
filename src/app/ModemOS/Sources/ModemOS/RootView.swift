@@ -6,6 +6,7 @@ struct RootView: View {
     @ObservedObject private var os = OSSettings.shared
     /// The boot sequence is off unless it is turned on in the Lab.
     @State private var booting = OSSettings.shared.forcedBoot
+    @State private var locked = OSSettings.shared.lockScreen && OSSettings.shared.setupDone
 
     var body: some View {
         ZStack {
@@ -18,6 +19,10 @@ struct RootView: View {
                     os.setupDone = true
                 })
                 .transition(.opacity)
+            }
+
+            if locked && !booting && os.setupDone {
+                LockScreen(unlocked: { locked = false })
             }
 
             if booting {

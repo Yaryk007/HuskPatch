@@ -41,6 +41,8 @@ public final class ModemOSHost: ObservableObject {
     @Published public var installed: [ModemOSHostApp] = []
     /// Set to an app's id to open it, as tapping its icon would.
     @Published public var openRequest: String?
+    /// The host app in front changed (its id; nil for the home screen or one of ModemOS's own apps).
+    public var frontChanged: ((String?) -> Void)?
     /// Shown in the Lab and the Settings app when set: goes back to the host's own interface.
     public var exitTitle = "Exit"
     public var exit: (() -> Void)?

@@ -31,7 +31,7 @@ struct ContentView: View {
     @AppStorage(Theme.Appearance.key) private var appearance = Theme.Appearance.system
     @AppStorage(Material3.key) private var material3 = false
     @AppStorage(AndroidOS.key) private var androidOS = false
-    @AppStorage(ModemOSLook.key) private var modemOS = false
+    @AppStorage(ModemOSLook.key) private var modemOS = true
     @ObservedObject private var theme = AppTheme.shared
     @ObservedObject private var incoming = IncomingFiles.shared
     @ObservedObject private var showcase = ShowcaseStore.shared

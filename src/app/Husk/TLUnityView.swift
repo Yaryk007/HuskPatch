@@ -274,6 +274,11 @@ final class TLUnityUIView: UIView, UIKeyInput {
         let ca = Bundle.main.path(forResource: "cacert", ofType: "pem") ?? ""
         try? FileManager.default.createDirectory(atPath: dataDir, withIntermediateDirectories: true)
         let layerPtr = Unmanaged.passUnretained(layer).toOpaque()
+        // HuskPatch, Developer options: an app that is already loaded comes back; a new one starts beside the one in front.
+        if HuskMultiApp.isOn, let front = husk_native_loaded_apk().map({ String(cString: $0) }), front != apk,
+           husk_multiapp_switch(apk) == 0 {
+            _ = husk_multiapp_make_room(HuskMultiApp.code(engine))
+        }
         let loaded = husk_native_loaded_apk().map { String(cString: $0) }
         let st = husk_unity_state()
         if st != Int32(HUSK_UNITY_IDLE) {

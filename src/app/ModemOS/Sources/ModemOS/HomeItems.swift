@@ -253,7 +253,7 @@ struct HomeItem: Identifiable, Equatable {
 
     /// The home screen: the system's apps, then the first installed ones.
     static var homeWithInstalled: [HomeItem] {
-        home + installedApps.prefix(4)
+        home + hostApps.filter { $0.hostID == "store" } + installedApps.prefix(3)
     }
 
     /// The apps on the home screen, above the dock.

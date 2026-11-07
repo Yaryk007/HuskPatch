@@ -220,7 +220,8 @@ final class WindowManager: ObservableObject {
             damping: os.closeDamping(session.style),
             velocity: velocity,
             ease: true,
-            stages: os.easeStages(session.style)
+            stages: os.easeStages(session.style),
+            landing: 0.012
         ) { [weak self, weak session] in
             guard let self = self, let session = session, session.goal == 0 else { return }
             if session.item.keepsRunning && !session.discard {

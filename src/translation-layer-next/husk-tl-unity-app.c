@@ -66,7 +66,7 @@ static struct {
 
 static unsigned long engine_frames(void);
 
-static struct {
+struct app_slot {
     atomic_int state;
     int engine;
     char apk[1024], data[1024], package[160], angle[1024], ca[1024], vulkan[1024];
@@ -74,7 +74,20 @@ static struct {
     int nextra;
     void *layer;
     int width, height;
-} A;
+};
+
+/*
+ * HuskPatch: Developer options can keep several apps loaded, one per engine (engines keep their state in their own files,
+ * so two of the same kind cannot share a run). `A` is the app in front; a thread that belongs to one app (its launch
+ * thread, its heartbeat) keeps meaning that app whichever is in front. With the option off only the first slot is ever used.
+ */
+enum { APP_SLOTS = 4 };
+static struct app_slot g_slots[APP_SLOTS];
+static struct app_slot *g_app = &g_slots[0];
+static __thread struct app_slot *t_app;
+#define A (*(t_app ? t_app : g_app))
+/* 0 one app at a time, 1 others paused behind the front one, 2 others keep running. */
+static int g_multi_mode;
 
 /* -------------------------------------------------------------- crash report */
 
@@ -182,7 +195,7 @@ static void app_end(const char *why)
  * leaves nothing else to tell a frozen game from a killed one, or a jetsam kill from a crash. */
 static void *heartbeat_thread(void *arg)
 {
-    (void)arg;
+    t_app = arg;
     pthread_setname_np("husk-unity-hb");
     unsigned long last = 0;
     for (int tick = 0;; tick++) {
@@ -269,8 +282,10 @@ static bool manifest_launcher_activity(const char *apk, const char *package, cha
  * natives. Java recursion is C recursion in the interpreter, and class initialisation runs deep, so this runs on its own
  * thread with a big stack rather than on the launch thread.
  */
+static struct app_slot *g_java_boot_app;
 static void *java_boot(void *arg)
 {
+    t_app = g_java_boot_app;
     bool *ok = arg;
     if (tl_dvm_running()) { *ok = true; return NULL; }
     const char *r = g_java_root;
@@ -300,7 +315,7 @@ static void *java_boot(void *arg)
 
 static void *launch_thread(void *arg)
 {
-    (void)arg;
+    t_app = arg;
     pthread_setname_np("husk-native-start");
     tl_guest_exit_hook = guest_exit;
     tl_app_end_hook = app_end;
@@ -365,6 +380,7 @@ static void *launch_thread(void *arg)
         if (g_java_root[0]) {
             pthread_attr_t at; pthread_attr_init(&at); pthread_attr_setstacksize(&at, 64u << 20);
             pthread_t t;
+            g_java_boot_app = &A;
             if (pthread_create(&t, &at, java_boot, &ok) == 0) pthread_join(t, NULL);
             pthread_attr_destroy(&at);
         } else tl_log_line("java: no runtime folder given");
@@ -433,7 +449,7 @@ static void *launch_thread(void *arg)
     }
     atomic_store(&A.state, HUSK_UNITY_RUNNING);
     pthread_t hb;
-    if (pthread_create(&hb, NULL, heartbeat_thread, NULL) == 0) pthread_detach(hb);
+    if (pthread_create(&hb, NULL, heartbeat_thread, &A) == 0) pthread_detach(hb);
     /*
      * This thread loaded the game's libraries and ran their JNI_OnLoad, which on Android is the UI thread, and that thread
      * never ends. Some code relies on it: Geode 5 takes this thread as the game's main thread and keeps thread-local state
@@ -491,7 +507,7 @@ static bool launch(int engine, const char *apk, const char *data_dir, void *meta
     pthread_attr_setstacksize(&at, 4u << 20);
     pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
     pthread_t t;
-    int rc = pthread_create(&t, &at, launch_thread, NULL);
+    int rc = pthread_create(&t, &at, launch_thread, g_app);
     pthread_attr_destroy(&at);
     if (rc) { atomic_store(&A.state, HUSK_UNITY_FAILED); return false; }
     return true;
@@ -737,6 +753,60 @@ static void pause_engine(bool paused)
     else if (A.engine == ENGINE_GAMEACTIVITY) { tl_ga_set_paused(paused); tl_audio_set_paused(paused); }
     else if (A.engine == ENGINE_COCOS) { tl_cocos_set_paused(paused); tl_audio_set_paused(paused); }
     else { tl_unity_set_paused(paused); tl_audio_set_paused(paused); }
+}
+
+/* ------------------------------------------------------- several apps in a run */
+
+void husk_multiapp_set_mode(int mode) { g_multi_mode = mode; }
+
+static bool slot_loaded(const struct app_slot *s) { return atomic_load(&s->state) != HUSK_UNITY_IDLE; }
+
+static struct app_slot *free_slot(void)
+{
+    for (int i = 0; i < APP_SLOTS; i++) if (!slot_loaded(&g_slots[i])) return &g_slots[i];
+    return NULL;
+}
+
+int husk_multiapp_has_room(int engine)
+{
+    if (!g_multi_mode || husk_console_loaded_game()) return 0;
+    for (int i = 0; i < APP_SLOTS; i++) {
+        if (!slot_loaded(&g_slots[i])) continue;
+        if (atomic_load(&g_slots[i].state) == HUSK_UNITY_STARTING || g_slots[i].engine == engine) return 0;
+    }
+    return free_slot() != NULL;
+}
+
+/* Puts the front app behind, so that the next launch starts in a free slot. */
+int husk_multiapp_make_room(int engine)
+{
+    if (!husk_multiapp_has_room(engine)) return 0;
+    if (!slot_loaded(g_app)) return 1;
+    if (g_multi_mode == 1 && atomic_load(&g_app->state) == HUSK_UNITY_RUNNING) {
+        pause_engine(true);
+        tl_audio_set_paused(false);     /* the sound is shared, and the next app needs it */
+    }
+    g_app = free_slot();
+    tl_log_line("native: keeping the app behind loaded; the next one starts beside it");
+    return 1;
+}
+
+/* Brings a loaded app to the front. Returns 0 when it is not loaded. */
+int husk_multiapp_switch(const char *apk)
+{
+    if (!g_multi_mode || !apk) return 0;
+    struct app_slot *target = NULL;
+    for (int i = 0; i < APP_SLOTS; i++)
+        if (slot_loaded(&g_slots[i]) && !strcmp(g_slots[i].apk, apk)) target = &g_slots[i];
+    if (!target) return 0;
+    if (target == g_app) return 1;
+    if (g_multi_mode == 1 && atomic_load(&g_app->state) == HUSK_UNITY_RUNNING) pause_engine(true);
+    g_app = target;
+    if (atomic_load(&A.state) == HUSK_UNITY_RUNNING) pause_engine(false);
+    if (A.engine == ENGINE_UNITY) tl_unity_register_pad_sink();
+    else if (A.engine == ENGINE_COCOS) tl_cocos_register_pad_sink();
+    tl_log_line("native: %s is in front", A.apk);
+    return 1;
 }
 
 /* ------------------------------------------------------------- package name */

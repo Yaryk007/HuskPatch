@@ -27,8 +27,6 @@ struct HomeScreen: View {
     /// The Lab panel.
     @StateObject private var panel = Animator(0)
     @StateObject private var recentsAnim = Animator(0)
-    /// 0 -> 2 while the icons ripple after an app lands (Sweet).
-    @StateObject private var ripple = Animator(2)
     @StateObject private var windows = WindowManager()
     @StateObject private var fps = FPSCounter()
     @ObservedObject private var controls = SystemControls.shared
@@ -71,14 +69,16 @@ struct HomeScreen: View {
             let covered = max(anyP, rv)
             let blurAmount = CGFloat(os.blurStrength) * anyP
             let pushBack = 1 - CGFloat(os.homeZoom) * covered - 0.03 * pv
+            let depth = motionDepth(L)
             // The control center, the Lab and Recents frost everything behind them, open apps included.
             let frost = max(s, pv, rv)
             // Inside an app the control center shrinks to just its text.
             let textOnly = clamp01(windows.appProgress * 2)
 
             ZStack {
-                backdrop(L, d, i)
-                    .scaleEffect(pushBack)
+                backdrop(L, d, i, wall: depth)
+                    .scaleEffect(lerp(pushBack, depth.backScale, d))
+                    .offset(depth.backShift * d)
                     .brightness(-os.homeDim * Double(covered))
                     .blur(radius: blurAmount)
 
@@ -86,9 +86,12 @@ struct HomeScreen: View {
 
                 iconsLayer(L, d, i)
                     .scaleEffect(pushBack)
+                    .offset(depth.homeShift)
                     .blur(radius: blurAmount)
 
                 drawerLayer(L, d, i)
+                    .scaleEffect(depth.backScale)
+                    .offset(depth.backShift)
 
                 windowsLayer(L)
 
@@ -117,6 +120,7 @@ struct HomeScreen: View {
             }
             .frame(width: L.w, height: L.h)
             .coordinateSpace(name: "home")
+            .onChange(of: windows.front?.item.hostID) { id in host.frontChanged?(id) }
             .onChange(of: host.openRequest) { id in
                 guard let id, let item = (HomeItem.installedApps + HomeItem.hostApps).first(where: { $0.hostID == id }) else { return }
                 host.openRequest = nil
@@ -135,11 +139,6 @@ struct HomeScreen: View {
             Haptics.prepare()
             // With the boot sequence off there is no moment it turns true: the home screen is there from the start.
             if revealed { intro.animate(to: 1, response: 0.8, damping: 1, ease: true) }
-            windows.onLanded = { session in
-                guard WindowMotion.morphs(session.style, OSSettings.shared), OSSettings.shared.rippleEnabled else { return }
-                ripple.set(0)
-                ripple.animate(to: 2, response: 1.1, damping: 1)
-            }
         }
         .onChange(of: os.showFPS) { on in fps.run(on) }
         .onChange(of: revealed) { isRevealed in
@@ -172,11 +171,13 @@ struct HomeScreen: View {
         )
     }
 
-    private func backdrop(_ L: HomeLayout, _ d: CGFloat, _ i: CGFloat) -> some View {
+    private func backdrop(_ L: HomeLayout, _ d: CGFloat, _ i: CGFloat, wall: MotionDepth) -> some View {
         ZStack {
             // Oversized so blurring never shows a dark rim at the screen edges.
             Wallpaper()
                 .frame(width: L.w + 160, height: L.h + 160)
+                .scaleEffect(wall.wallScale)
+                .offset(wall.wallShift)
                 .position(x: L.w / 2, y: L.h / 2)
 
             // Material's dock has no bar: its icons sit on the wallpaper, and the sheet only exists once it is pulled up.
@@ -270,6 +271,7 @@ struct HomeScreen: View {
                     iconShape(item, size: size, radius: L.iconRadius(os.iconRoundness) * size / L.iconSize)
                 }
                 .buttonStyle(PressScaleStyle())
+                .scaleEffect(iconGrowth)
             }
             .frame(width: size, height: size)
             .opacity(visible ? 1 : 0)
@@ -343,7 +345,7 @@ struct HomeScreen: View {
 
         return ZStack {
             iconShape(item, size: rect.width, radius: radius)
-                .scaleEffect(rippleScale(rect, L))
+                .scaleEffect(iconGrowth)
                 .opacity(visible ? 1 : 0)
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -375,15 +377,48 @@ struct HomeScreen: View {
         .opacity(Double(fade))
     }
 
-    /// The Sweet ripple: after an app lands, the icons around it bounce outward in a wave.
-    private func rippleScale(_ rect: CGRect, _ L: HomeLayout) -> CGFloat {
-        let r = ripple.value
-        guard r < 1.999 else { return 1 }
-        let center = windows.lastLanded
-        let distance = hypot(rect.midX - center.midX, rect.midY - center.midY) / L.h
-        let phase = clamp01(r - distance * 1.4)
-        let amplitude = (0.08 + 0.1 * CGFloat(os.bounce)) * max(0, 1 - distance / 0.6)
-        return 1 + amplitude * sin(phase * 2 * .pi) * (1 - phase)
+    /// The app in front, or the one on its way back to its icon: what everything else reacts to.
+    private var movingWindow: WindowSession? {
+        windows.sessions.filter { $0.item.kind == .app }.max { $0.t.value < $1.t.value }
+    }
+
+    /// Each icon grows where it sits, in step with the app: unchanged while it starts, at its largest once it is open.
+    /// Tied to the window's own progress, so a finger dragging it moves them too.
+    private var iconGrowth: CGFloat {
+        guard os.rippleEnabled, let window = movingWindow else { return 1 }
+        let p = clamp01(window.t.value)
+        return 1 + 0.3 * p * p * (3 - 2 * p)
+    }
+
+    /// How the layers behind sit at this moment. Each moves by its own amount, which is what gives the parallax:
+    /// the icons most, the wallpaper a third of that, the drawer and folders in between.
+    struct MotionDepth {
+        var homeShift = CGSize.zero
+        var wallShift = CGSize.zero
+        var wallScale: CGFloat = 1
+        var backShift = CGSize.zero
+        var backScale: CGFloat = 1
+    }
+
+    private func motionDepth(_ L: HomeLayout) -> MotionDepth {
+        guard os.parallax else { return MotionDepth() }
+        let s = clamp01(shade.value), pv = clamp01(panel.value), rv = clamp01(recentsAnim.value), d = clamp01(drawer.value)
+        let window = movingWindow
+        let p = window.map { clamp01($0.t.value) } ?? 0
+        let eased = p * p * (3 - 2 * p)
+        let ox = window.map { $0.origin.midX - L.w / 2 } ?? 0
+        let oy = window.map { $0.origin.midY - L.h / 2 } ?? 0
+        let side: CGFloat = panelSide == .left ? 1 : -1
+        let home = CGSize(width: -ox * 0.18 * eased + side * 46 * L.u * pv,
+                          height: -oy * 0.18 * eased - 70 * L.u * d + 40 * L.u * s)
+        let behind = max(eased, rv, s * 0.7, pv * 0.7)
+        return MotionDepth(
+            homeShift: home,
+            wallShift: CGSize(width: home.width / 3, height: home.height / 3),
+            wallScale: 1 + 0.3 * max(behind, d * 0.8),
+            backShift: CGSize(width: -ox * 0.1 * eased + side * 26 * L.u * pv, height: -oy * 0.1 * eased + 24 * L.u * s),
+            backScale: 1 - 0.1 * behind
+        )
     }
 
     /// An icon can be tapped unless something else has the screen. A window that is still opening or
@@ -646,7 +681,11 @@ struct HomeScreen: View {
         case .app:
             appWindow(session, L)
         case .folder:
+            // A folder is in the background too once one of its apps opens over it.
+            let depth = windows.front?.parentID == session.item.id ? motionDepth(L) : MotionDepth()
             folderWindow(session, L)
+                .scaleEffect(depth.backScale)
+                .offset(depth.backShift)
         }
     }
 
@@ -848,6 +887,7 @@ struct HomeScreen: View {
                 AppIconView(item: item, size: max(1, rect.width), radius: max(0, radius))
             }
             .buttonStyle(PressDimStyle())
+            .scaleEffect(iconGrowth)
             .position(x: rect.midX, y: rect.midY)
             .allowsHitTesting(tappable)
             .opacity(visible ? extraFade : 0)

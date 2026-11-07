@@ -176,6 +176,14 @@ void husk_unity_perf_snapshot(husk_unity_perf *out);          /* since the last 
 void husk_unity_touch(int phase, int id, float x, float y);   /* phase 0 down, 1 move, 2 up, 3 cancel */
 void husk_unity_set_paused(bool paused);
 
+/* HuskPatch, Developer options: several apps loaded in one run, one per engine (the ENGINE_ numbers of
+ * husk-tl-unity-app.c). Mode 0 one app, 1 the others paused behind the front one, 2 the others keep running (experimental).
+ * make_room before launching beside the app in front; switch to bring a loaded app back (0: it is not loaded). */
+void husk_multiapp_set_mode(int mode);
+int  husk_multiapp_has_room(int engine);
+int  husk_multiapp_make_room(int engine);
+int  husk_multiapp_switch(const char *apk);
+
 /* The app's package name from its manifest into `out`; false if it cannot be read. */
 bool husk_unity_package_name(const char *apk, char *out, unsigned long out_len);
 

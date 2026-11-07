@@ -10,7 +10,16 @@ import UserNotifications
 enum ModemOSLook {
     static let key = "huskpatch.modemos"
 
-    static var isOn: Bool { UserDefaults.standard.bool(forKey: key) }
+    /// HuskPatch and ModemOS are one system now: it is the interface unless turned off in Android settings.
+    static var isOn: Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+
+    /// Once: an install from before the merge moves onto ModemOS, whatever it was showing.
+    @MainActor static func adoptMergedSystem() {
+        let done = "huskpatch.modemos.merged"
+        guard !UserDefaults.standard.bool(forKey: done) else { return }
+        UserDefaults.standard.set(true, forKey: done)
+        set(true)
+    }
 
     /// Turning ModemOS on turns Android OS mode off: only one interface can stand in for HuskPatch's.
     @MainActor static func set(_ on: Bool) {
@@ -23,22 +32,30 @@ enum ModemOSLook {
     /// Hands ModemOS HuskPatch's screens and the way back.
     @MainActor static func registerHost() {
         let host = ModemOSHost.shared
-        host.folderName = "HuskPatch"
-        host.exitTitle = "Exit to HuskPatch"
-        host.exit = {
-            withAnimation(.easeInOut(duration: 0.35)) { ModemOSLook.set(false) }
-        }
+        host.folderName = "Android"
         host.restart = { restart() }
+        host.frontChanged = { id in frontChanged(id) }
         host.apps = [
             ModemOSHostApp(id: "home", name: "Games", symbol: "gamecontroller.fill",
                            color: Color(red: 0.12, green: 0.62, blue: 0.29)) { HomeView() },
             ModemOSHostApp(id: "library", name: "Library", symbol: "square.grid.2x2.fill",
                            color: Color(red: 0.25, green: 0.45, blue: 0.95)) { LibraryScreen() },
-            ModemOSHostApp(id: "store", name: "Store", symbol: "bag.fill",
+            ModemOSHostApp(id: "store", name: "Play Store", symbol: "bag.fill",
                            color: Color(red: 0.95, green: 0.55, blue: 0.15)) { StoreView() },
-            ModemOSHostApp(id: "settings", name: "HuskPatch", symbol: "gearshape.2.fill",
+            ModemOSHostApp(id: "settings", name: "Android settings", symbol: "gearshape.2.fill",
                            color: Color(red: 0.45, green: 0.45, blue: 0.52)) { SettingsTab() },
         ]
+    }
+
+    /// The OS stays upright; an Android app in front turns the screen the way it draws, and comes forward if it was paused.
+    @MainActor private static func frontChanged(_ id: String?) {
+        guard let id, id.hasPrefix("tl:"),
+              let app = TranslationLayerStore.shared.apps.first(where: { "tl:" + $0.id == id }) else {
+            HuskOrientation.set(HuskOrientation.standard)
+            return
+        }
+        HuskOrientation.set(app.drawsPortrait(TLAppSettings.load(app.id)) ? .portrait : .landscape)
+        if let apk = app.apks.first { _ = husk_multiapp_switch(apk) }
     }
 
     /// The apps on the translation layer, as ModemOS apps.
@@ -77,6 +94,42 @@ enum ModemOSLook {
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
         }
+    }
+}
+
+/// Developer options: more than one Android app in a run. Each engine keeps its state to itself, so two apps can only
+/// share a run when they use different engines. Off by default: it has never run on a device, and can crash both apps.
+enum HuskMultiApp {
+    static let pausedKey = "huskpatch.dev.keepAppsPaused"
+    static let liveKey = "huskpatch.dev.twoAppsLive"
+
+    private static var mode: Int32 {
+        let d = UserDefaults.standard
+        return d.bool(forKey: liveKey) ? 2 : d.bool(forKey: pausedKey) ? 1 : 0
+    }
+
+    static var isOn: Bool { mode != 0 }
+
+    static func apply() { husk_multiapp_set_mode(mode) }
+
+    /// The ENGINE_ number husk-tl-unity-app.c uses for a screen engine.
+    static func code(_ engine: TLNativeEngine) -> Int32 {
+        switch engine {
+        case .unity: return 0
+        case .cocos: return 1
+        case .minecraft: return 2
+        case .sdl: return 3
+        case .ue4, .nativeactivity: return 4
+        case .gta: return 5
+        case .godot: return 6
+        case .flutter: return 7
+        case .gamemaker: return 8
+        case .java: return 9
+        }
+    }
+
+    static func canStart(_ app: TLApp) -> Bool {
+        isOn && husk_multiapp_has_room(code(app.screenEngine)) != 0
     }
 }
 
@@ -139,6 +192,8 @@ private struct ModemOSAndroidApp: View {
         }
         if let loaded = husk_native_loaded_apk().map({ String(cString: $0) }) {
             if loaded != app.apks.first {
+                // Developer options: it can start beside the one in front (TLUnityUIView makes the room).
+                if HuskMultiApp.canStart(app) { started = true; return }
                 let name = TranslationLayerStore.shared.apps.first { $0.apks.first == loaded }?.label ?? "Another app"
                 gate = .otherApp(name)
                 return

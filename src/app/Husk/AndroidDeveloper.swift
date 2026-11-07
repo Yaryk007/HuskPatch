@@ -184,6 +184,8 @@ struct AndroidDeveloperOptions: View {
     @AppStorage(AndroidDev.skipLockKey) private var skipLock = false
     @AppStorage(AndroidDev.noHeadsUpKey) private var noHeadsUp = false
     @AppStorage(AndroidDev.plainWallpaperKey) private var plainWallpaper = false
+    @AppStorage(HuskMultiApp.pausedKey) private var keepAppsPaused = false
+    @AppStorage(HuskMultiApp.liveKey) private var twoAppsLive = false
     @AppStorage(AndroidOS.Navigation.key) private var navigation = AndroidOS.Navigation.buttons
     @AppStorage(AndroidTranslation.key) private var translation = false
 
@@ -214,11 +216,18 @@ struct AndroidDeveloperOptions: View {
             row("Disable blur", "Flat colours instead of blurred backgrounds: faster on older iPhones", $noBlur)
             row("Plain wallpaper", "A black wallpaper instead of the image", $plainWallpaper)
 
+            section("Apps (experimental)")
+            row("Keep apps paused", "Open an app with a different engine without restarting; the one behind pauses. May crash both apps",
+                $keepAppsPaused)
+            row("Two apps at once", "The app behind keeps running too. Very likely to crash, and uses much more memory", $twoAppsLive)
+
             section("Monitoring")
             row("Show taps", "A dot where you touch the screen", $showTouches)
             row("Show refresh rate", "The frames drawn each second, in the top corner", $refreshRate)
         }
         .onChange(of: translation) { AndroidTranslation.setEnabled($0) }
+        .onChange(of: keepAppsPaused) { _ in HuskMultiApp.apply() }
+        .onChange(of: twoAppsLive) { _ in HuskMultiApp.apply() }
         .onChange(of: showTouches) { _ in AndroidDev.applyOverlays() }
         .onChange(of: refreshRate) { _ in AndroidDev.applyOverlays() }
     }

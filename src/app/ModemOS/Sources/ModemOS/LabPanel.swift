@@ -186,12 +186,13 @@ private struct MotionTab: View {
                 }
 
                 LabSection(title: "Background") {
+                    LabToggle(title: "Icons expand", symbol: "arrow.up.left.and.arrow.down.right", isOn: $os.rippleEnabled)
+                    LabToggle(title: "Parallax", symbol: "square.3.layers.3d", isOn: $os.parallax)
                     LabeledSlider(title: "Home screen zoom", value: $os.homeZoom, range: 0...0.25) { "\(Int($0 * 100))%" }
                     LabeledSlider(title: "Blur strength", value: $os.blurStrength, range: 0...30) {
                         $0 < 0.5 ? os.t("Off") : "\(Int($0))"
                     }
                     LabeledSlider(title: "Dim", value: $os.homeDim, range: 0...0.5) { "\(Int($0 * 200))%" }
-                    LabToggle(title: "Icon ripple on close", symbol: "dot.radiowaves.left.and.right", isOn: $os.rippleEnabled)
                 }
 
                 LabSection(title: "App switcher") {
@@ -282,7 +283,6 @@ private struct MotionTab: View {
         case .slide: os.customOrigin = .bottom; os.customStartScale = 1
         default: os.customOrigin = .icon
         }
-        if style.damping < 1 && os.bounce < 0.3 { os.bounce = 0.3 }
         let look = WindowMotion.look(style, os)
         os.customTranslucency = Double(look.translucency)
         os.customTint = Double(look.tint)
@@ -612,6 +612,7 @@ private struct SystemTab: View {
                 }
 
                 LabSection(title: "Maintenance") {
+                    LabToggle(title: "Lock screen", symbol: "lock.fill", isOn: $os.lockScreen)
                     HostExitButton()
                         .font(.system(size: 15, weight: .semibold))
                     Button {

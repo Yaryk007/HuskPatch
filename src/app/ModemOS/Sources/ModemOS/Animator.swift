@@ -25,6 +25,7 @@ final class Animator: NSObject, ObservableObject {
     private var link: CADisplayLink?
     private var lastTime: CFTimeInterval = 0
     private var completion: (() -> Void)?
+    private var landingBand: CGFloat?
 
     init(_ initial: CGFloat) {
         value = initial
@@ -69,10 +70,12 @@ final class Animator: NSObject, ObservableObject {
         velocity initialVelocity: CGFloat = 0,
         ease: Bool = false,
         stages stageOverride: Int? = nil,
+        landing: CGFloat? = nil,
         completion done: (() -> Void)? = nil
     ) {
         link?.invalidate()
         link = nil
+        landingBand = landing
         completion = done
         target = newTarget
         velocity = initialVelocity
@@ -136,6 +139,8 @@ final class Animator: NSObject, ObservableObject {
         for k in 0..<l.count where abs(l[k] - target) > 0.0005 || abs(lv[k]) > 0.01 {
             settled = false
         }
+        // A window arriving at its icon ends there, rather than waiting out the last of the spring.
+        if let landingBand, abs(x - target) < landingBand { settled = true }
 
         if settled {
             velocity = 0

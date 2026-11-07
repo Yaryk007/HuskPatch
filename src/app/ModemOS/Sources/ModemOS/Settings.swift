@@ -201,7 +201,12 @@ final class OSSettings: ObservableObject {
     @Published var blurStrength: Double { didSet { save(blurStrength, "blurStrength") } }
     /// How much the home screen darkens behind an app.
     @Published var homeDim: Double { didSet { save(homeDim, "homeDim") } }
+    /// Icons grow in place as an app opens, as far as it has opened. Off unless turned on in the Lab.
     @Published var rippleEnabled: Bool { didSet { save(rippleEnabled, "rippleEnabled") } }
+    /// The wallpaper and icons lean and shift at different depths while things move over them.
+    @Published var parallax: Bool { didSet { save(parallax, "parallax") } }
+    /// The lock screen at each start.
+    @Published var lockScreen: Bool { didSet { save(lockScreen, "lockScreen") } }
 
     // Custom animation (Lab > Motion)
     @Published var customOrigin: AnimOrigin { didSet { save(customOrigin.rawValue, "customOrigin") } }
@@ -269,11 +274,13 @@ final class OSSettings: ObservableObject {
         navMode = NavMode(rawValue: d.string(forKey: "navMode") ?? "") ?? .gestures
         animStyle = AnimStyle(rawValue: d.string(forKey: "animStyle") ?? "") ?? .oneUI
         animSpeed = value("animSpeed", 1.0)
-        bounce = value("bounce", 0.0)
+        bounce = value("bounce", 0.25)
         homeZoom = value("homeZoom", 0.06)
         blurStrength = value("blurStrength", 10.0)
         homeDim = value("homeDim", 0.12)
-        rippleEnabled = value("rippleEnabled", true)
+        rippleEnabled = value("rippleEnabled", false)
+        parallax = value("parallax", true)
+        lockScreen = value("lockScreen", true)
         customOrigin = AnimOrigin(rawValue: d.string(forKey: "customOrigin") ?? "") ?? .icon
         customOpen = value("customOpen", 0.5)
         customClose = value("customClose", 0.45)
@@ -322,11 +329,12 @@ final class OSSettings: ObservableObject {
     func resetMotion() {
         animStyle = .oneUI
         animSpeed = 1
-        bounce = 0
+        bounce = 0.25
         homeZoom = 0.06
         blurStrength = 10
         homeDim = 0.12
-        rippleEnabled = true
+        rippleEnabled = false
+        parallax = true
         customOrigin = .icon
         customOpen = 0.5
         customClose = 0.45
@@ -369,18 +377,18 @@ final class OSSettings: ObservableObject {
 
     /// Window opening damping: the style's own, pulled down hard by the Bounce setting.
     func openDamping(_ style: AnimStyle) -> CGFloat {
-        max(0.28, style.damping - CGFloat(bounce) * 0.62)
+        // The Bounce slider decides alone, so turning it down always takes the bounce out.
+        max(0.28, 1 - CGFloat(bounce) * 0.72)
     }
 
     /// Closing bounces a little less, so a window only dips slightly below its icon before settling.
     func closeDamping(_ style: AnimStyle) -> CGFloat {
-        max(0.5, openDamping(style) + 0.12)
+        min(1, max(0.5, openDamping(style) + 0.12))
     }
 
     /// How many smoothing stages lead the spring: bouncy motion needs fewer, or the overshoot is smoothed away.
     func easeStages(_ style: AnimStyle) -> Int {
-        if bounce > 0.02 || style.damping < 1 { return bounce > 0.5 ? 0 : 1 }
-        return 2
+        bounce > 0.5 ? 0 : 1
     }
 
     /// Damping for the drawer, control center and Lab panel.

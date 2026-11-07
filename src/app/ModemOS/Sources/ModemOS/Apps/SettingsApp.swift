@@ -269,6 +269,12 @@ private struct SystemPage: View {
                             subtitle: os.t("Plays the forced Android boot at each start"), isOn: $os.forcedBoot)
             }
             OSGroup {
+                if ModemOSHost.shared.app("settings") != nil {
+                    Button(os.t("Android settings")) { ModemOSHost.shared.openRequest = "settings" }
+                        .buttonStyle(OSButtonStyle(.plain))
+                        .frame(maxWidth: .infinity, minHeight: 56)
+                        .modifier(OSRowSurface(indented: false))
+                }
                 HostExitButton()
                     .buttonStyle(OSButtonStyle(.plain))
                     .frame(maxWidth: .infinity, minHeight: 56)
