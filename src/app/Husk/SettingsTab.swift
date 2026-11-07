@@ -1004,9 +1004,10 @@ struct AppearanceSettings: View {
                    + "apps, an app drawer with the whole library, Settings and Play Store as apps, and Android's back, "
                    + "home and recents buttons. Turns on the Android 16 style and Material You in apps with it. Turn it "
                    + "off here, in the Settings app.\n\n"
-                   + "ModemOS swaps in your own fake OS instead: its boot, setup, home screen, Lab and apps, with "
-                   + "HuskPatch's games, library, store and settings in a HuskPatch folder in its app drawer. Leave it "
-                   + "with Exit to HuskPatch, in its Lab (swipe in from a side edge) or its Settings app.")
+                   + "ModemOS swaps in your own Android-based OS instead, in Material 3 Expressive or Liquid Glass: its "
+                   + "setup, home screen, Lab and apps, with your installed apps in its app drawer and HuskPatch's "
+                   + "library, store and settings in a HuskPatch folder. Leave it with Exit to HuskPatch, in its Lab "
+                   + "(swipe in from a side edge) or its Settings app.")
             }
 
             Section {

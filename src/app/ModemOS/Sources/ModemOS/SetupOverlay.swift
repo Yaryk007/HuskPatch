@@ -7,7 +7,7 @@ struct SetupOverlay: View {
     var onFinished: () -> Void
 
     private enum Step: Int, CaseIterable {
-        case language, theme, wallpaper, navigation, motion, permissions
+        case language, design, theme, wallpaper, navigation, motion, permissions
     }
 
     @EnvironmentObject private var os: OSSettings
@@ -34,7 +34,7 @@ struct SetupOverlay: View {
                 Wallpaper()
 
                 Text(os.t("Hello"))
-                    .font(.system(size: w * 0.2, weight: .bold))
+                    .font(os.display(w * 0.2))
                     .foregroundColor(.white)
                     .shadow(color: .black.opacity(0.15), radius: 10)
                     .blur(radius: helloBlur)
@@ -75,7 +75,7 @@ struct SetupOverlay: View {
                 .foregroundColor(.secondary)
                 .padding(.bottom, 6)
             Text(os.t(title(step)))
-                .font(.system(size: w * 0.095, weight: .bold))
+                .font(os.display(w * 0.095))
                 .lineLimit(2)
                 .minimumScaleFactor(0.6)
             Text(os.t(subtitle(step)))
@@ -112,10 +112,10 @@ struct SetupOverlay: View {
                         Image(systemName: "chevron.right")
                     }
                     .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(os.palette.onPrimary)
                     .padding(.horizontal, 22)
                     .frame(height: 54)
-                    .background(Capsule().fill(Color.accentColor))
+                    .background(Capsule().fill(Color.osAccent))
                 }
                 .buttonStyle(PressScaleStyle())
             }
@@ -143,6 +143,7 @@ struct SetupOverlay: View {
     private func title(_ step: Step) -> String {
         switch step {
         case .language: return "Language"
+        case .design: return "Your look"
         case .theme: return "Light or dark?"
         case .wallpaper: return "Wallpaper"
         case .navigation: return "Navigation"
@@ -154,11 +155,12 @@ struct SetupOverlay: View {
     private func subtitle(_ step: Step) -> String {
         switch step {
         case .language: return "Choose the language for ModemOS."
-        case .theme: return "Glass panels turn white or black to match."
+        case .design: return "It changes every screen and every app. You can switch any time."
+        case .theme: return "Everything follows it, from the panels to the apps."
         case .wallpaper: return "Pick one. You can change it any time in the Lab."
         case .navigation: return "How do you want to get around?"
         case .motion: return "How apps open and close. Fine-tune it later in the Lab."
-        case .permissions: return "Let the apps use the real data on this iPhone. You can skip any of these."
+        case .permissions: return "Let the apps use the real data on this phone. You can skip any of these."
         }
     }
 
@@ -167,6 +169,8 @@ struct SetupOverlay: View {
         switch step {
         case .language:
             LanguagePicker()
+        case .design:
+            DesignPicker()
         case .theme:
             ThemePicker()
         case .wallpaper:
@@ -197,7 +201,7 @@ struct SetupOverlay: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(width: 38, height: 38)
-                .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.accentColor))
+                .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.osAccent))
             VStack(alignment: .leading, spacing: 2) {
                 Text(os.t(kind.title)).font(.system(size: 16, weight: .semibold))
                 Text(os.t(kind.detail)).font(.system(size: 12)).foregroundColor(.secondary)
@@ -216,7 +220,7 @@ struct SetupOverlay: View {
                 .foregroundColor(.white)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(Capsule().fill(Color.accentColor))
+                .background(Capsule().fill(Color.osAccent))
             }
         }
         .padding(12)
@@ -237,7 +241,7 @@ struct SetupOverlay: View {
                     .fill(dark ? Color.black : Color.white)
 
                 Text(os.t("You are all set up"))
-                    .font(.system(size: w * 0.142, weight: .bold))
+                    .font(os.display(w * 0.142))
                     .lineLimit(4)
                     .minimumScaleFactor(0.5)
                     .foregroundColor(.black)

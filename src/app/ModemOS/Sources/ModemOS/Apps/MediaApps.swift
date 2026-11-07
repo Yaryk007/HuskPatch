@@ -149,12 +149,13 @@ struct RecorderApp: View {
                             }
                         }
                     }
+                    .osListRow()
                 }
                 .onDelete { offsets in
                     offsets.map { model.recordings[$0] }.forEach(model.delete)
                 }
             }
-            .listStyle(.plain)
+            .osList()
 
             VStack(spacing: 14) {
                 HStack(spacing: 3) {
@@ -276,9 +277,7 @@ struct MusicApp: View {
                 )
             } else {
                 AppTitle(title: "Music", subtitle: music.songs.isEmpty ? nil : "\(music.songs.count) " + os.t("songs"))
-                TextField(os.t("Search"), text: $search)
-                    .padding(10)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.07)))
+                OSSearchField(prompt: "Search", text: $search)
                     .padding(.horizontal, 16)
                 List(filtered, id: \.persistentID) { song in
                     Button {
@@ -286,8 +285,9 @@ struct MusicApp: View {
                     } label: {
                         SongRow(song: song, current: song.persistentID == music.nowPlaying?.persistentID)
                     }
+                    .osListRow()
                 }
-                .listStyle(.plain)
+                .osList()
                 .overlay {
                     if music.status == .authorized && music.songs.isEmpty {
                         Text(os.t("No songs in your library")).foregroundColor(.secondary)
@@ -341,7 +341,7 @@ private struct SongRow: View {
             Artwork(song: song, size: 44)
             VStack(alignment: .leading, spacing: 2) {
                 Text(song.title ?? "—")
-                    .foregroundColor(current ? .accentColor : .primary)
+                    .foregroundColor(current ? Color.osAccent : .primary)
                     .lineLimit(1)
                 Text(song.artist ?? "")
                     .font(.system(size: 13))
@@ -446,13 +446,14 @@ struct FilesApp: View {
                             }
                         }
                     }
+                    .osListRow()
                 }
                 .onDelete { offsets in
                     offsets.map { items[$0] }.forEach { try? FileManager.default.removeItem(at: $0) }
                     load()
                 }
             }
-            .listStyle(.plain)
+            .osList()
         }
         .onAppear(perform: load)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in

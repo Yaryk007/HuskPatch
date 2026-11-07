@@ -98,7 +98,7 @@ private struct ModernMapsApp: View {
                             Button(os.t("Directions")) {
                                 item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(OSButtonStyle(.filled))
                         }
                     }
                     .padding(14)
@@ -285,7 +285,7 @@ struct WeatherApp: View {
                     Text(weather.place.isEmpty ? os.t("My location") : weather.place)
                         .font(.system(size: 30, weight: .semibold))
                     Text("\(Int(report.current.temperature_2m.rounded()))°")
-                        .font(.system(size: 96, weight: .thin))
+                        .font(OSSettings.shared.display(96, weight: .light))
                     Label(os.t(WeatherModel.name(report.current.weather_code)), systemImage: WeatherModel.symbol(report.current.weather_code, day: report.current.is_day == 1))
                         .font(.system(size: 20, weight: .medium))
                         .symbolRenderingMode(.multicolor)
@@ -439,10 +439,10 @@ struct CalendarApp: View {
                         } label: {
                             Text("\(calendar.component(.day, from: day))")
                                 .font(.system(size: 17, weight: isToday ? .bold : .regular))
-                                .foregroundColor(isToday ? .white : (isSelected ? .accentColor : .primary))
+                                .foregroundColor(isToday ? .white : (isSelected ? Color.osAccent : .primary))
                                 .frame(width: 40, height: 40)
                                 .background(
-                                    Circle().fill(isToday ? Color.red : (isSelected ? Color.accentColor.opacity(0.18) : Color.clear))
+                                    Circle().fill(isToday ? Color.red : (isSelected ? Color.osAccent.opacity(0.18) : Color.clear))
                                 )
                         }
                     } else {
@@ -675,6 +675,6 @@ struct HealthApp: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(uiColor: .secondarySystemBackground)))
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.osCard))
     }
 }

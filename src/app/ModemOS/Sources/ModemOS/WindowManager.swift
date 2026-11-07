@@ -1,11 +1,19 @@
 import SwiftUI
 import Combine
+import UIKit
 
 /// One app or folder window, from the moment it starts growing out of its icon
 /// until it has shrunk back into it.
 final class WindowSession: Identifiable {
     let id = UUID()
-    let item: HomeItem
+    /// The icon it opened from most recently (the same app has one in the dock, the drawer and on the home screen).
+    fileprivate(set) var item: HomeItem
+    /// Shrunk back into its icon but still running: hidden and untouchable, with everything it was doing kept.
+    fileprivate(set) var parked = false
+    /// Closed from Recents while on screen: it stops once it has shrunk away, rather than going to the background.
+    fileprivate(set) var discard = false
+    /// What it last looked like, for Recents.
+    fileprivate(set) var snapshot: UIImage?
     /// The animation style it was opened with (changing the style never makes an open window jump).
     let style = OSSettings.shared.animStyle
     /// 0 = still an icon, 1 = fully open.
@@ -64,8 +72,15 @@ final class WindowSession: Identifiable {
 /// - Tapping another app while one is opening sends the first one back to its icon and opens the second.
 /// - A window that is closing never blocks anything: you can open the next app right away.
 final class WindowManager: ObservableObject {
-    /// Oldest first, so the newest window is drawn on top.
-    @Published private(set) var sessions: [WindowSession] = []
+    /// How many apps stay running behind the one in front. An installed Android app never counts: its engine cannot be
+    /// started twice in a run, so it is only ever closed by hand.
+    static let maxParked = 6
+
+    /// Every window, running ones included, oldest first so the newest is drawn on top. One list, so that SwiftUI keeps an
+    /// app's views (and so its state) alive when it goes to the background.
+    @Published private(set) var all: [WindowSession] = []
+    /// The windows on screen: opening, open or closing.
+    var sessions: [WindowSession] { all.filter { !$0.parked } }
     /// Recently opened apps, newest first (for the Recents screen).
     @Published private(set) var recents: [HomeItem] = []
 
@@ -96,6 +111,22 @@ final class WindowManager: ObservableObject {
         sessions.map { $0.t.value }.max() ?? 0
     }
 
+    /// Whether an app is running, on screen or not.
+    func isRunning(_ item: HomeItem) -> Bool {
+        all.contains { $0.item.appKey == item.appKey }
+    }
+
+    /// What an app last looked like.
+    func snapshot(of item: HomeItem) -> UIImage? {
+        all.last { $0.item.appKey == item.appKey }?.snapshot
+    }
+
+    /// Remembers what the app in front looks like right now.
+    func captureFront() {
+        guard let session = front, session.item.kind == .app, session.t.value > 0.97 else { return }
+        session.snapshot = ScreenGrab.capture()
+    }
+
     func session(_ itemID: Int) -> WindowSession? {
         sessions.last { $0.item.id == itemID }
     }
@@ -117,7 +148,7 @@ final class WindowManager: ObservableObject {
         labelSize: CGFloat,
         parent: Int? = nil
     ) {
-        if let current = front, current.item.id == item.id { return }
+        if let current = front, current.item.appKey == item.appKey { return }
 
         OSLogger.shared.log("Window", "Open \(item.name) (\(OSSettings.shared.animStyle.title))")
         Haptics.tap(.soft)
@@ -133,10 +164,16 @@ final class WindowManager: ObservableObject {
             close(session, velocity: session.t.currentVelocity)
         }
 
-        // The same app might still be on its way back to its icon: just turn it around.
-        if let again = sessions.last(where: { $0.item.id == item.id }) {
-            sessions.removeAll { $0.id == again.id }
-            sessions.append(again)
+        // The same app might still be on its way back to its icon, or running in the background: bring it back as it was.
+        if let again = all.last(where: { $0.item.appKey == item.appKey }) {
+            all.removeAll { $0.id == again.id }
+            all.append(again)
+            again.item = item
+            again.parked = false
+            again.discard = false
+            again.origin = origin
+            again.labelCenter = labelCenter
+            again.labelSize = labelSize
             open(again, velocity: again.t.currentVelocity)
             return
         }
@@ -152,7 +189,7 @@ final class WindowManager: ObservableObject {
             session.t.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() },
             session.k.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() },
         ]
-        sessions.append(session)
+        all.append(session)
         open(session, velocity: 0)
     }
 
@@ -174,6 +211,7 @@ final class WindowManager: ObservableObject {
         let os = OSSettings.shared
         if session.goal == 1 {
             OSLogger.shared.log("Window", "Close \(session.item.name)")
+            if session.item.kind == .app && session.t.value > 0.97 { session.snapshot = ScreenGrab.capture() }
         }
         session.goal = 0
         session.t.animate(
@@ -185,7 +223,13 @@ final class WindowManager: ObservableObject {
             stages: os.easeStages(session.style)
         ) { [weak self, weak session] in
             guard let self = self, let session = session, session.goal == 0 else { return }
-            self.remove(session)
+            if session.item.keepsRunning && !session.discard {
+                session.parked = true
+                OSLogger.shared.log("Window", "\(session.item.name) keeps running")
+                self.trimParked()
+            } else {
+                self.remove(session)
+            }
             self.lastLanded = session.origin
             self.onLanded?(session)
         }
@@ -208,16 +252,54 @@ final class WindowManager: ObservableObject {
         }
     }
 
+    /// Closes an app for good: it stops running and leaves Recents.
     func forget(_ item: HomeItem) {
-        recents.removeAll { $0.id == item.id }
+        recents.removeAll { $0.appKey == item.appKey }
+        for session in all where session.item.appKey == item.appKey { end(session) }
     }
 
     func forgetAll() {
         recents.removeAll()
+        for session in all where session.item.kind == .app { end(session) }
+    }
+
+    /// Stops an app, whether it is in the background or on screen.
+    private func end(_ session: WindowSession) {
+        if session.parked {
+            remove(session)
+        } else {
+            session.discard = true
+            if session.goal == 1 { close(session, velocity: 0) }
+        }
+    }
+
+    /// Past the limit, the app used longest ago stops running (it stays in Recents, and starts anew).
+    private func trimParked() {
+        let parked = all.filter { $0.parked && !$0.item.pinned }
+        for session in parked.dropLast(Self.maxParked) {
+            OSLogger.shared.log("Window", "\(session.item.name) stopped to free memory")
+            remove(session)
+        }
     }
 
     private func remove(_ session: WindowSession) {
-        sessions.removeAll { $0.id == session.id }
+        all.removeAll { $0.id == session.id }
         forwards[session.id] = nil
+    }
+}
+
+/// A picture of the screen as it is now, at half size.
+enum ScreenGrab {
+    static func capture() -> UIImage? {
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }
+        guard let window else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.5
+        return UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
+        }
     }
 }

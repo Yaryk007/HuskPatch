@@ -8,7 +8,7 @@ import SwiftUI
 ///    Halfway through iOS fights back (the log freezes, the screen shakes), then it carries on faster.
 /// 4. A glitchy green Android head, then the home screen.
 ///
-/// With "Forced Android boot" off in the Lab it is just the Apple logo, like before.
+/// It only runs with "Boot sequence" on in the Lab; off, ModemOS starts straight at the home screen.
 struct BootView: View {
     var onFinished: () -> Void
 
@@ -46,16 +46,7 @@ struct BootView: View {
                 ZStack {
                     Color.black
 
-                    if os.forcedBoot {
-                        forced(t: t, frame: frame, w: w, h: h)
-                    } else {
-                        Image(systemName: "applelogo")
-                            .resizable()
-                            .scaledToFit()
-                            .foregroundColor(.white)
-                            .frame(width: w * 0.215)
-                            .position(x: w / 2, y: h * 0.485)
-                    }
+                    forced(t: t, frame: frame, w: w, h: h)
                 }
                 .frame(width: w, height: h)
             }

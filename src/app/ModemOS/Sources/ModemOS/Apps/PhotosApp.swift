@@ -99,7 +99,7 @@ struct PhotosApp: View {
                 PermissionView(
                     symbol: "photo.on.rectangle.angled",
                     title: "Photos needs access",
-                    message: "Allow access to show the photos and videos on this iPhone.",
+                    message: "Allow access to show the photos and videos on this phone.",
                     denied: true,
                     request: {}
                 )
@@ -178,7 +178,7 @@ private struct PhotoThumb: View {
     @State private var image: UIImage?
 
     var body: some View {
-        Color(uiColor: .secondarySystemBackground)
+        Color.osCard
             .aspectRatio(1, contentMode: .fit)
             .overlay(
                 Group {

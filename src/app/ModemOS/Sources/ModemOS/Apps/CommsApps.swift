@@ -121,9 +121,7 @@ private struct ContactList: View {
                     request: {}
                 )
             } else {
-                TextField(os.t("Search"), text: $search)
-                    .padding(10)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.07)))
+                OSSearchField(prompt: "Search", text: $search)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 6)
                 List(filtered) { person in
@@ -140,8 +138,9 @@ private struct ContactList: View {
                             }
                         }
                     }
+                    .osListRow()
                 }
-                .listStyle(.plain)
+                .osList()
             }
         }
         .onAppear { contacts.load() }
@@ -229,7 +228,7 @@ private struct ContactDetail: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.accentColor.opacity(0.14)))
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.osAccent.opacity(0.14)))
         }
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.4)
@@ -248,7 +247,7 @@ struct ContactsApp: View {
                 ContactDetail(person: person) {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) { selected = nil }
                 }
-                .background(Color(uiColor: .systemBackground))
+                .background(Color.osPage)
                 .transition(.move(edge: .trailing))
             }
         }
@@ -283,20 +282,14 @@ struct PhoneApp: View {
                         ContactDetail(person: person) {
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) { selected = nil }
                         }
-                        .background(Color(uiColor: .systemBackground))
+                        .background(Color.osPage)
                         .transition(.move(edge: .trailing))
                     }
                 }
             }
             .frame(maxHeight: .infinity)
 
-            Picker("", selection: $tab) {
-                Text(os.t("Keypad")).tag(0)
-                Text(os.t("Contacts")).tag(1)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 40)
-            .padding(.vertical, 8)
+            OSTabBar(selection: $tab, items: [(0, "Keypad", "circle.grid.3x3.fill"), (1, "Contacts", "person.2.fill")])
         }
     }
 
@@ -399,18 +392,8 @@ struct MessagesApp: View {
             if let phone = person.phones.first { compose([phone]) }
         }
         .overlay(alignment: .bottomTrailing) {
-            Button {
-                compose([])
-            } label: {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 60, height: 60)
-                    .background(Circle().fill(Color.green))
-                    .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
-            }
-            .buttonStyle(PressScaleStyle())
-            .padding(22)
+            OSFab(symbol: "square.and.pencil") { compose([]) }
+                .padding(22)
         }
         .sheet(isPresented: Binding(get: { composing != nil }, set: { if !$0 { composing = nil } })) {
             MessageComposer(recipients: composing ?? []) { composing = nil }
@@ -609,19 +592,11 @@ struct NotesApp: View {
                 }
             }
             .overlay(alignment: .bottomTrailing) {
-                Button {
+                OSFab(symbol: "plus") {
                     let note = Note(text: "", edited: Date())
                     store.notes.append(note)
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) { editing = note.id }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 26, weight: .semibold))
-                        .foregroundColor(.black)
-                        .frame(width: 60, height: 60)
-                        .background(Circle().fill(Color.yellow))
-                        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
                 }
-                .buttonStyle(PressScaleStyle())
                 .padding(22)
             }
 
@@ -650,7 +625,7 @@ struct NotesApp: View {
                     .scrollContentBackground(.hidden)
                     .padding(.horizontal, 12)
                 }
-                .background(Color(uiColor: .systemBackground))
+                .background(Color.osPage)
                 .transition(.move(edge: .trailing))
             }
         }

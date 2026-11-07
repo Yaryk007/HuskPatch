@@ -195,10 +195,7 @@ private struct MotionTab: View {
                 }
 
                 LabSection(title: "App switcher") {
-                    Picker("", selection: $os.recentsLayout) {
-                        ForEach(RecentsLayout.allCases) { Text(os.t($0.title)).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
+                    OSSegmented(selection: $os.recentsLayout, options: RecentsLayout.allCases.map { ($0, $0.title) })
                     LabToggle(title: "Hold the gesture line for Recents", symbol: "hand.tap.fill", isOn: $os.holdForRecents)
                 }
 
@@ -219,10 +216,7 @@ private struct MotionTab: View {
         LabSection(title: "Custom animation") {
             VStack(alignment: .leading, spacing: 6) {
                 Text(os.t("Start from")).font(.system(size: 15, weight: .semibold))
-                Picker("", selection: $os.customOrigin) {
-                    ForEach(AnimOrigin.allCases) { Text(os.t($0.title)).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                OSSegmented(selection: $os.customOrigin, options: AnimOrigin.allCases.map { ($0, $0.title) })
             }
             LabeledSlider(title: "Open duration", value: $os.customOpen, range: 0.15...1.5) { String(format: "%.2fs", $0) }
             LabeledSlider(title: "Close duration", value: $os.customClose, range: 0.15...1.5) { String(format: "%.2fs", $0) }
@@ -251,9 +245,9 @@ private struct MotionTab: View {
         } label: {
             HStack(alignment: .top, spacing: 14) {
                 ZStack {
-                    Circle().stroke(selected ? Color.accentColor : Color.secondary, lineWidth: 2)
+                    Circle().stroke(selected ? Color.osAccent : Color.secondary, lineWidth: 2)
                     if selected {
-                        Circle().fill(Color.accentColor).padding(5)
+                        Circle().fill(Color.osAccent).padding(5)
                     }
                 }
                 .frame(width: 22, height: 22)
@@ -309,12 +303,12 @@ private struct MotionTab: View {
                     .frame(width: 46, height: 46)
                     .background(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(selected ? Color.accentColor : Color.primary.opacity(0.08))
+                            .fill(selected ? Color.osAccent : Color.primary.opacity(0.08))
                     )
                     .foregroundColor(selected ? .white : .primary)
                 Text(os.t(style.title))
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(selected ? .accentColor : .primary)
+                    .foregroundColor(selected ? Color.osAccent : .primary)
             }
             .frame(width: 64)
         }
@@ -333,7 +327,7 @@ private struct MotionTab: View {
                 .foregroundColor(selected ? .white : .primary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
-                .background(Capsule().fill(selected ? Color.accentColor : Color.primary.opacity(0.08)))
+                .background(Capsule().fill(selected ? Color.osAccent : Color.primary.opacity(0.08)))
         }
         .buttonStyle(PressScaleStyle())
     }
@@ -432,7 +426,7 @@ private struct PhonePreview: View {
                 let rect = WindowMotion.rect(os.animStyle, os, origin: origin, full: full, p: p)
                 let radius = WindowMotion.radius(os.animStyle, os, iconRadius: icon * CGFloat(os.iconRoundness), displayRadius: width * 0.13, p: p)
                 ZStack {
-                    Color(uiColor: .systemBackground)
+                    Color.osPage
                     VStack(spacing: 8) {
                         Text(os.t(item.name)).font(.system(size: 15, weight: .bold))
                         ForEach(0..<5, id: \.self) { row in
@@ -532,12 +526,15 @@ private struct LookTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                LabSection(title: "Look") {
+                    DesignPicker()
+                }
+
                 LabSection(title: "Theme") {
-                    Picker("", selection: $os.theme) {
-                        ForEach(ThemeMode.allCases) { Text(os.t($0.title)).tag($0) }
+                    OSSegmented(selection: $os.theme, options: ThemeMode.allCases.map { ($0, $0.title) })
+                    if os.design == .liquidGlass {
+                        LabeledSlider(title: "Glass tint", value: $os.glassTint, range: 0...1) { "\(Int($0 * 100))%" }
                     }
-                    .pickerStyle(.segmented)
-                    LabeledSlider(title: "Glass tint", value: $os.glassTint, range: 0...1) { "\(Int($0 * 100))%" }
                 }
 
                 LabSection(title: "Wallpaper") {
@@ -589,7 +586,7 @@ private struct SystemTab: View {
 
                 LabSection(title: "Feel") {
                     LabToggle(title: "Vibration", symbol: "iphone.radiowaves.left.and.right", isOn: $os.haptics)
-                    LabToggle(title: "Forced Android boot", symbol: "terminal.fill", isOn: $os.forcedBoot)
+                    LabToggle(title: "Boot sequence", symbol: "terminal.fill", isOn: $os.forcedBoot)
                 }
 
                 LabSection(title: "Language") {
@@ -699,7 +696,7 @@ private struct LogsTab: View {
                                 Text(entry.level.letter)
                                     .foregroundColor(entry.level.color)
                                     .fontWeight(.bold)
-                                Text("[\(entry.tag)] ").foregroundColor(.accentColor)
+                                Text("[\(entry.tag)] ").foregroundColor(.osAccent)
                                     + Text(entry.message).foregroundColor(.primary)
                             }
                             .font(.system(size: 11, design: .monospaced))

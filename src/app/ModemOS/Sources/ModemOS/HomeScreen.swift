@@ -32,6 +32,9 @@ struct HomeScreen: View {
     @StateObject private var windows = WindowManager()
     @StateObject private var fps = FPSCounter()
     @ObservedObject private var controls = SystemControls.shared
+    @ObservedObject private var host = ModemOSHost.shared
+    /// What the app drawer's search box holds.
+    @State private var drawerQuery = ""
 
     /// Where each animator is heading, so a plain tap on a gesture zone can resume it.
     @State private var drawerGoal: CGFloat = 0
@@ -85,6 +88,8 @@ struct HomeScreen: View {
                     .scaleEffect(pushBack)
                     .blur(radius: blurAmount)
 
+                drawerLayer(L, d, i)
+
                 windowsLayer(L)
 
                 frostLayer(frost)
@@ -111,11 +116,25 @@ struct HomeScreen: View {
                 panelLayer(L, pv)
             }
             .frame(width: L.w, height: L.h)
+            .coordinateSpace(name: "home")
+            .onChange(of: host.openRequest) { id in
+                guard let id, let item = (HomeItem.installedApps + HomeItem.hostApps).first(where: { $0.hostID == id }) else { return }
+                host.openRequest = nil
+                let size = L.iconSize
+                windows.launch(
+                    item,
+                    from: CGRect(x: L.w / 2 - size / 2, y: L.h / 2 - size / 2, width: size, height: size),
+                    labelCenter: CGPoint(x: L.w / 2, y: L.h / 2),
+                    labelSize: size * 0.2
+                )
+            }
         }
         .ignoresSafeArea()
         .onAppear {
             fps.run(os.showFPS)
             Haptics.prepare()
+            // With the boot sequence off there is no moment it turns true: the home screen is there from the start.
+            if revealed { intro.animate(to: 1, response: 0.8, damping: 1, ease: true) }
             windows.onLanded = { session in
                 guard WindowMotion.morphs(session.style, OSSettings.shared), OSSettings.shared.rippleEnabled else { return }
                 ripple.set(0)
@@ -140,10 +159,17 @@ struct HomeScreen: View {
 
     // MARK: - Backdrop: wallpaper and the glass drawer sheet (whose peeking top is the dock)
 
+    /// The dock's bar, which grows into the drawer. It reaches the sides and the bottom of the screen as it opens.
     private func sheetRect(_ L: HomeLayout, _ d: CGFloat, _ i: CGFloat) -> CGRect {
         let top = L.sheetTop(drawer: d)
         let hide = L.ch * 0.2 * (1 - i)
-        return CGRect(x: L.sheetX, y: top + hide, width: L.sheetWidth, height: L.sheetBottom - top)
+        let bottom = lerp(L.sheetBottom, L.h + 40, clamp01(d))
+        return CGRect(
+            x: lerp(L.sheetX, 0, clamp01(d)),
+            y: top + hide,
+            width: lerp(L.sheetWidth, L.w, clamp01(d)),
+            height: bottom - top
+        )
     }
 
     private func backdrop(_ L: HomeLayout, _ d: CGFloat, _ i: CGFloat) -> some View {
@@ -153,24 +179,118 @@ struct HomeScreen: View {
                 .frame(width: L.w + 160, height: L.h + 160)
                 .position(x: L.w / 2, y: L.h / 2)
 
+            // Material's dock has no bar: its icons sit on the wallpaper, and the sheet only exists once it is pulled up.
             GlassSurface(
                 shape: RoundedRectangle(cornerRadius: L.sheetRadius, style: .continuous),
-                rect: sheetRect(L, d, i)
+                rect: sheetRect(L, d, i),
+                opacity: os.design == .liquidGlass ? 1 : Double(clamp01(d * 4)),
+                tint: 2
             )
         }
         .frame(width: L.w, height: L.h)
     }
 
+    // MARK: - App drawer
+
+    private func drawerItems() -> [HomeItem] {
+        let query = drawerQuery.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return HomeItem.drawer(showDummy: os.dummyFolder, translate: os.t) }
+        return HomeItem.searchable(translate: os.t).filter { os.t($0.name).localizedCaseInsensitiveContains(query) }
+    }
+
+    /// Every app, in a list that scrolls: as many as are installed.
+    @ViewBuilder
+    private func drawerLayer(_ L: HomeLayout, _ d: CGFloat, _ i: CGFloat) -> some View {
+        if d > 0.02 {
+            let rect = sheetRect(L, d, i)
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 6 * L.u), count: 4)
+            let fade = Double(clamp01((d - 0.25) * 2.5))
+            let height = min(rect.height, L.h - rect.minY)
+
+            VStack(spacing: 10 * L.u) {
+                // The handle and the search box drag the sheet; the list scrolls.
+                VStack(spacing: 12 * L.u) {
+                    Capsule()
+                        .fill(os.palette.onSurfaceVariant.opacity(0.45))
+                        .frame(width: 36, height: 4)
+                        .padding(.top, 10 * L.u)
+                    OSSearchField(prompt: "Search apps", text: $drawerQuery)
+                        .padding(.horizontal, 16 * L.u)
+                }
+                .contentShape(Rectangle())
+                .simultaneousGesture(drawerGesture(L, tap: .resume))
+
+                ScrollView(showsIndicators: false) {
+                    LazyVGrid(columns: columns, spacing: 18 * L.u) {
+                        ForEach(drawerItems()) { item in
+                            drawerCell(item, L)
+                        }
+                    }
+                    .padding(.horizontal, 12 * L.u)
+                    .padding(.top, 8 * L.u)
+                    .padding(.bottom, L.navHeight + 60 * L.u)
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(key: DrawerPullKey.self, value: geo.frame(in: .named("drawer")).minY)
+                        }
+                    )
+                }
+                .coordinateSpace(name: "drawer")
+                .onPreferenceChange(DrawerPullKey.self) { y in
+                    // Pulled down past the top of the list: the sheet goes away, as Android's does.
+                    if y > 90 * L.u, drawerGoal > 0.5, windows.front == nil {
+                        moveDrawer(to: 0, velocity: 0)
+                    }
+                }
+            }
+            .frame(width: rect.width, height: height)
+            .position(x: rect.midX, y: rect.minY + height / 2)
+            .opacity(fade)
+            .allowsHitTesting(d > 0.9)
+        }
+    }
+
+    private func drawerCell(_ item: HomeItem, _ L: HomeLayout) -> some View {
+        let size = L.dockIconSize
+        let session = windows.session(item.id)
+        let visible = session == nil || !WindowMotion.morphs(session!.style, os)
+
+        return VStack(spacing: 7 * L.u) {
+            GeometryReader { geo in
+                let rect = geo.frame(in: .named("home"))
+
+                Button {
+                    windows.launch(
+                        item,
+                        from: rect,
+                        labelCenter: CGPoint(x: rect.midX, y: rect.maxY + L.labelSize),
+                        labelSize: L.labelSize
+                    )
+                } label: {
+                    iconShape(item, size: size, radius: L.iconRadius(os.iconRoundness) * size / L.iconSize)
+                }
+                .buttonStyle(PressScaleStyle())
+            }
+            .frame(width: size, height: size)
+            .opacity(visible ? 1 : 0)
+
+            Text(os.t(item.name))
+                .font(.system(size: L.labelSize, weight: .medium))
+                .foregroundColor(os.palette.onSurface)
+                .lineLimit(1)
+                .opacity(visible ? 1 : 0)
+        }
+    }
+
     // MARK: - Icons (drawer and dock)
 
     private func iconsLayer(_ L: HomeLayout, _ d: CGFloat, _ i: CGFloat) -> some View {
-        let drawerFade = clamp01((d - 0.25) * 2.5)
         let dockFade = clamp01(1 - d * 3) * clamp01((i - 0.3) * 2)
         let hide = L.ch * 0.2 * (1 - i)
-        let drawerItems = Array(HomeItem.drawer(showDummy: os.dummyFolder).enumerated())
         let dockItems = Array(HomeItem.dock.enumerated())
-        let homeItems = os.homeApps ? Array(HomeItem.home.enumerated()) : []
-        let homeRows = (HomeItem.home.count + 3) / 4
+        let homeList = HomeItem.homeWithInstalled
+        let homeItems = os.homeApps ? Array(homeList.enumerated()) : []
+        let homeRows = (homeList.count + 3) / 4
 
         return ZStack {
             if os.clockWidget {
@@ -187,9 +307,6 @@ struct HomeScreen: View {
                     label: true,
                     L
                 )
-            }
-            ForEach(drawerItems, id: \.element.id) { pair in
-                iconView(pair.element, L.drawerIcon(pair.offset, drawer: d), fade: drawerFade, label: true, L)
             }
             ForEach(dockItems, id: \.element.id) { pair in
                 iconView(
@@ -242,9 +359,11 @@ struct HomeScreen: View {
                 .position(x: rect.midX, y: rect.midY)
 
             if showLabel {
+                // Over the wallpaper: white whatever the theme, with a shadow to hold on a bright one.
                 Text(os.t(item.name))
                     .font(.system(size: L.labelSize, weight: .medium))
-                    .foregroundColor(.primary)
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
                     .lineLimit(1)
                     .frame(width: rect.width * 1.3)
                     .position(x: rect.midX, y: labelY)
@@ -285,123 +404,163 @@ struct HomeScreen: View {
 
     // MARK: - Control center: the status bar, which grows into the control panel
 
+    /// Android's status bar: the time on the left, the phone's state on the right. It is the top of the quick settings, which
+    /// grow out of it. An app running full screen has none until the shade comes down.
     private func statusBar(_ L: HomeLayout, _ s: CGFloat, _ i: CGFloat, _ textOnly: CGFloat) -> some View {
         let rect = L.barRect(shade: s)
         let radius = L.barRadius(shade: s)
         let hidden = -(L.barTop + L.barHeight + L.ch * 0.02) * (1 - i)
         let textOffset = L.statusCenterY - L.statusSize * 0.6
-        // The capsule fades away inside an app, and comes back as soon as you pull the panel down.
-        let capsule = Double(max(1 - textOnly, clamp01(s * 4)))
+        let immersive = windows.front.map { ModemOSHost.shared.app($0.item.hostID)?.fullScreen == true } ?? false
+        let textFade = immersive ? Double(clamp01(s * 4)) : 1
+        // In an app the bar's text sits on the app's page; on the home screen, on the wallpaper.
+        let ink: Color = s > 0.3 || textOnly > 0.5 || drawer.value > 0.6 ? os.palette.onSurface : .white
 
         return ZStack(alignment: .topLeading) {
             GlassSurface(
                 shape: RoundedRectangle(cornerRadius: radius, style: .continuous),
                 rect: rect,
-                opacity: capsule
+                opacity: Double(clamp01(s * 4)),
+                tint: 2
             )
 
             ClockText(size: L.statusSize)
                 .fixedSize()
-                .offset(x: L.w * 0.03, y: textOffset)
+                .offset(x: L.w * 0.07, y: textOffset)
+                .opacity(textFade)
 
             if os.showFPS {
                 Text("\(fps.fps) FPS")
-                    .font(.system(size: L.statusSize * 0.7, weight: .bold, design: .monospaced))
+                    .font(.system(size: L.statusSize * 0.8, weight: .bold, design: .monospaced))
                     .foregroundColor(fps.fps >= 55 ? .green : .orange)
                     .fixedSize()
                     .frame(width: L.w)
-                    .offset(y: textOffset + L.statusSize * 0.15)
+                    .offset(y: textOffset + L.statusSize * 2)
             }
 
-            if os.showBattery {
-                BatteryText(size: L.statusSize)
-                    .fixedSize()
-                    .padding(.trailing, L.w * 0.03)
-                    .frame(width: L.w, alignment: .trailing)
-                    .offset(y: textOffset)
+            HStack(spacing: L.statusSize * 0.42) {
+                Image(systemName: "wifi")
+                Image(systemName: "cellularbars")
+                if os.showBattery {
+                    BatteryText(size: L.statusSize)
+                        .fixedSize()
+                } else {
+                    Image(systemName: "battery.75")
+                }
             }
+            .font(.system(size: L.statusSize * 0.95, weight: .semibold))
+            .padding(.trailing, L.w * 0.07)
+            .frame(width: L.w, alignment: .trailing)
+            .offset(y: textOffset)
+            .opacity(textFade)
         }
-        .foregroundColor(.primary)
+        .foregroundColor(ink)
         .frame(width: L.w, height: L.h, alignment: .topLeading)
         .offset(y: hidden)
         .allowsHitTesting(false)
     }
 
-    private var brightnessBinding: Binding<CGFloat> {
-        Binding(get: { controls.brightness }, set: { controls.setBrightness($0) })
+    private var brightnessBinding: Binding<Double> {
+        Binding(get: { Double(controls.brightness) }, set: { controls.setBrightness(CGFloat($0)) })
     }
 
-    private var volumeBinding: Binding<CGFloat> {
-        Binding(get: { controls.volume }, set: { controls.setVolume($0) })
+    private var volumeBinding: Binding<Double> {
+        Binding(get: { Double(controls.volume) }, set: { controls.setVolume(CGFloat($0)) })
     }
 
-    /// The sliders and the quick toggles inside the open control panel.
+    /// Quick settings: the date, Android 16's big tiles, the sliders and the notifications.
     @ViewBuilder
     private func shadeContents(_ L: HomeLayout, _ s: CGFloat) -> some View {
         if s > 0.05 {
             // They slide down with the panel, staying fixed relative to its bottom edge.
             let shift = L.barRect(shade: s).maxY - (L.barTop + L.barOpenHeight)
-            let toggleSize = L.w * 0.16
-            let toggleY = shift + L.ch * 0.355
+            let columns = [GridItem(.flexible(), spacing: 8 * L.u), GridItem(.flexible())]
+            let p = os.palette
 
-            ZStack(alignment: .topLeading) {
-                ControlSlider(
-                    title: os.t("Brightness"),
-                    color: Theme.yellow,
-                    screenWidth: L.w,
-                    height: L.sliderHeight,
-                    value: brightnessBinding
-                )
-                .offset(x: L.sliderX, y: shift + L.sliderTop(0))
-
-                ControlSlider(
-                    title: os.t("Volume"),
-                    color: Theme.cyan,
-                    screenWidth: L.w,
-                    height: L.sliderHeight,
-                    value: volumeBinding
-                )
-                .offset(x: L.sliderX, y: shift + L.sliderTop(1))
-
-                HStack(spacing: 0) {
-                    quickToggle("flashlight.on.fill", on: Torch.isOn, size: toggleSize) {
-                        Torch.toggle()
-                        controls.objectWillChange.send()
+            VStack(spacing: 10 * L.u) {
+                HStack {
+                    TimelineView(.everyMinute) { context in
+                        Text(dateLine(context.date))
+                            .font(os.display(L.w * 0.042, weight: .semibold))
+                            .foregroundColor(p.onSurface)
                     }
-                    quickToggle(os.theme == .dark ? "moon.fill" : "sun.max.fill", on: os.theme == .dark, size: toggleSize) {
-                        os.theme = os.theme == .dark ? .light : .dark
-                    }
-                    quickToggle("iphone.radiowaves.left.and.right", on: os.haptics, size: toggleSize) {
-                        os.haptics.toggle()
-                    }
-                    quickToggle("slider.horizontal.3", on: false, size: toggleSize) {
+                    Spacer()
+                    Button {
                         moveShade(to: 0, velocity: 0)
                         panelSide = .right
                         movePanel(to: 1, velocity: 0)
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(p.onSurface)
+                            .frame(width: 40, height: 40)
+                            .glass(Circle(), tint: 2)
+                    }
+                    .buttonStyle(PressScaleStyle())
+                }
+
+                LazyVGrid(columns: columns, spacing: 8 * L.u) {
+                    quickTile("flashlight.on.fill", "Flashlight", on: Torch.isOn, L) {
+                        Torch.toggle()
+                        controls.objectWillChange.send()
+                    }
+                    quickTile(os.theme == .dark ? "moon.fill" : "sun.max.fill", "Dark theme", on: os.theme == .dark, L) {
+                        os.theme = os.theme == .dark ? .light : .dark
+                    }
+                    quickTile("iphone.radiowaves.left.and.right", "Vibration", on: os.haptics, L) {
+                        os.haptics.toggle()
+                    }
+                    quickTile("clock.fill", "24-hour time", on: os.clock24h, L) {
+                        os.clock24h.toggle()
                     }
                 }
-                .frame(width: L.barWidth - L.w * 0.08)
-                .offset(x: L.barX + L.w * 0.04, y: toggleY)
-                .opacity(Double(clamp01((s - 0.5) * 2)))
+
+                OSSlider(value: brightnessBinding, symbol: "sun.max.fill")
+                OSSlider(value: volumeBinding, symbol: "speaker.wave.2.fill")
+
+                Text(os.t("No notifications"))
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(p.onSurfaceVariant)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .glass(RoundedRectangle(cornerRadius: 22, style: .continuous), tint: 1)
             }
+            .frame(width: L.barWidth - 28 * L.u)
+            .offset(x: L.barX + 14 * L.u, y: shift + L.statusCenterY + 26 * L.u)
             .frame(width: L.w, height: L.h, alignment: .topLeading)
+            .opacity(Double(clamp01((s - 0.4) * 2.5)))
             .allowsHitTesting(s > 0.6)
         }
     }
 
-    private func quickToggle(_ symbol: String, on: Bool, size: CGFloat, action: @escaping () -> Void) -> some View {
-        Button {
+    /// A quick settings tile: a pill with its icon and name, filled when on.
+    private func quickTile(_ symbol: String, _ title: String, on: Bool, _ L: HomeLayout, action: @escaping () -> Void) -> some View {
+        let p = os.palette
+        let ink = on ? p.onPrimary : p.onSurface
+
+        return Button {
             Haptics.tap()
             action()
         } label: {
-            Image(systemName: symbol)
-                .font(.system(size: size * 0.36, weight: .semibold))
-                .foregroundColor(on ? .black : .primary)
-                .frame(width: size, height: size)
-                .background(Circle().fill(on ? Theme.cyan : Color.primary.opacity(0.12)))
+            HStack(spacing: 10) {
+                Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+                Text(os.t(title))
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+            }
+            .foregroundColor(ink)
+            .padding(.horizontal, 16)
+            .frame(height: 62 * L.u)
+            .background {
+                if on {
+                    Capsule().fill(p.primary)
+                } else {
+                    Glass(shape: Capsule(), tint: 2)
+                }
+            }
         }
-        .buttonStyle(PressScaleStyle())
-        .frame(maxWidth: .infinity)
+        .buttonStyle(PressScaleStyle(pressedScale: 0.96))
     }
 
     /// Tapping outside the open control panel closes it (also over an app).
@@ -473,7 +632,8 @@ struct HomeScreen: View {
                     }
             }
 
-            ForEach(windows.sessions) { session in
+            // Running apps too: hidden, but their views stay alive, so an app comes back exactly as you left it.
+            ForEach(windows.all) { session in
                 windowView(session, L)
             }
         }
@@ -525,7 +685,7 @@ struct HomeScreen: View {
                 .clipShape(RoundedRectangle(cornerRadius: max(0, radius), style: .continuous))
                 .scaleEffect(x: squash.width, y: squash.height)
                 .rotationEffect(.degrees(WindowMotion.rotation(style, os, p: p)))
-                .opacity(opacity)
+                .opacity(session.parked ? 0 : opacity)
                 .position(x: rect.midX, y: rect.midY)
         }
         .frame(width: L.w, height: L.h)
@@ -573,9 +733,11 @@ struct HomeScreen: View {
         glyphAlpha: Double
     ) -> some View {
         ZStack {
-            Color(uiColor: .systemBackground)
+            if !session.parked { OSAppBackground() }
 
+            // A new look rebuilds an app's views, but never an app running full screen: that would restart its engine.
             AppContentView(item: session.item, insets: appInsets(L), active: active)
+                .id(ModemOSHost.shared.app(session.item.hostID)?.fullScreen == true ? "app" : os.lookID)
                 .frame(width: L.w, height: L.h)
                 .scaleEffect(scale)
                 .frame(width: max(1, rect.width), height: max(1, rect.height))
@@ -711,11 +873,17 @@ struct HomeScreen: View {
     @ViewBuilder
     private func frostLayer(_ frost: CGFloat) -> some View {
         if frost > 0.005 {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .opacity(Double(clamp01(frost)))
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
+            Group {
+                if os.design == .expressive {
+                    // Material scrims rather than blurs.
+                    os.palette.surface.opacity(0.78)
+                } else {
+                    Rectangle().fill(.ultraThinMaterial)
+                }
+            }
+            .opacity(Double(clamp01(frost)))
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
         }
     }
 
@@ -723,15 +891,17 @@ struct HomeScreen: View {
 
     private func clockWidget(_ L: HomeLayout) -> some View {
         TimelineView(.everyMinute) { context in
-            VStack(spacing: 2) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(ClockText.string(for: context.date, h24: os.clock24h))
-                    .font(.system(size: L.w * 0.2, weight: .thin))
+                    .font(os.display(L.w * 0.2, weight: os.design == .expressive ? .semibold : .light))
                     .monospacedDigit()
                 Text(dateLine(context.date))
-                    .font(.system(size: L.w * 0.045, weight: .semibold))
+                    .font(os.display(L.w * 0.044, weight: .medium))
             }
             .foregroundColor(.white)
-            .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
+            .shadow(color: .black.opacity(0.3), radius: 10, y: 2)
+            .padding(.horizontal, L.w * 0.08)
+            .frame(width: L.w, alignment: .leading)
         }
         .frame(width: L.w)
         .position(x: L.w / 2, y: L.widgetTop + L.w * 0.14)
@@ -811,7 +981,10 @@ struct HomeScreen: View {
     }
 
     private func recentCard(_ item: HomeItem, _ L: HomeLayout, width: CGFloat, height: CGFloat, swipeUp: Bool) -> some View {
-        RecentCard(item: item, width: width, height: height, swipeUp: swipeUp) {
+        RecentCard(
+            item: item, width: width, height: height, swipeUp: swipeUp,
+            image: windows.snapshot(of: item), running: windows.isRunning(item)
+        ) {
             moveRecents(to: 0)
             let size = L.iconSize
             windows.launch(
@@ -831,6 +1004,7 @@ struct HomeScreen: View {
     private func moveRecents(to target: CGFloat) {
         if target == 1 && recentsAnim.value < 0.5 {
             OSLogger.shared.log("Recents", "Shown")
+            windows.captureFront()
         }
         recentsAnim.animate(to: target, response: 0.4, damping: os.uiDamping, ease: true, stages: os.uiStages)
     }
@@ -1023,34 +1197,36 @@ struct HomeScreen: View {
         if os.navMode == .buttons && i > 0.01 {
             let icon = L.w * 0.055
 
+            // Android's order and shapes: back, home, recents.
             HStack(spacing: 0) {
                 navButton(L) {
-                    // Recents: three bars, like One UI.
-                    HStack(spacing: icon * 0.22) {
-                        ForEach(0..<3, id: \.self) { _ in
-                            Capsule().frame(width: icon * 0.12, height: icon * 0.8)
-                        }
-                    }
+                    Image(systemName: "arrowtriangle.left.fill")
+                        .font(.system(size: icon * 0.82, weight: .regular))
                 } action: {
-                    moveRecents(to: recentsAnim.value > 0.5 ? 0 : 1)
+                    goBack()
                 }
                 navButton(L) {
-                    RoundedRectangle(cornerRadius: icon * 0.32, style: .continuous)
-                        .stroke(lineWidth: icon * 0.13)
+                    Circle()
                         .frame(width: icon * 0.95, height: icon * 0.95)
                 } action: {
                     goHome()
                 }
                 navButton(L) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: icon * 0.8, weight: .semibold))
+                    RoundedRectangle(cornerRadius: icon * 0.14, style: .continuous)
+                        .frame(width: icon * 0.82, height: icon * 0.82)
                 } action: {
-                    goBack()
+                    moveRecents(to: recentsAnim.value > 0.5 ? 0 : 1)
                 }
             }
-            .foregroundColor(.primary)
+            .foregroundColor(os.palette.onSurface)
             .frame(width: L.w, height: L.navHeight)
-            .background(Glass(shape: Rectangle(), tint: 1.2))
+            .background {
+                if os.design == .expressive {
+                    os.palette.surfaceContainer
+                } else {
+                    Glass(shape: Rectangle(), tint: 1.2)
+                }
+            }
             .frame(width: L.w, height: L.h, alignment: .bottom)
             .offset(y: L.navHeight * 1.5 * (1 - i))
         }
@@ -1212,9 +1388,11 @@ struct HomeScreen: View {
     @ViewBuilder
     private func zones(_ L: HomeLayout) -> some View {
         if revealed {
-            // Top: swipe down on the status bar for the control panel (works inside apps too).
+            // Top: swipe down on the status bar for the control panel (works inside apps too). Over an app running full
+            // screen the strip is thin, so the app keeps its touches.
+            let immersive = windows.front.map { ModemOSHost.shared.app($0.item.hostID)?.fullScreen == true } ?? false
             Color.clear
-                .frame(width: L.w, height: 60 * L.u)
+                .frame(width: L.w, height: (immersive ? 18 : 60) * L.u)
                 .contentShape(Rectangle())
                 .gesture(shadeGesture(L))
                 .frame(width: L.w, height: L.h, alignment: .top)
@@ -1306,6 +1484,7 @@ struct HomeScreen: View {
             OSLogger.shared.log("Drawer", target > 0.5 ? "Opened" : "Closed", level: .debug)
         }
         drawerGoal = target
+        if target == 0 { drawerQuery = "" }
         drawer.animate(to: target, response: 0.52, damping: os.uiDamping, velocity: velocity, ease: true, stages: os.uiStages)
     }
 
@@ -1395,6 +1574,10 @@ private struct RecentCard: View {
     let width: CGFloat
     let height: CGFloat
     let swipeUp: Bool
+    /// What it last looked like.
+    var image: UIImage?
+    /// Still running in the background.
+    var running = false
     let onOpen: () -> Void
     let onDismiss: () -> Void
 
@@ -1404,11 +1587,18 @@ private struct RecentCard: View {
     var body: some View {
         VStack(spacing: 10) {
             HStack(spacing: 8) {
-                AppIconView(item: item, size: 26, radius: 8)
-                Text(os.t(item.name))
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
+                AppIconView(item: item, size: 28, radius: 28 * CGFloat(os.iconRoundness))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(os.t(item.name))
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(os.palette.onSurface)
+                        .lineLimit(1)
+                    if running {
+                        Text(os.t("Running"))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(os.palette.primary)
+                    }
+                }
                 Spacer()
                 Button(action: dismiss) {
                     Image(systemName: "xmark")
@@ -1419,11 +1609,19 @@ private struct RecentCard: View {
                 }
             }
             ZStack {
-                RoundedRectangle(cornerRadius: min(28, width * 0.12), style: .continuous)
-                    .fill(Color(uiColor: .systemBackground))
-                AppIconView(item: item, size: width * 0.34, radius: width * 0.34 * CGFloat(os.iconRoundness))
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: width, height: height)
+                } else {
+                    OSAppBackground()
+                    AppIconView(item: item, size: width * 0.34, radius: width * 0.34 * CGFloat(os.iconRoundness))
+                }
             }
             .frame(width: width, height: height)
+            .clipShape(RoundedRectangle(cornerRadius: min(30, width * 0.12), style: .continuous))
+            .contentShape(Rectangle())
             .onTapGesture(perform: onOpen)
         }
         .frame(width: width)
@@ -1521,4 +1719,10 @@ struct FolderGlyph: View {
             Color.clear.frame(width: size, height: size)
         }
     }
+}
+
+/// Where the top of the drawer's list is.
+private struct DrawerPullKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

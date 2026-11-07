@@ -27,22 +27,7 @@ struct ClockApp: View {
             case .timer: CountdownTimer()
             }
 
-            HStack {
-                ForEach(Tab.allCases, id: \.self) { item in
-                    Button {
-                        Haptics.tap()
-                        tab = item
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: item.symbol).font(.system(size: 20, weight: .semibold))
-                            Text(os.t(item.rawValue)).font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundColor(tab == item ? .accentColor : .secondary)
-                        .frame(maxWidth: .infinity)
-                    }
-                }
-            }
-            .padding(.vertical, 8)
+            OSTabBar(selection: $tab, items: Tab.allCases.map { ($0, $0.rawValue, $0.symbol) })
         }
     }
 }
@@ -59,7 +44,7 @@ private struct ClockFace: View {
                 AnalogClock(date: date)
                     .frame(width: 260, height: 260)
                 Text(timeString(date))
-                    .font(.system(size: 64, weight: .thin))
+                    .font(OSSettings.shared.display(64, weight: .light))
                     .monospacedDigit()
                 Text(dateString(date))
                     .font(.system(size: 18, weight: .medium))
@@ -98,7 +83,7 @@ struct AnalogClock: View {
         GeometryReader { geo in
             let size = min(geo.size.width, geo.size.height)
             ZStack {
-                Circle().fill(Color(uiColor: .secondarySystemBackground))
+                Circle().fill(Color.osCard)
                 ForEach(0..<12, id: \.self) { tick in
                     Capsule()
                         .fill(Color.primary.opacity(tick % 3 == 0 ? 0.8 : 0.3))
@@ -181,7 +166,7 @@ private struct Stopwatch: View {
             AppTitle(title: "Stopwatch")
             TimelineView(.animation(paused: startedAt == nil)) { context in
                 Text(Self.format(elapsed(context.date)))
-                    .font(.system(size: 64, weight: .thin))
+                    .font(OSSettings.shared.display(64, weight: .light))
                     .monospacedDigit()
             }
             .padding(.top, 40)
@@ -212,9 +197,10 @@ private struct Stopwatch: View {
                         Spacer()
                         Text(Self.format(pair.element)).monospacedDigit()
                     }
+                    .osListRow()
                 }
             }
-            .listStyle(.plain)
+            .osList()
         }
     }
 
@@ -257,7 +243,7 @@ private struct CountdownTimer: View {
                 TimelineView(.periodic(from: .now, by: 0.1)) { context in
                     let left = max(0, end.timeIntervalSince(context.date))
                     Text(String(format: "%02d:%02d", Int(left) / 60, Int(left) % 60))
-                        .font(.system(size: 76, weight: .thin))
+                        .font(OSSettings.shared.display(76, weight: .light))
                         .monospacedDigit()
                         .onChange(of: left <= 0) { done in
                             if done { ring() }

@@ -40,7 +40,7 @@ enum AppID: String, CaseIterable {
         switch self {
         case .phone: return "phone.fill"
         case .messages: return "message.fill"
-        case .browser: return "safari.fill"
+        case .browser: return "globe"
         case .camera: return "camera.fill"
         case .photos: return "photo.on.rectangle.angled"
         case .settings: return "gearshape.fill"
@@ -104,6 +104,20 @@ struct HomeItem: Identifiable, Equatable {
     let app: AppID?
     /// The host app this opens (`app == .host`).
     var hostID: String? = nil
+    /// An installed app's own icon.
+    var image: UIImage? = nil
+    /// Never stopped to free memory (`ModemOSHostApp.pinned`).
+    var pinned = false
+
+    /// The same app is one window wherever its icon is.
+    var appKey: String {
+        if let hostID { return "host:" + hostID }
+        if app == .dummy { return "dummy:\(id)" }
+        return app?.rawValue ?? "folder:\(id)"
+    }
+
+    /// Whether it stays running when you leave it. The camera lets go of the sensor instead.
+    var keepsRunning: Bool { kind == .app && app != .camera }
 
     init(_ id: Int, _ app: AppID) {
         self.id = id
@@ -133,6 +147,8 @@ struct HomeItem: Identifiable, Equatable {
         self.kind = .app
         self.app = .host
         self.hostID = app.id
+        self.image = app.icon
+        self.pinned = app.pinned
     }
 
     private init(folderID: Int, name: String) {
@@ -157,6 +173,16 @@ struct HomeItem: Identifiable, Equatable {
     /// The host's apps, at most nine (a folder's three rows).
     static var hostApps: [HomeItem] {
         ModemOSHost.shared.apps.prefix(9).enumerated().map { HomeItem(host: 70 + $0.offset, $0.element) }
+    }
+
+    /// Everything installed by the host, one icon each. Its id comes from the app's own, so an icon keeps its identity when
+    /// the list changes.
+    static var installedApps: [HomeItem] {
+        ModemOSHost.shared.installed.map { app in
+            var hash: UInt32 = 2_166_136_261
+            for byte in app.id.utf8 { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
+            return HomeItem(host: 1000 + Int(hash % 1_000_000_000), app)
+        }
     }
 
     /// The apps inside a folder (the first four are the little icons on the folder's icon).
@@ -188,13 +214,12 @@ struct HomeItem: Identifiable, Equatable {
         HomeItem(dummy: 68, "Test", "checkmark.seal.fill", rgb(170, 110, 60)),
     ]
 
-    /// The app drawer in reading order; the Tools folder sits in the fourth spot, Dummy Apps (if on) at the end.
-    static func drawer(showDummy: Bool) -> [HomeItem] {
-        var items: [HomeItem] = [
+    /// Every app, A to Z in the system's language as Android's drawer has them, the folders after them.
+    static func drawer(showDummy: Bool, translate: (String) -> String) -> [HomeItem] {
+        let apps: [HomeItem] = [
             HomeItem(0, .photos),
             HomeItem(1, .settings),
             HomeItem(2, .clock),
-            toolsFolder,
             HomeItem(3, .maps),
             HomeItem(4, .weather),
             HomeItem(5, .music),
@@ -203,7 +228,15 @@ struct HomeItem: Identifiable, Equatable {
             HomeItem(8, .health),
             HomeItem(9, .notes),
             HomeItem(10, .files),
-        ]
+            HomeItem(11, .phone),
+            HomeItem(12, .messages),
+            HomeItem(13, .browser),
+            HomeItem(14, .camera),
+        ] + installedApps
+        var items = apps.sorted {
+            translate($0.name).localizedCaseInsensitiveCompare(translate($1.name)) == .orderedAscending
+        }
+        items.append(toolsFolder)
         if ModemOSHost.shared.hasFolder {
             items.append(hostFolder)
         }
@@ -211,6 +244,16 @@ struct HomeItem: Identifiable, Equatable {
             items.append(dummyFolder)
         }
         return items
+    }
+
+    /// Everything the drawer's search finds, folders opened up.
+    static func searchable(translate: (String) -> String) -> [HomeItem] {
+        (drawer(showDummy: false, translate: translate).filter { $0.kind == .app } + toolsApps + hostApps)
+    }
+
+    /// The home screen: the system's apps, then the first installed ones.
+    static var homeWithInstalled: [HomeItem] {
+        home + installedApps.prefix(4)
     }
 
     /// The apps on the home screen, above the dock.

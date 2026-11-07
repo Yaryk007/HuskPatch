@@ -47,7 +47,10 @@ struct CalculatorApp: View {
                                     .font(.system(size: size * 0.4, weight: .medium))
                                     .foregroundColor(foreground(key))
                                     .frame(width: size, height: size)
-                                    .background(Circle().fill(background(key)))
+                                    .background(
+                                        RoundedRectangle(cornerRadius: os.design == .expressive ? size * 0.34 : size / 2, style: .continuous)
+                                            .fill(background(key))
+                                    )
                             }
                             .buttonStyle(PressScaleStyle())
                         }
@@ -59,13 +62,19 @@ struct CalculatorApp: View {
     }
 
     private func background(_ key: String) -> Color {
-        if "÷×−+=".contains(key) { return pending == key && !typing ? Color.orange.opacity(0.6) : .orange }
-        if ["AC", "±", "%"].contains(key) { return Color.primary.opacity(0.18) }
-        return Color.primary.opacity(0.08)
+        let p = os.palette
+        if key == "=" { return p.primary }
+        if "÷×−+".contains(key) { return pending == key && !typing ? p.primary : p.primaryContainer }
+        if ["AC", "±", "%"].contains(key) { return p.tertiaryContainer }
+        return Color.osCard
     }
 
     private func foreground(_ key: String) -> Color {
-        "÷×−+=".contains(key) ? .white : .primary
+        let p = os.palette
+        if key == "=" { return p.onPrimary }
+        if "÷×−+".contains(key) { return pending == key && !typing ? p.onPrimary : p.onPrimaryContainer }
+        if ["AC", "±", "%"].contains(key) { return p.onTertiaryContainer }
+        return p.onSurface
     }
 
     private var value: Double { Double(display) ?? 0 }
@@ -183,7 +192,7 @@ struct FlashlightApp: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(on ? Color.yellow : Color.primary.opacity(0.1))
+                        .fill(on ? Color.yellow : Color.osCard)
                         .frame(width: 180, height: 180)
                         .shadow(color: on ? Color.yellow.opacity(0.7) : .clear, radius: 40)
                     Image(systemName: on ? "flashlight.on.fill" : "flashlight.off.fill")

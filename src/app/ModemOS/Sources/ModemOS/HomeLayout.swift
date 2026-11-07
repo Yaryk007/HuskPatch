@@ -36,8 +36,8 @@ struct HomeLayout {
     var barWidth: CGFloat { w * 0.972 }
     var barTop: CGFloat { ch * 0.02 }
     var barHeight: CGFloat { ch * 0.039 }
-    var barOpenHeight: CGFloat { ch * 0.47 }
-    var statusSize: CGFloat { w * 0.052 }
+    var barOpenHeight: CGFloat { ch * 0.6 + 50 * u }
+    var statusSize: CGFloat { w * 0.037 }
     var statusCenterY: CGFloat { ch * 0.039 }
 
     func barRect(shade s: CGFloat) -> CGRect {
@@ -80,24 +80,12 @@ struct HomeLayout {
         lerp(sheetClosedTop, sheetOpenTop, d)
     }
 
-    // MARK: Icons in the drawer (three columns, four rows)
+    // MARK: Icons
 
     var iconSize: CGFloat { w * 0.19 }
     var labelSize: CGFloat { w * 0.032 }
 
     func iconRadius(_ roundness: Double) -> CGFloat { iconSize * CGFloat(roundness) }
-
-    func drawerIcon(_ index: Int, drawer d: CGFloat) -> CGRect {
-        let column = CGFloat(index % 3)
-        let row = CGFloat(index / 3)
-        let gap = (sheetWidth - 3 * iconSize) / 4
-        return CGRect(
-            x: sheetX + gap + column * (iconSize + gap),
-            y: sheetTop(drawer: d) + ch * (0.07 + 0.158 * row),
-            width: iconSize,
-            height: iconSize
-        )
-    }
 
     // MARK: Dock (inside the peeking drawer)
 

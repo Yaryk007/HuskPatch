@@ -46,6 +46,16 @@ struct WallpaperPreset: Identifiable {
 
     static let all: [WallpaperPreset] = [
         WallpaperPreset(
+            id: 20, name: "Modem",
+            stops: [rgb(10, 12, 26), rgb(20, 30, 74), rgb(12, 18, 44)],
+            glows: [(rgb(70, 110, 255), .init(x: 0.82, y: 0.2), 0.62), (rgb(30, 210, 190), .init(x: 0.1, y: 0.78), 0.55), (rgb(150, 70, 255), .init(x: 0.5, y: 1.05), 0.5)]
+        ),
+        WallpaperPreset(
+            id: 21, name: "Carbon",
+            stops: [rgb(14, 14, 16), rgb(26, 26, 30), rgb(10, 10, 12)],
+            glows: [(rgb(255, 150, 80), .init(x: 0.9, y: 0.92), 0.5), (rgb(80, 90, 120), .init(x: 0.1, y: 0.1), 0.6)]
+        ),
+        WallpaperPreset(
             id: 0, name: "Ocean",
             stops: [rgb(55, 105, 235), rgb(44, 144, 226), rgb(37, 175, 222)],
             glows: [(rgb(120, 220, 255), .init(x: 0.85, y: 0.15), 0.6), (rgb(40, 60, 200), .init(x: 0.1, y: 0.9), 0.7)]
@@ -88,7 +98,7 @@ struct WallpaperPreset: Identifiable {
     ]
 
     static func preset(_ index: Int) -> WallpaperPreset {
-        all[min(max(index, 0), all.count - 1)]
+        all.first { $0.id == index } ?? all[0]
     }
 }
 
@@ -122,59 +132,6 @@ struct Wallpaper: View {
     }
 }
 
-// MARK: - Glass
-
-/// Tinted glass: the blurred background with a white (light theme) or black (dark theme) tint
-/// and a thin highlight on the rim.
-struct Glass<S: Shape>: View {
-    let shape: S
-    /// Multiplies the tint strength (1 = the user's setting).
-    var tint: Double = 1
-
-    @EnvironmentObject private var os: OSSettings
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        let dark = scheme == .dark
-        let amount = (0.12 + os.glassTint * 0.5) * tint
-        shape
-            .fill(.ultraThinMaterial)
-            .overlay(shape.fill(dark ? Color.black.opacity(amount) : Color.white.opacity(amount)))
-            .overlay(
-                shape.stroke(
-                    LinearGradient(
-                        colors: [Color.white.opacity(dark ? 0.28 : 0.7), Color.white.opacity(dark ? 0.04 : 0.15)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
-            )
-    }
-}
-
-/// A glass panel placed at `rect` on the screen.
-struct GlassSurface<S: Shape>: View {
-    let shape: S
-    let rect: CGRect
-    var opacity: Double = 1
-    var tint: Double = 1
-
-    var body: some View {
-        Glass(shape: shape, tint: tint)
-            .frame(width: max(0, rect.width), height: max(0, rect.height))
-            .opacity(opacity)
-            .position(x: rect.midX, y: rect.midY)
-    }
-}
-
-extension View {
-    /// Puts tinted glass behind the view.
-    func glass<S: Shape>(_ shape: S, tint: Double = 1) -> some View {
-        background(Glass(shape: shape, tint: tint))
-    }
-}
-
 // MARK: - Buttons
 
 /// Dims its label while the button is held down. Icons use this instead of scaling, because an icon
@@ -200,23 +157,49 @@ struct PressScaleStyle: ButtonStyle {
 
 // MARK: - Icons
 
-/// An app icon: a soft gradient square with a white glyph.
+/// An app icon. Material: a themed icon in the app's hue. Glass: a tile of colour under a lit rim. An installed app keeps
+/// its own picture.
 struct AppIconView: View {
     let item: HomeItem
     let size: CGFloat
     let radius: CGFloat
 
+    @EnvironmentObject private var os: OSSettings
+
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .fill(LinearGradient(colors: [item.color.opacity(0.78), item.color], startPoint: .top, endPoint: .bottom))
-                .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Color.white))
-            Image(systemName: item.symbol)
-                .font(.system(size: size * 0.44, weight: .semibold))
-                .foregroundColor(.white)
-                .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        Group {
+            if let image = item.image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else if os.design == .expressive {
+                let colors = OSPalette.iconColors(for: item.color, dark: os.theme == .dark)
+                ZStack {
+                    colors.fill
+                    glyph.foregroundColor(colors.glyph)
+                }
+            } else {
+                ZStack {
+                    LinearGradient(colors: [item.color.opacity(0.72), item.color], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        .background(Color.white)
+                    LinearGradient(colors: [Color.white.opacity(0.32), .clear], startPoint: .top, endPoint: .center)
+                    glyph.foregroundColor(.white).shadow(color: .black.opacity(0.22), radius: size * 0.03, y: size * 0.015)
+                }
+            }
         }
         .frame(width: size, height: size)
+        .clipShape(shape)
+        .overlay {
+            if os.design == .liquidGlass {
+                shape.strokeBorder(
+                    LinearGradient(colors: [Color.white.opacity(0.6), Color.white.opacity(0.08)], startPoint: .top, endPoint: .bottom),
+                    lineWidth: max(0.5, size * 0.012)
+                )
+            }
+        }
+    }
+
+    private var glyph: some View {
+        Image(systemName: item.symbol).font(.system(size: size * 0.44, weight: .semibold))
     }
 }
 

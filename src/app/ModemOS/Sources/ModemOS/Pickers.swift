@@ -35,7 +35,7 @@ struct ThemePicker: View {
                             .frame(height: 170)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                    .stroke(os.theme == mode ? Color.accentColor : Color.clear, lineWidth: 3)
+                                    .stroke(os.theme == mode ? Color.osAccent : Color.clear, lineWidth: 3)
                             )
                         Label(os.t(mode.title), systemImage: os.theme == mode ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 16, weight: .semibold))
@@ -80,6 +80,60 @@ private struct ThemePreview: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+}
+
+/// The system's two looks, side by side, with what changing them takes.
+struct DesignPicker: View {
+    @EnvironmentObject private var os: OSSettings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(OSDesign.allCases) { design in
+                let on = os.design == design
+                Button {
+                    Haptics.tap()
+                    withAnimation(.easeInOut(duration: 0.3)) { os.design = design }
+                } label: {
+                    HStack(spacing: 14) {
+                        Image(systemName: design.symbol)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(on ? os.palette.onPrimary : os.palette.onSurface)
+                            .frame(width: 46, height: 46)
+                            .background(Circle().fill(on ? os.palette.primary : os.palette.onSurface.opacity(0.1)))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(os.t(design.title))
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(os.palette.onSurface)
+                            Text(os.t(design.detail))
+                                .font(.system(size: 13))
+                                .foregroundColor(os.palette.onSurfaceVariant)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer(minLength: 4)
+                        if on {
+                            Image(systemName: "checkmark.circle.fill").font(.system(size: 22)).foregroundColor(os.palette.primary)
+                        }
+                    }
+                    .padding(12)
+                    .glass(RoundedRectangle(cornerRadius: 24, style: .continuous), tint: on ? 2 : 1)
+                }
+                .buttonStyle(PressScaleStyle(pressedScale: 0.97))
+            }
+
+            if os.design == .liquidGlass && !LiquidGlass.supported {
+                Text(os.t("Real Liquid Glass needs iOS 26. This phone gets frosted glass instead."))
+                    .font(.system(size: 13))
+                    .foregroundColor(os.palette.onSurfaceVariant)
+            } else if LiquidGlass.needsRestart {
+                Text(os.t("Real Liquid Glass starts with the next launch. Until then this is frosted glass."))
+                    .font(.system(size: 13))
+                    .foregroundColor(os.palette.onSurfaceVariant)
+                if let restart = ModemOSHost.shared.restart {
+                    Button(os.t("Restart now"), action: restart).buttonStyle(OSButtonStyle(.tonal))
+                }
+            }
+        }
     }
 }
 
@@ -233,14 +287,14 @@ struct OptionRow<Label: View>: View {
                 Spacer(minLength: 8)
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 22))
-                    .foregroundColor(selected ? .accentColor : .secondary)
+                    .foregroundColor(selected ? Color.osAccent : .secondary)
             }
             .foregroundColor(.primary)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(selected ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.06))
+                    .fill(selected ? Color.osAccent.opacity(0.16) : Color.primary.opacity(0.06))
             )
         }
         .buttonStyle(PressScaleStyle(pressedScale: 0.97))
@@ -258,7 +312,17 @@ enum DeviceInfo {
     }
 
     static var systemVersion: String {
-        "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)"
+        "\(OSSettings.systemName) \(OSSettings.systemVersion) (Android \(OSSettings.androidVersion))"
+    }
+
+    /// As Android's About phone shows it.
+    static var kernel: String { "6.12.30-modem" }
+
+    /// "42 GB free of 128 GB".
+    static func storageLine(_ os: OSSettings) -> String {
+        let storage = Self.storage
+        return ByteCountFormatter.string(fromByteCount: storage.free, countStyle: .file) + " " + os.t("free of") + " "
+            + ByteCountFormatter.string(fromByteCount: storage.total, countStyle: .file)
     }
 
     static var memory: String {

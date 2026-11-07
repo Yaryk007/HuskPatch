@@ -2,7 +2,7 @@
 
 The text bellow is not what huskpatch was used to be, it was a fork of husk to fix android startup issues like lag and freezes and crashes before a single frame was drawn. Leviidev put these new changes from this fork into official husk so now my job is done, husk is fixed, thank you guys for the support, i might still make updates but i will focus on my other projects more.
 
-> **HuskPatch 3.8.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (Husk 3.0 and after: Compatibility
+> **HuskPatch 3.9.0** is the latest official [Husk](https://github.com/Leviidev/Husk) code (Husk 3.0 and after: Compatibility
 > List, Godot 4, OBB expansion files, CJK fonts, .NET for Android, battery/clock/locale following the phone...) with these additions:
 >
 > - **Android OS mode** (Settings › Appearance › Android OS): HuskPatch's interface replaced by LineageOS 22's (Android

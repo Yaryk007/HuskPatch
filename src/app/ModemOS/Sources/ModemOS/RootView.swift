@@ -4,7 +4,8 @@ import SwiftUI
 /// The home screen is always underneath; the setup overlay and the boot logo sit on top of it.
 struct RootView: View {
     @ObservedObject private var os = OSSettings.shared
-    @State private var booting = true
+    /// The boot sequence is off unless it is turned on in the Lab.
+    @State private var booting = OSSettings.shared.forcedBoot
 
     var body: some View {
         ZStack {
@@ -30,6 +31,9 @@ struct RootView: View {
             }
         }
         .environmentObject(os)
+        .expressiveColors(os.palette.expressive)
+        .tint(os.palette.primary)
+        .toggleStyle(OSToggleStyle())
         .preferredColorScheme(os.theme.colorScheme)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)

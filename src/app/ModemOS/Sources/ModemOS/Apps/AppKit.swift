@@ -26,8 +26,11 @@ struct AppContentView: View {
     var body: some View {
         content
             .environment(\.appActive, active)
-            .modemSafeArea(top: insets.top, bottom: max(insets.bottom, keyboard.height))
+            .modemSafeArea(top: fullScreen ? 0 : insets.top, bottom: fullScreen ? 0 : max(insets.bottom, keyboard.height))
     }
+
+    /// An app that draws under the system's bars.
+    private var fullScreen: Bool { ModemOSHost.shared.app(item.hostID)?.fullScreen == true }
 
     @ViewBuilder
     private var content: some View {
@@ -81,7 +84,7 @@ final class KeyboardObserver: ObservableObject {
     }
 }
 
-/// The big bold title at the top of an app, One UI style.
+/// The big title at the top of an app.
 struct AppTitle: View {
     let title: String
     var subtitle: String?
@@ -91,11 +94,12 @@ struct AppTitle: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(os.t(title))
-                .font(.system(size: 34, weight: .bold))
+                .font(os.display(36))
+                .foregroundColor(os.palette.onSurface)
             if let subtitle = subtitle {
                 Text(subtitle)
                     .font(.system(size: 15))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(os.palette.onSurfaceVariant)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -119,7 +123,7 @@ struct PermissionView: View {
         VStack(spacing: 16) {
             Image(systemName: symbol)
                 .font(.system(size: 54, weight: .semibold))
-                .foregroundColor(.accentColor)
+                .foregroundColor(.osAccent)
             Text(os.t(title))
                 .font(.system(size: 22, weight: .bold))
                 .multilineTextAlignment(.center)
@@ -141,7 +145,7 @@ struct PermissionView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 28)
                     .padding(.vertical, 13)
-                    .background(Capsule().fill(Color.accentColor))
+                    .background(Capsule().fill(Color.osAccent))
             }
             .buttonStyle(PressScaleStyle())
         }
@@ -150,18 +154,15 @@ struct PermissionView: View {
     }
 }
 
-/// A rounded One UI style card.
+/// A card, made of the system's surface.
 struct Card<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
         content
-            .padding(16)
+            .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemBackground))
-            )
+            .glass(RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 }
 
@@ -189,7 +190,7 @@ struct HostAppView: View {
     let id: String?
 
     var body: some View {
-        if let app = ModemOSHost.shared.apps.first(where: { $0.id == id }) {
+        if let app = ModemOSHost.shared.app(id) {
             app.content()
         } else {
             DummyApp(item: HomeItem(0, .host))

@@ -247,7 +247,16 @@ final class OSSettings: ObservableObject {
     @Published var haptics: Bool { didSet { save(haptics, "haptics") } }
     @Published var showFPS: Bool { didSet { save(showFPS, "showFPS") } }
     /// The long boot: logs and Tux penguins force-installing Android. Off = just the Apple logo.
+    /// The forced Android boot at each start. Off: straight to the home screen.
     @Published var forcedBoot: Bool { didSet { save(forcedBoot, "forcedBoot") } }
+    /// Material 3 Expressive or Liquid Glass.
+    @Published var design: OSDesign {
+        didSet {
+            save(design.rawValue, "design")
+            LiquidGlass.request(design == .liquidGlass)
+            OSLogger.shared.log("Settings", "Look: \(design.title)")
+        }
+    }
 
     private init() {
         let d = OSSettings.store
@@ -256,7 +265,7 @@ final class OSSettings: ObservableObject {
         setupDone = d.bool(forKey: "setupDone")
         language = OSLanguage(rawValue: d.string(forKey: "language") ?? "") ?? Self.systemLanguage
         theme = ThemeMode(rawValue: d.string(forKey: "theme") ?? "") ?? .dark
-        wallpaper = value("wallpaper", 0)
+        wallpaper = value("wallpaper", 20)
         navMode = NavMode(rawValue: d.string(forKey: "navMode") ?? "") ?? .gestures
         animStyle = AnimStyle(rawValue: d.string(forKey: "animStyle") ?? "") ?? .oneUI
         animSpeed = value("animSpeed", 1.0)
@@ -279,7 +288,7 @@ final class OSSettings: ObservableObject {
         customSquash = value("customSquash", 0.0)
         recentsLayout = RecentsLayout(rawValue: d.string(forKey: "recentsLayout") ?? "") ?? .carousel
         holdForRecents = value("holdForRecents", true)
-        iconRoundness = value("iconRoundness", 0.3)
+        iconRoundness = value("iconRoundness", 0.5)
         showLabels = value("showLabels", true)
         glassTint = value("glassTint", 0.5)
         homeApps = value("homeApps", true)
@@ -289,7 +298,8 @@ final class OSSettings: ObservableObject {
         showBattery = value("showBattery", true)
         haptics = value("haptics", true)
         showFPS = d.bool(forKey: "showFPS")
-        forcedBoot = value("forcedBoot", true)
+        forcedBoot = value("forcedBoot", false)
+        design = OSDesign(rawValue: value("design", OSDesign.expressive.rawValue)) ?? .expressive
         Animator.durationScale = CGFloat(1 / animSpeed)
     }
 
@@ -335,12 +345,12 @@ final class OSSettings: ObservableObject {
     func resetAll() {
         language = Self.systemLanguage
         theme = .dark
-        wallpaper = 0
+        wallpaper = 20
         navMode = .gestures
         resetMotion()
         recentsLayout = .carousel
         holdForRecents = true
-        iconRoundness = 0.3
+        iconRoundness = 0.5
         showLabels = true
         glassTint = 0.5
         homeApps = true
@@ -350,7 +360,8 @@ final class OSSettings: ObservableObject {
         showBattery = true
         haptics = true
         showFPS = false
-        forcedBoot = true
+        forcedBoot = false
+        design = .expressive
         OSLogger.shared.log("Settings", "Reset to defaults", level: .warn)
     }
 
