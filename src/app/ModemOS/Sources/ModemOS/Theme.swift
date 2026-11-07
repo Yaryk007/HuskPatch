@@ -43,8 +43,14 @@ struct WallpaperPreset: Identifiable {
     let name: String
     let stops: [Color]
     let glows: [(color: Color, center: UnitPoint, radius: CGFloat)]
+    /// A painted wallpaper from the app's assets; `stops` still give its colours to the palette.
+    var image: String? = nil
 
     static let all: [WallpaperPreset] = [
+        WallpaperPreset(id: 31, name: "Glacier", stops: [rgb(10, 42, 74), rgb(17, 80, 106), rgb(46, 140, 140)], glows: [], image: "ModemWall-glacier"),
+        WallpaperPreset(id: 30, name: "Ember", stops: [rgb(107, 31, 63), rgb(224, 82, 44), rgb(255, 179, 71)], glows: [], image: "ModemWall-ember"),
+        WallpaperPreset(id: 32, name: "Verdant", stops: [rgb(62, 158, 134), rgb(46, 138, 114), rgb(15, 74, 74)], glows: [], image: "ModemWall-verdant"),
+        WallpaperPreset(id: 33, name: "Neon", stops: [rgb(37, 16, 96), rgb(122, 30, 156), rgb(242, 53, 141)], glows: [], image: "ModemWall-neon"),
         WallpaperPreset(
             id: 20, name: "Modem",
             stops: [rgb(10, 12, 26), rgb(20, 30, 74), rgb(12, 18, 44)],
@@ -114,6 +120,10 @@ struct Wallpaper: View {
             let size = max(geo.size.width, geo.size.height)
             ZStack {
                 LinearGradient(colors: paper.stops, startPoint: .top, endPoint: .bottom)
+                if let name = paper.image, let image = UIImage(named: name) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                        .frame(width: geo.size.width, height: geo.size.height).clipped()
+                }
                 ForEach(0..<paper.glows.count, id: \.self) { index in
                     let glow = paper.glows[index]
                     RadialGradient(
@@ -172,17 +182,15 @@ struct AppIconView: View {
             if let image = item.image {
                 Image(uiImage: image).resizable().scaledToFill()
             } else if os.design == .expressive {
-                let colors = OSPalette.iconColors(for: item.color, dark: os.theme == .dark)
                 ZStack {
-                    colors.fill
-                    glyph.foregroundColor(colors.glyph)
+                    os.palette.primary
+                    glyph.foregroundColor(os.palette.onPrimary)
                 }
             } else {
                 ZStack {
-                    LinearGradient(colors: [item.color.opacity(0.72), item.color], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        .background(Color.white)
-                    LinearGradient(colors: [Color.white.opacity(0.32), .clear], startPoint: .top, endPoint: .center)
-                    glyph.foregroundColor(.white).shadow(color: .black.opacity(0.22), radius: size * 0.03, y: size * 0.015)
+                    Rectangle().fill(.ultraThinMaterial)
+                    Color.white.opacity(0.14)
+                    glyph.foregroundColor(.white)
                 }
             }
         }
@@ -199,7 +207,7 @@ struct AppIconView: View {
     }
 
     private var glyph: some View {
-        Image(systemName: item.symbol).font(.system(size: size * 0.44, weight: .semibold))
+        Image(systemName: item.symbol).font(.system(size: size * 0.46, weight: .medium))
     }
 }
 

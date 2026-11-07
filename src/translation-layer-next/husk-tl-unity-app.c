@@ -74,6 +74,7 @@ struct app_slot {
     int nextra;
     void *layer;
     int width, height;
+    bool exited;      /* it called exit(): its thread is gone, so it cannot just carry on */
 };
 
 /*
@@ -180,6 +181,7 @@ static void stop_ended(void)
 static void guest_exit(int status)
 {
     tl_log_line("native: the game exited (%d)", status);
+    A.exited = true;
     if (atomic_exchange(&A.state, HUSK_UNITY_ENDED) == HUSK_UNITY_RUNNING) stop_ended();
     pthread_exit(NULL);
 }
@@ -496,6 +498,7 @@ static bool launch(int engine, const char *apk, const char *data_dir, void *meta
     }
     if (!atomic_compare_exchange_strong(&A.state, &expected, HUSK_UNITY_STARTING)) return false;
     A.engine = engine;
+    A.exited = false;
     snprintf(A.apk, sizeof(A.apk), "%s", apk);
     snprintf(A.data, sizeof(A.data), "%s", data_dir);
     snprintf(A.angle, sizeof(A.angle), "%s", angle_dylib);
@@ -791,6 +794,26 @@ int husk_multiapp_make_room(int engine)
     return 1;
 }
 
+/*
+ * An app that closed itself, opened again. The engines that can stop start it afresh; the others stayed loaded and paused
+ * when it closed, so it carries on where it was. Returns 0 if it cannot come back in this run, 1 if the caller must launch
+ * it again (on a new view: the engine's surface went with it), 2 if it is running again. Can block while an engine stops.
+ */
+int husk_native_reopen(void)
+{
+    if (husk_unity_state() != HUSK_UNITY_ENDED) return 0;
+    if (A.engine == ENGINE_JAVA || A.engine == ENGINE_COCOS || A.engine == ENGINE_GODOT || A.engine == ENGINE_UNITY) {
+        tl_log_line("native: %s closed itself; starting it again", A.apk);
+        husk_native_unload();
+        return 1;
+    }
+    if (A.exited) return 0;
+    atomic_store(&A.state, HUSK_UNITY_RUNNING);
+    pause_engine(false);
+    tl_log_line("native: %s closed itself; its engine stayed loaded, so it carries on", A.apk);
+    return 2;
+}
+
 /* Brings a loaded app to the front. Returns 0 when it is not loaded. */
 int husk_multiapp_switch(const char *apk)
 {
@@ -800,6 +823,7 @@ int husk_multiapp_switch(const char *apk)
         if (slot_loaded(&g_slots[i]) && !strcmp(g_slots[i].apk, apk)) target = &g_slots[i];
     if (!target) return 0;
     if (target == g_app) return 1;
+    tl_log_line("native: switching from %s to %s", g_app->apk, apk);
     if (g_multi_mode == 1 && atomic_load(&g_app->state) == HUSK_UNITY_RUNNING) pause_engine(true);
     g_app = target;
     if (atomic_load(&A.state) == HUSK_UNITY_RUNNING) pause_engine(false);

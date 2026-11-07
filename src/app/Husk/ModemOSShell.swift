@@ -34,7 +34,10 @@ enum ModemOSLook {
         let host = ModemOSHost.shared
         host.folderName = "Android"
         host.restart = { restart() }
-        host.frontChanged = { id in frontChanged(id) }
+        host.frontChanged = { id in
+            ModemOSHost.shared.frontID = id
+            frontChanged(id)
+        }
         host.apps = [
             ModemOSHostApp(id: "home", name: "Games", symbol: "gamecontroller.fill",
                            color: Color(red: 0.12, green: 0.62, blue: 0.29)) { HomeView() },
@@ -55,7 +58,25 @@ enum ModemOSLook {
             return
         }
         HuskOrientation.set(app.drawsPortrait(TLAppSettings.load(app.id)) ? .portrait : .landscape)
-        if let apk = app.apks.first { _ = husk_multiapp_switch(apk) }
+        // After the screen has turned and the window is up: a fixed-size surface must not draw while it is turning.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            guard ModemOSHost.shared.frontID == id, let apk = app.apks.first else { return }
+            _ = husk_multiapp_switch(apk)
+            revive(app)
+        }
+    }
+
+    /// An app that closed itself comes back when it is opened again, without restarting HuskPatch.
+    @MainActor static func revive(_ app: TLApp) {
+        guard let apk = app.apks.first, husk_native_loaded_apk().map({ String(cString: $0) }) == apk,
+              husk_unity_state() == Int32(HUSK_UNITY_ENDED) else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = husk_native_reopen()
+            DispatchQueue.main.async {
+                if result == 1 { TLUnityScreen.forget(apk: apk) }
+                ModemOSRevival.shared.finished(app.id, result: result)
+            }
+        }
     }
 
     /// The apps on the translation layer, as ModemOS apps.
@@ -133,6 +154,19 @@ enum HuskMultiApp {
     }
 }
 
+/// Apps being brought back after closing themselves: a new run gets a new screen.
+@MainActor final class ModemOSRevival: ObservableObject {
+    static let shared = ModemOSRevival()
+    @Published private(set) var runs: [String: Int] = [:]
+    @Published private(set) var failed = Set<String>()
+
+    func finished(_ id: String, result: Int32) {
+        if result == 0 { failed.insert(id); return }
+        failed.remove(id)
+        if result == 1 { runs[id, default: 0] += 1 }
+    }
+}
+
 /// What ContentView shows when ModemOS is on.
 struct ModemOSShellView: View {
     @ObservedObject private var store = TranslationLayerStore.shared
@@ -163,11 +197,14 @@ private struct ModemOSAndroidApp: View {
     /// Once started it stays: the check must not take a running engine's view away.
     @State private var started = false
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @ObservedObject private var revival = ModemOSRevival.shared
 
     var body: some View {
         Group {
-            if started {
-                TLAttemptView(app: app)
+            if revival.failed.contains(app.id) {
+                blockedEnded
+            } else if started {
+                TLAttemptView(app: app).id(revival.runs[app.id] ?? 0)
             } else if checked {
                 blocked
             } else {
@@ -198,12 +235,21 @@ private struct ModemOSAndroidApp: View {
                 gate = .otherApp(name)
                 return
             }
-            if husk_unity_state() == Int32(HUSK_UNITY_ENDED) {
-                gate = .ended
-                return
-            }
+            if husk_unity_state() == Int32(HUSK_UNITY_ENDED) { ModemOSLook.revive(app) }
         }
         started = true
+    }
+
+    private var blockedEnded: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Text("\(app.label) closed itself and can't start again in this run.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white.opacity(0.7))
+            restartButton
+            Spacer()
+        }
+        .padding(32)
     }
 
     private var blocked: some View {

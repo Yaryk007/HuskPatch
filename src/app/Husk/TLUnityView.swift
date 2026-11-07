@@ -142,11 +142,11 @@ final class TLUnityUIView: UIView, UIKeyInput {
             }
         }
         // The GPU is not the app's while it is in the background: stop drawing, and carry on when it returns.
-        NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
-            husk_unity_set_paused(true)
+        NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.setEnginePaused(true)
         }
         NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            if self?.window != nil { husk_unity_set_paused(false) }
+            if self?.window != nil { self?.setEnginePaused(false) }
         }
     }
 
@@ -253,15 +253,21 @@ final class TLUnityUIView: UIView, UIKeyInput {
 
     private var firstLayout: Date?
 
+    /// Pause and resume speak to the app in front, so with several apps loaded a view only does that for its own.
+    private func setEnginePaused(_ paused: Bool) {
+        if HuskMultiApp.isOn, husk_native_loaded_apk().map({ String(cString: $0) }) != apk { return }
+        husk_unity_set_paused(paused)
+    }
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
         statsTimer?.invalidate()
         statsTimer = nil
         if window != nil {
-            husk_unity_set_paused(false)
+            setEnginePaused(false)
             statsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.updateStats() }
         } else {
-            husk_unity_set_paused(true)
+            setEnginePaused(true)
             if isFirstResponder { resignFirstResponder() }
         }
         setNeedsLayout()
@@ -764,6 +770,9 @@ struct TLUnityScreen: UIViewRepresentable {
     /// One view per game for the life of the process. The engine's GPU surface belongs to this view's layer and an
     /// engine cannot be started twice, so coming back to the game must show the same layer, not a new one.
     private static var shared: [String: TLUnityUIView] = [:]
+
+    /// HuskPatch: the app is starting again, and its engine's surface went with the last run: the next screen gets a new view.
+    static func forget(apk: String) { shared[apk] = nil }
 
     /// HuskPatch: the size a game was started at, once it has started (nil before), for windows that keep its shape.
     static func launchedSize(apk: String) -> CGSize? { shared[apk]?.launchedSize }

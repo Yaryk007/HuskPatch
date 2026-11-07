@@ -270,7 +270,7 @@ final class OSSettings: ObservableObject {
         setupDone = d.bool(forKey: "setupDone")
         language = OSLanguage(rawValue: d.string(forKey: "language") ?? "") ?? Self.systemLanguage
         theme = ThemeMode(rawValue: d.string(forKey: "theme") ?? "") ?? .dark
-        wallpaper = value("wallpaper", 20)
+        wallpaper = value("wallpaper", 31)
         navMode = NavMode(rawValue: d.string(forKey: "navMode") ?? "") ?? .gestures
         animStyle = AnimStyle(rawValue: d.string(forKey: "animStyle") ?? "") ?? .oneUI
         animSpeed = value("animSpeed", 1.0)
@@ -295,7 +295,7 @@ final class OSSettings: ObservableObject {
         customSquash = value("customSquash", 0.0)
         recentsLayout = RecentsLayout(rawValue: d.string(forKey: "recentsLayout") ?? "") ?? .carousel
         holdForRecents = value("holdForRecents", true)
-        iconRoundness = value("iconRoundness", 0.5)
+        iconRoundness = value("iconRoundness", 0.29)
         showLabels = value("showLabels", true)
         glassTint = value("glassTint", 0.5)
         homeApps = value("homeApps", true)
@@ -353,12 +353,12 @@ final class OSSettings: ObservableObject {
     func resetAll() {
         language = Self.systemLanguage
         theme = .dark
-        wallpaper = 20
+        wallpaper = 31
         navMode = .gestures
         resetMotion()
         recentsLayout = .carousel
         holdForRecents = true
-        iconRoundness = 0.5
+        iconRoundness = 0.29
         showLabels = true
         glassTint = 0.5
         homeApps = true

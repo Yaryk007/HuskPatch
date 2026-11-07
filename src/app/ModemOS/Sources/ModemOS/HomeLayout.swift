@@ -37,11 +37,11 @@ struct HomeLayout {
 
     var barX: CGFloat { w * 0.013 }
     var barWidth: CGFloat { w * 0.972 }
-    var barTop: CGFloat { ch * 0.02 }
-    var barHeight: CGFloat { ch * 0.039 }
+    var barTop: CGFloat { 0 }
+    var barHeight: CGFloat { 44 * u }
     var barOpenHeight: CGFloat { ch * 0.6 + 50 * u }
-    var statusSize: CGFloat { w * 0.037 }
-    var statusCenterY: CGFloat { ch * 0.039 }
+    var statusSize: CGFloat { 14 * u }
+    var statusCenterY: CGFloat { 22 * u }
 
     func barRect(shade s: CGFloat) -> CGRect {
         CGRect(x: barX, y: barTop, width: barWidth, height: lerp(barHeight, barOpenHeight, s))
@@ -69,14 +69,14 @@ struct HomeLayout {
 
     // MARK: App drawer (a glass sheet that peeks up from the bottom; the peeking part is the dock)
 
-    var sheetX: CGFloat { w * 0.045 }
-    var sheetWidth: CGFloat { w * 0.91 }
-    var sheetRadius: CGFloat { w * 0.085 }
-    var sheetOpenTop: CGFloat { ch * 0.085 }
-    var sheetBottom: CGFloat { h - ch * 0.029 - navHeight }
+    var sheetX: CGFloat { 10 * u }
+    var sheetWidth: CGFloat { w - 20 * u }
+    var sheetRadius: CGFloat { 38 * u }
+    var sheetOpenTop: CGFloat { 46 * u }
+    var sheetBottom: CGFloat { h - 18 * u - navHeight }
     var sheetHeight: CGFloat { sheetBottom - sheetOpenTop }
     /// How much of the sheet shows while it is closed: just enough for the dock icons.
-    var dockPeek: CGFloat { dockIconSize + w * 0.1 }
+    var dockPeek: CGFloat { 96 * u }
     var sheetClosedTop: CGFloat { sheetBottom - dockPeek }
 
     func sheetTop(drawer d: CGFloat) -> CGFloat {
@@ -85,39 +85,34 @@ struct HomeLayout {
 
     // MARK: Icons
 
-    var iconSize: CGFloat { w * 0.19 }
-    var labelSize: CGFloat { w * 0.032 }
+    var iconSize: CGFloat { 62 * u }
+    var labelSize: CGFloat { 12 * u }
 
     func iconRadius(_ roundness: Double) -> CGFloat { iconSize * CGFloat(roundness) }
 
     // MARK: Dock (inside the peeking drawer)
 
-    var dockIconSize: CGFloat { w * 0.165 }
+    var dockIconSize: CGFloat { 62 * u }
 
     func dockIcon(_ index: Int, drawer d: CGFloat) -> CGRect {
-        let gap = (sheetWidth - 4 * dockIconSize) / 5
+        let cell = (sheetWidth - 24 * u) / 4
         return CGRect(
-            x: sheetX + gap + CGFloat(index) * (dockIconSize + gap),
-            y: sheetTop(drawer: d) + (dockPeek - dockIconSize) / 2 + 2 * u,
+            x: sheetX + 12 * u + (CGFloat(index) + 0.5) * cell - dockIconSize / 2,
+            y: sheetTop(drawer: d) + (dockPeek - dockIconSize) / 2,
             width: dockIconSize,
             height: dockIconSize
         )
     }
 
-    // MARK: Home screen (apps above the dock, and the clock widget)
+    /// Distance from the top of one home-screen row to the next.
+    var homePitch: CGFloat { 103 * u }
 
-    /// Distance from the top of one home-screen row to the next (icon + label + gap).
-    var homePitch: CGFloat { dockIconSize + labelSize * 2.4 + ch * 0.022 }
-
-    /// Four columns lined up with the dock; rows stack up from just above the dock.
+    /// Four columns from the top of the grid down.
     func homeIcon(_ index: Int, rows: Int) -> CGRect {
-        let gap = (sheetWidth - 4 * dockIconSize) / 5
-        let column = CGFloat(index % 4)
-        let row = CGFloat(index / 4)
-        let lastRowTop = sheetClosedTop - ch * 0.03 - labelSize * 2.4 - dockIconSize
+        let cell = (w - 48 * u) / 4
         return CGRect(
-            x: sheetX + gap + column * (dockIconSize + gap),
-            y: lastRowTop - (CGFloat(rows - 1) - row) * homePitch,
+            x: 24 * u + (CGFloat(index % 4) + 0.5) * cell - dockIconSize / 2,
+            y: 300 * u + CGFloat(index / 4) * homePitch,
             width: dockIconSize,
             height: dockIconSize
         )
@@ -135,9 +130,7 @@ struct HomeLayout {
 
     // MARK: Folder
 
-    var folderRect: CGRect {
-        CGRect(x: w * 0.08, y: ch * 0.175, width: w * 0.84, height: ch * 0.607)
-    }
+    var folderRect: CGRect { CGRect(x: 30 * u, y: 220 * u, width: w - 60 * u, height: 300 * u) }
 
     var folderTitle: CGPoint {
         CGPoint(x: w / 2, y: ch * 0.14)
@@ -161,13 +154,10 @@ struct HomeLayout {
 
     /// Where an app sits inside the open folder.
     func folderChild(_ index: Int) -> CGRect {
-        let column = CGFloat(index % 3)
-        let row = CGFloat(index / 3)
-        let pad = w * 0.06
-        let gap = (folderRect.width - 2 * pad - 3 * iconSize) / 2
+        let cell = (folderRect.width - 28 * u) / 3
         return CGRect(
-            x: folderRect.minX + pad + column * (iconSize + gap),
-            y: folderRect.minY + ch * 0.065 + row * ch * 0.165,
+            x: folderRect.minX + 14 * u + (CGFloat(index % 3) + 0.5) * cell - iconSize / 2,
+            y: folderRect.minY + 55 * u + CGFloat(index / 3) * 99 * u,
             width: iconSize,
             height: iconSize
         )

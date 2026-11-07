@@ -25,9 +25,7 @@ struct LabPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
             tabs
-            Divider().opacity(0.4)
             switch tab {
             case .motion: MotionTab()
             case .look: LookTab()
@@ -37,59 +35,38 @@ struct LabPanel: View {
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "flask.fill")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(width: 42, height: 42)
-                .background(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(LinearGradient(colors: [.purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
-                )
-            VStack(alignment: .leading, spacing: 1) {
-                Text("ModemOS Lab").font(.system(size: 22, weight: .bold))
-                Text(os.t("Make it yours")).font(.system(size: 13)).foregroundColor(.secondary)
-            }
-            Spacer()
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(.primary)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(Color.primary.opacity(0.1)))
-            }
-            .buttonStyle(PressScaleStyle())
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 18)
-        .padding(.bottom, 12)
-    }
-
     private var tabs: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 0) {
             ForEach(Tab.allCases, id: \.self) { item in
                 Button {
                     Haptics.tap()
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { tab = item }
                 } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: item.symbol).font(.system(size: 17, weight: .semibold))
-                        Text(os.t(item.rawValue)).font(.system(size: 11, weight: .semibold))
-                    }
-                    .foregroundColor(tab == item ? .primary : .secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(tab == item ? Color.primary.opacity(0.12) : Color.clear)
-                    )
+                    Text(os.t(item.rawValue))
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .foregroundColor(tab == item ? os.palette.onPrimary : os.palette.onSurfaceVariant)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Capsule().fill(tab == item ? os.palette.primary : Color.clear))
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(PressScaleStyle(pressedScale: 0.94))
+                .buttonStyle(.plain)
             }
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(os.palette.onSurface)
+                    .frame(width: 48, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(os.t("Close"))
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
+        .background(Capsule().fill(os.design == .expressive ? os.palette.surfaceHigh : Color.white.opacity(0.14)))
+        .padding(.horizontal, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
     }
 }
 

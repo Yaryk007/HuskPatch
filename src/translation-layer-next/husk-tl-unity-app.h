@@ -184,6 +184,9 @@ int  husk_multiapp_has_room(int engine);
 int  husk_multiapp_make_room(int engine);
 int  husk_multiapp_switch(const char *apk);
 
+/* An app that closed itself, opened again: 0 it cannot be, 1 launch it again on a new view, 2 it is running again. */
+int  husk_native_reopen(void);
+
 /* The app's package name from its manifest into `out`; false if it cannot be read. */
 bool husk_unity_package_name(const char *apk, char *out, unsigned long out_len);
 

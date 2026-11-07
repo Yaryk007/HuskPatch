@@ -22,12 +22,12 @@ struct LockScreen: View {
                         .font(.system(size: 14))
                         .padding(.bottom, 52)
                 }
-                .padding(.top, geo.size.height * 0.15)
+                .padding(.top, geo.size.width / 390 * 130)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .foregroundColor(.white)
                 .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
             }
-            .background(.ultraThinMaterial)
+            .background { ZStack { Rectangle().fill(.ultraThinMaterial); Color.black.opacity(0.28) } }
             .contentShape(Rectangle())
             .offset(y: leaving ? -geo.size.height : min(0, drag))
             .gesture(
