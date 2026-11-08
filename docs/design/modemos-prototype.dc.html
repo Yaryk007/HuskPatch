@@ -1,0 +1,1013 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ModemOS prototype</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300;8..144,400;8..144,500;8..144,700&display=swap" rel="stylesheet">
+<style>
+body { margin: 0; background: #000; }
+a { color: inherit; }
+a:hover { color: inherit; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--on); outline-offset: 2px; }
+
+.os { position: relative; width: 390px; height: 844px; overflow: hidden; background: #000; color: var(--on); user-select: none; -webkit-user-select: none; touch-action: none; }
+.os.expressive { font-family: 'Roboto Flex', Roboto, system-ui, sans-serif; }
+.os.glass { font-family: -apple-system, 'SF Pro Text', 'Roboto Flex', system-ui, sans-serif; }
+
+/* Colour comes from the wallpaper's hue, as in OSPalette. */
+.os.dark { --on: #f2f0f4; --on2: rgba(242, 240, 244, 0.76); --surface: hsl(var(--h) 16% 10%); --container: hsl(var(--h) 22% 17%); --high: hsl(var(--h) 26% 24%); --primary: hsl(var(--h) 62% 76%); --onprimary: hsl(var(--h) 60% 14%); --line: rgba(255, 255, 255, 0.12); }
+.os.light { --on: #1c1b1f; --on2: rgba(28, 27, 31, 0.72); --surface: hsl(var(--h) 34% 96%); --container: hsl(var(--h) 38% 90%); --high: hsl(var(--h) 40% 84%); --primary: hsl(var(--h) 60% 32%); --onprimary: #fff; --line: rgba(0, 0, 0, 0.1); }
+
+/* Every system surface. The two looks differ here, so switching is one change. */
+.surf { box-sizing: border-box; transition: background 0.4s ease, box-shadow 0.4s ease, border-radius 0.4s ease; }
+.expressive .surf { background: var(--container); }
+.glass.dark .surf { background: rgba(28, 28, 34, 0.32); -webkit-backdrop-filter: blur(20px) saturate(1.9); backdrop-filter: blur(20px) saturate(1.9); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42), inset 1px 0 0 rgba(255, 255, 255, 0.12), inset -1px 0 0 rgba(255, 255, 255, 0.12), inset 0 -1px 0 rgba(255, 255, 255, 0.1), 0 12px 32px rgba(0, 0, 0, 0.28); }
+.glass.light .surf { background: rgba(255, 255, 255, 0.5); -webkit-backdrop-filter: blur(20px) saturate(1.9); backdrop-filter: blur(20px) saturate(1.9); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(255, 255, 255, 0.3), 0 12px 32px rgba(0, 0, 0, 0.16); }
+
+.wall { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.6s ease; will-change: transform; }
+.wall.on { opacity: 1; }
+.dimmer { position: absolute; inset: 0; background: #000; pointer-events: none; z-index: 90; }
+
+.bar { position: absolute; z-index: 60; left: 0; right: 0; top: 0; height: 44px; padding: 0 26px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; font-size: 14px; font-weight: 600; pointer-events: none; color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); transition: color 0.25s ease; }
+.bar.onapp { color: var(--on); text-shadow: none; }
+
+.home { position: absolute; inset: 0; will-change: transform, opacity; }
+.clockbox { position: absolute; left: 28px; top: 74px; color: #fff; text-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); }
+.grid { position: absolute; left: 24px; right: 24px; top: 300px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 83px; row-gap: 20px; }
+.ico { display: flex; flex-direction: column; align-items: center; gap: 6px; color: #fff; font-size: 12px; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); }
+.tile { position: relative; display: flex; align-items: center; justify-content: center; width: 62px; height: 62px; border-radius: var(--round); color: var(--onprimary); scale: var(--icon); transition: scale var(--homedur) var(--react), border-radius 0.34s var(--spring), transform 0.3s var(--spring), background 0.4s ease; }
+.expressive .tile { background: var(--primary); }
+.glass .tile { color: #fff; background: rgba(255, 255, 255, 0.2); -webkit-backdrop-filter: blur(12px) saturate(1.7); backdrop-filter: blur(12px) saturate(1.7); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 6px 14px rgba(0, 0, 0, 0.2); }
+.ico:active .tile { transform: scale(0.8); border-radius: 31px; }
+.ripbox { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.folder { display: grid; grid-template-columns: repeat(2, 20px); gap: 4px; padding: 0; }
+.folder span { width: 20px; height: 20px; border-radius: 7px; background: currentColor; opacity: 0.8; }
+.rip0 { animation: rip0 0.42s cubic-bezier(0.2, 0.8, 0.3, 1) var(--delay) both; }
+.rip1 { animation: rip1 0.42s cubic-bezier(0.2, 0.8, 0.3, 1) var(--delay) both; }
+.enter { animation: enter 0.6s var(--spring) var(--delay) both; }
+
+.sheetdock { position: absolute; z-index: 20; left: 10px; right: 10px; top: 0; height: 844px; border-radius: 38px; will-change: transform; }
+.dockrow { height: 96px; padding: 0 12px; box-sizing: border-box; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: center; }
+.dockrow .ico { color: var(--on); text-shadow: none; }
+.drawergrid { padding: 4px 12px 40px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 18px; height: 700px; align-content: start; box-sizing: border-box; overflow-y: auto; touch-action: pan-y; }
+.drawergrid .ico { color: var(--on); text-shadow: none; }
+.drawergrid .tile { width: 56px; height: 56px; }
+.stagger { animation: enter 0.5s var(--spring) var(--delay) both; }
+
+.win { position: absolute; z-index: 44; left: 0; top: 0; width: 390px; height: 844px; overflow: hidden; background: var(--surface); color: var(--on); will-change: transform, clip-path; }
+.winicon { position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; background: var(--primary); color: var(--onprimary); pointer-events: none; }
+.winicon svg { width: 189px; height: 189px; }
+.glass .winicon { background: hsl(var(--h) 24% 42%); color: #fff; }
+.winpage { position: absolute; inset: 0; box-sizing: border-box; padding: 62px 20px 44px; overflow-y: auto; touch-action: pan-y; user-select: text; -webkit-user-select: text; }
+
+.navline { position: absolute; z-index: 70; left: 95px; bottom: 0; width: 200px; height: 34px; display: flex; align-items: center; justify-content: center; }
+.navline span { width: 134px; height: 5px; border-radius: 3px; background: #fff; opacity: 0.9; box-shadow: 0 0 6px rgba(0, 0, 0, 0.4); transition: transform 0.3s var(--spring), background 0.25s ease; }
+.navline.onapp span { background: var(--on); box-shadow: none; }
+.navline:active span { transform: scaleX(1.15); }
+.navbtns { position: absolute; z-index: 70; left: 0; right: 0; bottom: 0; height: 48px; display: flex; justify-content: space-around; align-items: center; color: #fff; }
+.navbtns.onapp { color: var(--on); }
+.navbtns button { width: 88px; height: 48px; display: flex; align-items: center; justify-content: center; }
+
+.scrim { position: absolute; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.42); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); width: 100%; height: 100%; }
+.cc { position: absolute; z-index: 45; left: 10px; right: 10px; top: 46px; padding: 14px; border-radius: 34px; will-change: transform; display: flex; flex-direction: column; gap: 10px; }
+.qs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.qst { display: flex; align-items: center; gap: 10px; height: 68px; padding: 0 14px; box-sizing: border-box; background: var(--high); color: var(--on); font-size: 14px; font-weight: 500; text-align: left; border-radius: 34px; transition: border-radius 0.42s var(--spring), background 0.25s ease, color 0.25s ease, transform 0.18s ease; }
+.glass .qst { background: rgba(255, 255, 255, 0.16); }
+.qst.on { background: var(--primary); color: var(--onprimary); border-radius: 18px; }
+.qst:active { transform: scale(0.96); }
+.slide { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 16px; box-sizing: border-box; background: var(--high); border-radius: 28px; font-size: 13px; font-weight: 500; }
+.glass .slide { background: rgba(255, 255, 255, 0.14); }
+.slide input, .rng { flex: 1; min-width: 0; height: 44px; accent-color: var(--primary); touch-action: none; }
+
+.lab { position: absolute; z-index: 50; top: 46px; bottom: 16px; width: 366px; left: 12px; border-radius: 34px; display: flex; flex-direction: column; overflow: hidden; will-change: transform; }
+.labtabs { display: flex; flex: none; margin: 10px 10px 4px; border-radius: 24px; background: var(--high); }
+.glass .labtabs { background: rgba(255, 255, 255, 0.14); }
+.labtabs button, .seg button { flex: 1; height: 44px; border-radius: 22px; font-size: 13px; font-weight: 600; color: var(--on2); transition: background 0.22s ease, color 0.22s ease; }
+.labtabs button.on, .seg button.on { background: var(--primary); color: var(--onprimary); }
+.labbody { flex: 1; min-height: 0; overflow-y: auto; touch-action: pan-y; padding: 8px 16px 20px; }
+.seg { display: flex; border-radius: 22px; background: var(--high); margin-top: 6px; }
+.glass .seg { background: rgba(255, 255, 255, 0.14); }
+.label { margin: 14px 0 0; font-size: 12px; font-weight: 600; color: var(--on2); }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; font-size: 15px; border-bottom: 1px solid var(--line); }
+.row:last-child { border-bottom: 0; }
+.value { font-size: 14px; color: var(--on2); }
+.sw { position: relative; flex: none; width: 56px; height: 44px; }
+.sw::before { content: ""; position: absolute; left: 0; top: 8px; width: 56px; height: 28px; border-radius: 14px; background: var(--high); transition: background 0.2s ease; }
+.sw i { position: absolute; left: 4px; top: 14px; width: 16px; height: 16px; border-radius: 12px; background: var(--on2); transition: all 0.36s var(--spring); }
+.sw.on::before { background: var(--primary); }
+.sw.on i { left: 30px; top: 10px; width: 24px; height: 24px; background: var(--onprimary); }
+.sw:active i { width: 28px; }
+.swatches { display: flex; gap: 10px; margin-top: 6px; }
+.swatch { flex: 1; height: 92px; border-radius: 18px; overflow: hidden; opacity: 0.7; transition: opacity 0.2s ease, transform 0.36s var(--spring), border-radius 0.25s ease; }
+.swatch img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.swatch.on { opacity: 1; transform: scale(1.04); border-radius: 26px; box-shadow: 0 0 0 2px var(--primary); }
+
+.preview { position: relative; display: block; width: 118px; height: 232px; margin: 8px auto 0; border-radius: 20px; overflow: hidden; background: var(--high); }
+.previewapp { position: absolute; inset: 0; background: var(--primary); transform-origin: center; }
+
+.folderpanel { position: absolute; z-index: 42; left: 30px; right: 30px; top: 220px; padding: 20px 14px 18px; border-radius: 38px; animation: folderin 0.42s var(--spring) both; transform-origin: 30% 80%; }
+.folderpanel .ico { color: var(--on); text-shadow: none; }
+
+.recents { position: absolute; inset: 0; z-index: 35; display: flex; align-items: center; gap: 18px; padding: 0 66px; overflow-x: auto; box-sizing: border-box; touch-action: pan-x; scrollbar-width: none; animation: fade 0.22s ease both; }
+.recents::-webkit-scrollbar { display: none; }
+.card { position: relative; flex: none; width: 258px; height: 560px; border-radius: 34px; overflow: hidden; background: var(--surface); color: var(--on); animation: cardin 0.45s var(--spring) var(--delay) both; }
+.cardopen { position: absolute; inset: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; font-size: 16px; font-weight: 600; }
+.cardclose { position: absolute; right: 8px; top: 8px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+.closeall { position: absolute; z-index: 36; left: 50%; bottom: 52px; transform: translateX(-50%); height: 44px; padding: 0 20px; border-radius: 22px; font-size: 14px; font-weight: 600; color: var(--on); }
+
+.boot { position: absolute; inset: 0; z-index: 95; background: #000; color: #9fe8a6; font: 11px/16px ui-monospace, Menlo, monospace; padding: 54px 18px; box-sizing: border-box; overflow: hidden; text-align: left; width: 100%; height: 100%; }
+.boot.out { animation: iris 0.7s cubic-bezier(0.6, 0, 0.2, 1) both; }
+.bootlogo { position: absolute; left: 0; right: 0; bottom: 120px; display: flex; flex-direction: column; align-items: center; gap: 14px; color: #fff; font: 700 22px 'Roboto Flex', system-ui, sans-serif; }
+.bars { display: flex; align-items: flex-end; gap: 5px; height: 34px; }
+.bars i { width: 8px; border-radius: 4px; background: #fff; animation: signal 1s ease-in-out infinite; }
+
+.calc { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.calc button { height: 76px; border-radius: 38px; font-size: 26px; background: var(--container); transition: border-radius 0.3s var(--spring), transform 0.14s ease; }
+.calc button:active { border-radius: 20px; transform: scale(0.95); }
+.calc button.op { background: var(--primary); color: var(--onprimary); }
+.lock { position: absolute; inset: 0; z-index: 58; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; color: #fff; background: rgba(0, 0, 0, 0.28); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); text-shadow: 0 2px 12px rgba(0, 0, 0, 0.4); }
+.headsup { position: absolute; z-index: 56; left: 12px; right: 12px; top: 46px; display: flex; align-items: center; gap: 12px; min-height: 68px; padding: 10px 16px; border-radius: 26px; text-align: left; font-size: 14px; color: var(--on); animation: headsup 0.5s var(--spring) both; }
+.grouptitle { margin: 16px 6px 6px; font-size: 13px; font-weight: 600; color: var(--on2); }
+.storerow { display: flex; align-items: center; gap: 12px; min-height: 76px; border-bottom: 1px solid var(--line); }
+.storerow:last-child { border-bottom: 0; }
+.storetile { flex: none; width: 52px; height: 52px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: var(--primary); color: var(--onprimary); }
+.pillbtn { flex: none; min-width: 76px; height: 44px; padding: 0 16px; border-radius: 22px; font-size: 14px; font-weight: 600; background: var(--primary); color: var(--onprimary); }
+.pillbtn.quiet { background: var(--high); color: var(--on); }
+.track { width: 76px; height: 6px; border-radius: 3px; background: var(--high); overflow: hidden; }
+.track i { display: block; height: 100%; background: var(--primary); }
+textarea.note { width: 100%; height: 620px; box-sizing: border-box; border: 0; resize: none; background: none; color: var(--on); font: 17px/25px inherit; outline: none; touch-action: pan-y; }
+
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes headsup { from { opacity: 0; transform: translateY(-90px); } to { opacity: 1; transform: none; } }
+@keyframes enter { from { opacity: 0; transform: translateY(26px) scale(0.86); } to { opacity: 1; transform: none; } }
+@keyframes folderin { from { opacity: 0; transform: scale(0.2); } to { opacity: 1; transform: scale(1); } }
+@keyframes cardin { from { opacity: 0; transform: translateY(40px) scale(0.86); } to { opacity: 1; transform: none; } }
+@keyframes rip0 { 22% { transform: translate(var(--dx), var(--dy)) scale(0.94); } }
+@keyframes rip1 { 22% { transform: translate(var(--dx), var(--dy)) scale(0.94); } }
+@keyframes iris { from { clip-path: circle(120% at 50% 50%); } to { clip-path: circle(0 at 50% 50%); } }
+@keyframes signal { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+  .rip0, .rip1, .enter, .stagger, .card, .folderpanel, .bars i { animation: none; }
+}
+</style>
+</helmet>
+
+<div class="{{rootCls}}" style="--h: {{hue}}; --spring: {{spring}}; --open: {{openMs}}ms; --close: {{closeMs}}ms; --settle: cubic-bezier(0.32, 0.72, 0, 1); --react: cubic-bezier(0.3, 0, 0.1, 1); --round: {{round}}px; --icon: {{iconScale}}; --homedur: {{homeDur}}" onPointerDown="{{down}}" onPointerMove="{{move}}" onPointerUp="{{up}}" onPointerCancel="{{up}}">
+
+  <sc-for list="{{walls}}" as="w" hint-placeholder-count="4">
+    <img class="{{w.cls}}" src="{{w.src}}" alt="" aria-hidden="true" draggable="false" style="transform: translate({{wallX}}px, {{wallY}}px) scale({{wallScale}}); transition: opacity 0.6s ease, transform {{homeDur}} var(--react)">
+  </sc-for>
+
+  <div class="{{barCls}}">
+    <span>{{timeText}}</span>
+    <span style="display: flex; align-items: center; gap: 6px">
+      <svg width="16" height="12" viewBox="0 0 16 12" fill="currentColor" aria-hidden="true"><rect x="0" y="8" width="3" height="4" rx="1"></rect><rect x="4.3" y="5.5" width="3" height="6.5" rx="1"></rect><rect x="8.6" y="3" width="3" height="9" rx="1"></rect><rect x="13" y="0" width="3" height="12" rx="1"></rect></svg>
+      <sc-if value="{{showBattery}}" hint-placeholder-val="{{ true }}"><span>82%</span></sc-if>
+    </span>
+  </div>
+
+  <div class="home" style="transform: translate({{homeX}}px, {{homeY}}px) scale({{homeScale}}); opacity: {{homeOpacity}}; transition: transform {{homeDur}} var(--react), opacity {{homeDur}} ease">
+    <div class="clockbox">
+      <div style="font-size: 76px; line-height: 80px; font-weight: 300; letter-spacing: -2px">{{timeText}}</div>
+      <div style="font-size: 16px; font-weight: 500">{{dateText}}</div>
+    </div>
+    <div class="grid">
+      <sc-for list="{{homeItems}}" as="a" hint-placeholder-count="10">
+        <button class="{{a.cls}}" style="--delay: {{a.delay}}ms" onClick="{{a.tap}}" aria-label="{{a.name}}">
+          <span class="tile">
+            <sc-if value="{{a.isFolder}}" hint-placeholder-val="{{ false }}"><span class="folder"><span></span><span></span><span></span><span></span></span></sc-if>
+            <sc-if value="{{a.isApp}}" hint-placeholder-val="{{ true }}">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{a.d}}"></path></svg>
+            </sc-if>
+          </span>
+          <span>{{a.name}}</span>
+        </button>
+      </sc-for>
+    </div>
+  </div>
+
+  <div class="surf sheetdock" style="transform: translateY({{drawerY}}px); scale: {{backScale}}; translate: {{backX}}px {{backY}}px; transition: {{drawerTransition}}, scale {{homeDur}} var(--react), translate {{homeDur}} var(--react)">
+    <div class="dockrow">
+      <sc-for list="{{dockItems}}" as="a" hint-placeholder-count="4">
+        <button class="ico" onClick="{{a.tap}}" aria-label="{{a.name}}">
+          <span class="tile"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{a.d}}"></path></svg></span>
+        </button>
+      </sc-for>
+    </div>
+    <sc-if value="{{drawerOpen}}" hint-placeholder-val="{{ false }}">
+      <div class="drawergrid">
+        <sc-for list="{{drawerItems}}" as="a" hint-placeholder-count="12">
+          <button class="ico stagger" style="--delay: {{a.delay}}ms" onClick="{{a.tap}}" aria-label="{{a.name}}">
+            <span class="ripbox">
+            <span class="tile">
+              <sc-if value="{{a.isFolder}}" hint-placeholder-val="{{ false }}"><span class="folder"><span></span><span></span><span></span><span></span></span></sc-if>
+              <sc-if value="{{a.isApp}}" hint-placeholder-val="{{ true }}"><svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{a.d}}"></path></svg></sc-if>
+            </span>
+            <span>{{a.name}}</span>
+            </span>
+          </button>
+        </sc-for>
+      </div>
+    </sc-if>
+  </div>
+
+  <sc-if value="{{folderOpen}}" hint-placeholder-val="{{ false }}">
+    <button class="scrim" aria-label="Close folder" onClick="{{closeFolder}}"></button>
+    <div class="surf folderpanel" role="dialog" aria-label="{{folderName}}" style="scale: {{backScale}}; translate: {{backX}}px {{backY}}px; transition: scale {{homeDur}} var(--react), translate {{homeDur}} var(--react)">
+      <div style="text-align: center; font-size: 18px; font-weight: 600; margin-bottom: 14px">{{folderName}}</div>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 16px">
+        <sc-for list="{{folderItems}}" as="a" hint-placeholder-count="3">
+          <button class="ico stagger" style="--delay: {{a.delay}}ms" onClick="{{a.tap}}" aria-label="{{a.name}}">
+            <span class="ripbox">
+            <span class="tile"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{a.d}}"></path></svg></span>
+            <span>{{a.name}}</span>
+            </span>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{recentsOpen}}" hint-placeholder-val="{{ false }}">
+    <div class="recents scroll" onWheel="{{wheelRecents}}">
+      <sc-for list="{{recentCards}}" as="c" hint-placeholder-count="2">
+        <div class="card" style="--delay: {{c.delay}}ms">
+          <button class="cardopen" onClick="{{c.open}}">
+            <svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{c.d}}"></path></svg>
+            <span>{{c.name}}</span>
+          </button>
+          <button class="cardclose" aria-label="Close {{c.name}}" onClick="{{c.remove}}">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+          </button>
+        </div>
+      </sc-for>
+    </div>
+    <sc-if value="{{hasRecents}}" hint-placeholder-val="{{ true }}">
+      <button class="surf closeall" onClick="{{closeAll}}">Close all</button>
+    </sc-if>
+    <sc-if value="{{noRecents}}" hint-placeholder-val="{{ false }}">
+      <button class="surf closeall" style="bottom: 400px" onClick="{{closeRecents}}">No recent apps</button>
+    </sc-if>
+  </sc-if>
+
+  <sc-if value="{{winOn}}" hint-placeholder-val="{{ false }}">
+    <div class="win" style="transform: {{winTransform}}; clip-path: {{winClip}}; opacity: {{winOpacity}}; transition: {{winTransition}}">
+      <div class="winicon" style="opacity: {{iconOpacity}}; transition: opacity {{iconDur}} ease">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{winApp.d}}"></path></svg>
+      </div>
+      <div class="winpage">
+        <h1 style="margin: 0 0 12px; font-size: 32px; line-height: 40px; font-weight: 600">{{winApp.name}}</h1>
+
+        <sc-if value="{{isClock}}" hint-placeholder-val="{{ false }}">
+          <div style="margin-top: 120px; text-align: center">
+            <div style="font-size: 92px; line-height: 96px; font-weight: 300; letter-spacing: -2px">{{timeText}}</div>
+            <div style="font-size: 18px; color: var(--on2)">{{dateText}}</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{isCalc}}" hint-placeholder-val="{{ false }}">
+          <div style="height: 150px; display: flex; align-items: flex-end; justify-content: flex-end; font-size: 56px; font-weight: 300; overflow: hidden; margin: 80px 4px 18px">{{calcDisplay}}</div>
+          <div class="calc">
+            <sc-for list="{{calcKeys}}" as="k" hint-placeholder-count="16">
+              <button class="{{k.cls}}" onClick="{{k.tap}}">{{k.label}}</button>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{isNotes}}" hint-placeholder-val="{{ false }}">
+          <label for="mos-note" style="position: absolute; width: 1px; height: 1px; overflow: hidden">Note</label>
+          <textarea id="mos-note" class="note" placeholder="Start typing"></textarea>
+        </sc-if>
+
+        <sc-if value="{{isSettings}}" hint-placeholder-val="{{ false }}">
+          <sc-for list="{{settingsGroups}}" as="g" hint-placeholder-count="3">
+            <div class="grouptitle">{{g.title}}</div>
+            <div class="surf" style="padding: 2px 16px; border-radius: 26px">
+              <sc-for list="{{g.rows}}" as="r" hint-placeholder-count="3">
+                <div class="row">
+                  <span>{{r.label}}</span>
+                  <sc-if value="{{r.isToggle}}" hint-placeholder-val="{{ false }}"><button class="{{r.cls}}" role="switch" aria-checked="{{r.on}}" aria-label="{{r.label}}" onClick="{{r.toggle}}"><i></i></button></sc-if>
+                  <sc-if value="{{r.isInfo}}" hint-placeholder-val="{{ true }}"><span class="value">{{r.value}}</span></sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </sc-for>
+          <button class="surf" style="display: block; width: 100%; height: 56px; margin-top: 14px; border-radius: 28px; font-size: 15px; font-weight: 600" onClick="{{openLabLook}}">Open Lab</button>
+        </sc-if>
+
+        <sc-if value="{{isStore}}" hint-placeholder-val="{{ false }}">
+          <div class="surf" style="padding: 2px 16px; border-radius: 26px">
+            <sc-for list="{{storeApps}}" as="a" hint-placeholder-count="4">
+              <div class="storerow">
+                <span class="storetile"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{a.d}}"></path></svg></span>
+                <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 500">{{a.name}}</span><span class="value" style="font-size: 12px">{{a.meta}}</span></span>
+                <sc-if value="{{a.canInstall}}" hint-placeholder-val="{{ true }}"><button class="pillbtn" onClick="{{a.install}}">Install</button></sc-if>
+                <sc-if value="{{a.isLoading}}" hint-placeholder-val="{{ false }}"><span class="track"><i style="width: {{a.pct}}%"></i></span></sc-if>
+                <sc-if value="{{a.isInstalled}}" hint-placeholder-val="{{ false }}"><button class="pillbtn quiet" onClick="{{a.open}}">Open</button></sc-if>
+              </div>
+            </sc-for>
+          </div>
+          <div class="value" style="margin: 12px 6px; font-size: 12px">Sample apps. Installed ones join your home screen and app drawer.</div>
+        </sc-if>
+
+        <sc-if value="{{isOther}}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 170px; color: var(--on2); text-align: center; font-size: 15px">
+            <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{winApp.d}}"></path></svg>
+            <span>{{otherText}}</span>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ccShown}}" hint-placeholder-val="{{ false }}">
+    <button class="scrim" aria-label="Close Control Center" onClick="{{closeCC}}" style="opacity: {{ccP}}; transition: {{ccFade}}"></button>
+    <div class="surf cc" style="transform: translateY({{ccY}}px); transition: {{ccTransition}}">
+      <div class="slide"><span>Brightness</span><input type="range" min="25" max="100" value="{{brightness}}" onChange="{{setBrightness}}" aria-label="Brightness"></div>
+      <div class="slide"><span>Volume</span><input type="range" min="0" max="100" value="{{volume}}" onChange="{{setVolume}}" aria-label="Volume"></div>
+      <div class="qs">
+        <sc-for list="{{tiles}}" as="t" hint-placeholder-count="4">
+          <button class="{{t.cls}}" style="--delay: {{t.delay}}ms" aria-pressed="{{t.on}}" onClick="{{t.tap}}">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{t.d}}"></path></svg>
+            <span>{{t.name}}</span>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{labShown}}" hint-placeholder-val="{{ false }}">
+    <button class="scrim" aria-label="Close Lab" onClick="{{closeLab}}" style="opacity: {{labP}}; transition: {{labFade}}"></button>
+    <div class="surf lab" role="dialog" aria-label="Lab" style="transform: translateX({{labX}}px); transition: {{labTransition}}">
+      <div class="labtabs">
+        <sc-for list="{{labTabs}}" as="t" hint-placeholder-count="4">
+          <button class="{{t.cls}}" onClick="{{t.tap}}">{{t.label}}</button>
+        </sc-for>
+        <button style="flex: none; width: 48px; display: flex; align-items: center; justify-content: center" aria-label="Close Lab" onClick="{{closeLab}}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+        </button>
+      </div>
+      <div class="labbody scroll">
+        <sc-if value="{{tabMotion}}" hint-placeholder-val="{{ true }}">
+          <button class="preview" aria-label="Preview the animation" onClick="{{runPreview}}">
+            <span class="previewapp" style="transform: {{previewTransform}}; opacity: {{previewOpacity}}; border-radius: {{previewRadius}}px; transition: {{previewTransition}}"></span>
+          </button>
+          <div style="text-align: center; font-size: 12px; color: var(--on2); margin-top: 6px">Tap to preview</div>
+          <div class="label">Animation</div>
+          <div class="seg">
+            <sc-for list="{{presets}}" as="p" hint-placeholder-count="5">
+              <button class="{{p.cls}}" onClick="{{p.tap}}">{{p.label}}</button>
+            </sc-for>
+          </div>
+          <div class="label">Bounce: {{bounceText}}</div>
+          <input class="rng" style="display: block; width: 100%" type="range" min="0" max="100" step="5" value="{{bouncePct}}" onChange="{{setBounce}}" aria-label="Bounce">
+          <div class="label">Speed: {{speedText}}</div>
+          <input class="rng" style="display: block; width: 100%" type="range" min="25" max="300" step="5" value="{{speedPct}}" onChange="{{setSpeed}}" aria-label="Speed">
+          <div class="row"><span>Icons expand</span><button class="{{rippleCls}}" role="switch" aria-checked="{{ripple}}" aria-label="Icons expand" onClick="{{toggleRipple}}"><i></i></button></div>
+          <div class="row"><span>Background motion</span><button class="{{zoomCls}}" role="switch" aria-checked="{{homeZoom}}" aria-label="Background motion" onClick="{{toggleZoom}}"><i></i></button></div>
+        </sc-if>
+
+        <sc-if value="{{tabLook}}" hint-placeholder-val="{{ false }}">
+          <div class="label" style="margin-top: 4px">Design</div>
+          <div class="seg">
+            <sc-for list="{{designs}}" as="p" hint-placeholder-count="2">
+              <button class="{{p.cls}}" onClick="{{p.tap}}">{{p.label}}</button>
+            </sc-for>
+          </div>
+          <div class="label">Theme</div>
+          <div class="seg">
+            <sc-for list="{{themes}}" as="p" hint-placeholder-count="2">
+              <button class="{{p.cls}}" onClick="{{p.tap}}">{{p.label}}</button>
+            </sc-for>
+          </div>
+          <div class="label">Wallpaper</div>
+          <div class="swatches">
+            <sc-for list="{{walls}}" as="w" hint-placeholder-count="4">
+              <button class="{{w.swatchCls}}" aria-label="{{w.name}}" onClick="{{w.pick}}"><img src="{{w.src}}" alt="" draggable="false"></button>
+            </sc-for>
+          </div>
+          <div class="label">Icon corners</div>
+          <input class="rng" style="display: block; width: 100%" type="range" min="10" max="31" value="{{round}}" onChange="{{setRound}}" aria-label="Icon corners">
+          <div class="label">Navigation</div>
+          <div class="seg">
+            <sc-for list="{{navModes}}" as="p" hint-placeholder-count="2">
+              <button class="{{p.cls}}" onClick="{{p.tap}}">{{p.label}}</button>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{tabSystem}}" hint-placeholder-val="{{ false }}">
+          <div class="row"><span>24-hour clock</span><button class="{{h24Cls}}" role="switch" aria-checked="{{h24}}" aria-label="24-hour clock" onClick="{{toggleH24}}"><i></i></button></div>
+          <div class="row"><span>Battery percentage</span><button class="{{batteryCls}}" role="switch" aria-checked="{{showBattery}}" aria-label="Battery percentage" onClick="{{toggleBattery}}"><i></i></button></div>
+          <div class="row"><span>Replay the boot</span><button class="value" style="height: 44px" onClick="{{replayBoot}}">Replay</button></div>
+          <div class="row"><span>Lock the phone</span><button class="value" style="height: 44px" onClick="{{lockNow}}">Lock</button></div>
+        </sc-if>
+
+        <sc-if value="{{tabLogs}}" hint-placeholder-val="{{ false }}">
+          <sc-for list="{{logs}}" as="l" hint-placeholder-count="4">
+            <div style="font: 11px/18px ui-monospace, Menlo, monospace; color: var(--on2); user-select: text; -webkit-user-select: text">{{l}}</div>
+          </sc-for>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{gestureNav}}" hint-placeholder-val="{{ true }}">
+    <button class="{{navLineCls}}" aria-label="Home" onClick="{{navTap}}"><span></span></button>
+  </sc-if>
+  <sc-if value="{{buttonNav}}" hint-placeholder-val="{{ false }}">
+    <div class="{{navBtnCls}}">
+      <button aria-label="Recents" onClick="{{showRecents}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"></rect></svg></button>
+      <button aria-label="Home" onClick="{{navTap}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle></svg></button>
+      <button aria-label="Back" onClick="{{navTap}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M17 5v14L6 12z"></path></svg></button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{toastOn}}" hint-placeholder-val="{{ false }}">
+    <button class="surf headsup" onClick="{{toastTap}}">
+      <span class="storetile" style="width: 44px; height: 44px; border-radius: 14px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{toastIcon}}"></path></svg></span>
+      <span><span style="display: block; font-weight: 600">{{toastTitle}}</span><span class="value" style="font-size: 13px">Tap to open</span></span>
+    </button>
+  </sc-if>
+
+  <sc-if value="{{lockOn}}" hint-placeholder-val="{{ false }}">
+    <button class="lock" aria-label="Unlock" onClick="{{unlock}}" style="transform: translateY({{lockY}}px); transition: {{lockT}}">
+      <span style="margin-top: 130px; font-size: 92px; line-height: 96px; font-weight: 300; letter-spacing: -2px">{{timeText}}</span>
+      <span style="font-size: 16px; font-weight: 500">{{dateText}}</span>
+      <span style="margin-top: auto; margin-bottom: 56px; font-size: 14px">Swipe up to unlock</span>
+    </button>
+  </sc-if>
+
+  <div class="dimmer" style="opacity: {{dim}}"></div>
+
+  <sc-if value="{{bootOn}}" hint-placeholder-val="{{ true }}">
+    <button class="{{bootCls}}" aria-label="Skip the boot" onClick="{{skipBoot}}">
+      <sc-for list="{{bootLines}}" as="l" hint-placeholder-count="4"><div>{{l}}</div></sc-for>
+      <span class="bootlogo">
+        <span class="bars" aria-hidden="true"><i style="height: 10px"></i><i style="height: 18px; animation-delay: 0.12s"></i><i style="height: 26px; animation-delay: 0.24s"></i><i style="height: 34px; animation-delay: 0.36s"></i></span>
+        <span>ModemOS</span>
+      </span>
+    </button>
+  </sc-if>
+</div>
+</x-dc>
+
+<script type="text/x-dc" data-dc-script data-props='{"design":{"editor":"enum","options":["expressive","glass"],"default":"expressive"},"boot":{"editor":"boolean","default":true},"$preview":{"width":390,"height":844}}'>
+const I = {
+  settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-2 1-2-4-2-1 2h-2l-1-2-4 2 1 2-2 2-2-1-2 4 2 1v2l-2 1 2 4 2-1 2 2-1 2 4 2 1-2h2l1 2 4-2-1-2 2-2 2 1 2-4-2-1z',
+  photos: 'M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15 9h.01',
+  clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
+  weather: 'M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.5 1.5A3.5 3.5 0 0 0 7 18z',
+  maps: 'M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14',
+  notes: 'M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h7',
+  calendar: 'M5 5h14v15H5zM5 10h14M9 3v4M15 3v4',
+  music: 'M9 18V6l10-2v12M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM19 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z',
+  phone: 'M5 4h4l2 5-3 2a12 12 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z',
+  messages: 'M4 5h16v11H9l-5 4z',
+  browser: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18',
+  camera: 'M4 8h4l2-3h4l2 3h4v11H4zM12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  calculator: 'M6 3h12v18H6zM9 7h6M9 12h.01M12 12h.01M15 12h.01M9 16h.01M12 16h.01M15 16h.01',
+  files: 'M3 6h6l2 2h10v11H3z',
+  compass: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM15 9l-2 5-4 1 2-5z',
+  recorder: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3',
+  android: 'M6 10v8a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-8zM6 9a6 6 0 0 1 12 0zM9 5 7.5 3M15 5l1.5-2M10 7h.01M14 7h.01',
+  torch: 'M8 3h8v5l-2 3v10h-4V11L8 8z',
+  moon: 'M20 14a8 8 0 1 1-10-10 7 7 0 0 0 10 10z',
+  wave: 'M3 12h3l2-6 4 12 3-9 2 3h4',
+  lab: 'M10 3h4M11 3v6l-6 10a1 1 0 0 0 1 2h12a1 1 0 0 0 1-2L13 9V3M8 15h8',
+  store: 'M5 8h14l-1 13H6zM9 8V6a3 3 0 0 1 6 0v2',
+  tideline: 'M3 9c3-3 6-3 9 0s6 3 9 0M3 15c3-3 6-3 9 0s6 3 9 0',
+  atlas: 'M12 21s7-6 7-11a7 7 0 1 0-14 0c0 5 7 11 7 11zM12 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
+  bytewave: 'M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4',
+  sprout: 'M12 21v-9M12 12c0-4 3-7 8-7 0 5-3 7-8 7zM12 15c0-3-2-5-7-5 0 4 3 5 7 5z'
+};
+const NAMES = { settings: 'Settings', photos: 'Photos', clock: 'Clock', weather: 'Weather', maps: 'Maps', notes: 'Notes', calendar: 'Calendar', music: 'Music', phone: 'Phone', messages: 'Messages', browser: 'Browser', camera: 'Camera', calculator: 'Calculator', files: 'Files', compass: 'Compass', recorder: 'Recorder', store: 'Play Store', tideline: 'Tideline', atlas: 'Pocket Atlas', bytewave: 'Bytewave', sprout: 'Sprout' };
+const STORE = [['tideline', 'Game', '84 MB'], ['atlas', 'Travel', '36 MB'], ['bytewave', 'Music', '52 MB'], ['sprout', 'Lifestyle', '21 MB']];
+const HOME = ['settings', 'photos', 'clock', 'weather', 'maps', 'notes', 'calendar', 'music', 'folder:Tools', 'store'];
+const DOCK = ['phone', 'messages', 'browser', 'camera'];
+const FOLDERS = { Tools: ['calculator', 'compass', 'recorder', 'files'] };
+const ALL = ['browser', 'calculator', 'calendar', 'camera', 'clock', 'compass', 'files', 'maps', 'messages', 'music', 'notes', 'phone', 'photos', 'recorder', 'settings', 'store', 'weather'];
+const WALLS = [
+  { name: 'Ember', src: '/_blob/288255e63da0d19a57dacd6666bf7f28', hue: 18 },
+  { name: 'Glacier', src: '/_blob/3b5c813ba7b8219ab12274c5e1a7c295', hue: 195 },
+  { name: 'Verdant', src: '/_blob/5f8254349b6606a50deb1b916dd0247a', hue: 155 },
+  { name: 'Neon', src: '/_blob/de94fa963011f5e378866a4de47c7032', hue: 305 }
+];
+const PRESETS = ['Zoom', 'Sweet', 'One UI', 'Slide', 'Fade'];
+const BOOT = [
+  '[    0.000] modem: claiming the display',
+  '[    0.012] modem: mapping guest memory',
+  '[    0.041] init: first stage mount',
+  '[    0.128] android: starting zygote',
+  '[    0.164] husk: claiming JIT',
+  '[    0.203] surfaceflinger: composer ready',
+  '[    0.311] ios: refusing to let go',
+  '[    0.312] modem: retrying',
+  '[    0.355] husk: translation layer up',
+  '[    0.398] system_server: services up',
+  '[    0.466] launcher: taking over'
+];
+const GRID_TOP = 300, CELL = 342 / 4, ROW = 103, SHEET_CELL = 346 / 4, DOCK_Y = 844 - 18 - 48;
+
+/* A real damped spring, written out for CSS, so everything that opens settles the same way. */
+function springCurve(ratio) {
+  const z = Math.min(ratio, 0.999), w = 8.5 / Math.max(z, 0.42), wd = w * Math.sqrt(1 - z * z);
+  const points = [];
+  for (let i = 0; i <= 44; i++) {
+    const t = i / 44;
+    const x = 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w / wd) * Math.sin(wd * t));
+    points.push(x.toFixed(3));
+  }
+  points[44] = '1';
+  return 'linear(' + points.join(',') + ')';
+}
+
+class Component extends DCLogic {
+  constructor(...args) {
+    super(...args);
+    const boot = (this.props && this.props.boot) !== false;
+    this.state = {
+      now: new Date(), boot: boot ? 0 : -1, bootOut: false, enterKey: boot ? 0 : 1,
+      locked: false, unlocking: false, entering: false, installed: [], dl: {}, toast: null,
+      android: { translation: true, windows: true, broker: true, twoApps: false },
+      win: null, drag: null, drawer: false, cc: false, lab: false, labSide: 'left', labTab: 'motion',
+      folder: null, recents: false, recent: [], ripple: null, rippleN: 0,
+      design: null, dark: true, wall: 1, preset: 'Zoom', bounce: 25, speed: 100, rippleOn: false, homeZoom: true, round: 18, nav: 'gestures',
+      h24: true, battery: true, brightness: 100, volume: 60, torch: false, vibrate: true,
+      preview: 'open', calc: '0', calcAcc: null, calcOp: null, calcFresh: true,
+      logs: ['modem: system ready']
+    };
+  }
+
+  componentDidMount() {
+    this.clock = setInterval(() => this.setState({ now: new Date() }), 1000);
+    if (this.state.boot === 0) this.runBoot();
+  }
+  componentWillUnmount() { clearInterval(this.clock); clearInterval(this.bootTimer); clearTimeout(this.hold); clearTimeout(this.closing); clearTimeout(this.toastTimer); clearInterval(this.dlTimer); }
+
+  log(text) { this.setState({ logs: [text, ...this.state.logs].slice(0, 40) }); }
+  design() { return this.state.design ?? this.props.design ?? 'expressive'; }
+  openMs() { return Math.round(620 / (this.state.speed / 100)); }
+  closeMs() { return Math.round(340 / (this.state.speed / 100)); }
+  homeList() { return [...HOME, ...this.state.installed]; }
+
+  /* An app's own icon on the home screen or dock, for windows opened from Recents or a notification. */
+  iconPos(id) {
+    const index = this.homeList().indexOf(id);
+    if (index >= 0) return { x: 24 + (index % 4 + 0.5) * CELL, y: GRID_TOP + Math.floor(index / 4) * ROW + 31, size: 62 };
+    const dock = DOCK.indexOf(id);
+    if (dock >= 0) return { x: 22 + (dock + 0.5) * SHEET_CELL, y: DOCK_Y, size: 62 };
+    return { x: 195, y: 422, size: 62 };
+  }
+
+  install(id) {
+    if (this.state.dl[id] !== undefined || this.state.installed.includes(id)) return;
+    this.setState({ dl: { ...this.state.dl, [id]: 0 } });
+    this.log('store: installing ' + id);
+    if (this.dlTimer) return;
+    this.dlTimer = setInterval(() => {
+      const dl = { ...this.state.dl };
+      const installed = [...this.state.installed];
+      for (const key of Object.keys(dl)) {
+        dl[key] += 3;
+        if (dl[key] >= 100) { delete dl[key]; installed.push(key); this.toast(NAMES[key] + ' installed', key); }
+      }
+      this.setState({ dl, installed });
+      if (!Object.keys(dl).length) { clearInterval(this.dlTimer); this.dlTimer = null; }
+    }, 70);
+  }
+  toast(title, app) {
+    this.setState({ toast: { title, app } });
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => this.setState({ toast: null }), 3400);
+  }
+  unlock() {
+    if (this.moved || !this.state.locked || this.state.unlocking) return;
+    this.setState({ unlocking: true, entering: true, drag: null });
+    this.log('keyguard: unlocked');
+    setTimeout(() => this.setState({ locked: false, unlocking: false }), this.closeMs());
+    setTimeout(() => this.setState({ entering: false }), 900);
+  }
+
+  runBoot() {
+    clearInterval(this.bootTimer);
+    this.setState({ boot: 0, bootOut: false });
+    this.bootTimer = setInterval(() => {
+      if (this.state.boot >= BOOT.length) { clearInterval(this.bootTimer); this.endBoot(); }
+      else this.setState({ boot: this.state.boot + 1 });
+    }, 230);
+  }
+  endBoot() {
+    clearInterval(this.bootTimer);
+    this.setState({ bootOut: true, locked: true, enterKey: this.state.enterKey + 1 });
+    setTimeout(() => this.setState({ boot: -1, bootOut: false }), 700);
+  }
+
+  /* Where a window starts and ends. Icon-based presets grow from the tapped icon's own position. */
+  fromTransform(win) {
+    if (this.state.preset === 'Slide') return 'translateY(844px)';
+    if (this.state.preset === 'Fade') return 'scale(0.92)';
+    const turn = this.state.preset === 'Sweet' ? ' rotate(-5deg)' : '';
+    return 'translate(' + (win.x - 195) + 'px,' + (win.y - 422) + 'px) scale(' + win.size / 390 + ')' + turn;
+  }
+  /* The window is clipped to a square with the icon's corners, so it lands as the icon's own shape. */
+  iconClip(win) {
+    const radius = this.state.round * 390 / win.size;
+    return 'inset(227px 0px round ' + radius.toFixed(1) + 'px)';
+  }
+
+  open(app, x, y, size = 62) {
+    if (this.moved) return;
+    const token = (this.token = (this.token || 0) + 1);
+    clearTimeout(this.closing);
+    const recent = [app, ...this.state.recent.filter((a) => a !== app)].slice(0, 6);
+    /* The drawer and any open folder stay put under the window, so closing returns to them. */
+    this.setState({ win: { app, x, y, size, phase: 'start' }, recent, recents: false, ripple: { x, y }, rippleN: this.state.rippleN + 1, drag: null });
+    this.log('window: open ' + app + ' (' + this.state.preset + ')');
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (this.token === token && this.state.win) this.setState({ win: { ...this.state.win, phase: 'open' } });
+    }));
+  }
+  close() {
+    const win = this.state.win;
+    if (!win) return;
+    const token = ++this.token;
+    /* The icons ripple again as the window lands among them. */
+    this.setState({ win: { ...win, phase: 'closing' }, drag: null, rippleN: this.state.rippleN + 1, rippleLive: true });
+    clearTimeout(this.rippleTimer);
+    this.rippleTimer = setTimeout(() => this.setState({ rippleLive: false }), this.closeMs() + 800);
+    this.log('window: close ' + win.app);
+    clearTimeout(this.closing);
+    this.closing = setTimeout(() => { if (this.token === token) this.setState({ win: null }); }, this.closeMs());
+  }
+  showRecents() {
+    this.setState({ win: null, drag: null, recents: true, drawer: false, folder: null });
+    this.log('recents: open');
+  }
+
+  /* One gesture recogniser for the whole screen. */
+  point(e) {
+    const box = e.currentTarget.getBoundingClientRect();
+    const k = box.width / 390;
+    return { x: (e.clientX - box.left) / k, y: (e.clientY - box.top) / k };
+  }
+  down(e) {
+    this.moved = false;
+    this.g = null;
+    if (this.state.boot >= 0) return;
+    const p = this.point(e), s = this.state;
+    const target = e.target;
+    if (target.closest && target.closest('input,textarea')) return;
+    const inScroll = target.closest && target.closest('.scroll,.drawergrid,.winpage');
+    const onNav = target.closest && target.closest('.navline');
+    let kind = null;
+    if (s.locked) kind = s.unlocking ? null : 'lock';
+    else if (s.lab) kind = 'lab-close';
+    else if (s.cc) kind = 'cc-close';
+    else if (onNav) kind = s.win ? 'app' : 'nav';
+    else if (p.y < 52) kind = 'cc';
+    else if (p.x < 16 || p.x > 374) kind = 'lab';
+    else if (s.recents) kind = target.closest && target.closest('.recents') ? 'recents' : null;
+    else if (s.win || s.folder) kind = null;
+    else if (s.drawer) kind = inScroll && p.y > 130 ? null : 'drawer-close';
+    else kind = 'drawer';
+    if (!kind) return;
+    this.g = { kind, x: p.x, y: p.y, side: p.x < 195 ? 'left' : 'right', t: performance.now(), lastY: p.y, lastT: performance.now(), v: 0, started: false, id: e.pointerId };
+    if (kind === 'recents') { this.g.el = target.closest('.recents'); this.g.scroll = this.g.el.scrollLeft; }
+    if (kind === 'app' || kind === 'nav') {
+      this.hold = setTimeout(() => { if (this.g && !this.g.started) { this.g = null; this.moved = true; this.showRecents(); } }, 420);
+    }
+  }
+  move(e) {
+    const g = this.g;
+    if (!g) return;
+    const p = this.point(e), dx = p.x - g.x, dy = p.y - g.y;
+    if (!g.started) {
+      if (Math.hypot(dx, dy) < 9) return;
+      const vertical = Math.abs(dy) > Math.abs(dx);
+      const wants = { lock: dy < 0, app: dy < 0, nav: dy < 0, drawer: vertical && dy < 0, 'drawer-close': vertical && dy > 0, cc: dy > 0, 'cc-close': vertical && dy < 0, lab: !vertical, 'lab-close': !vertical, recents: !vertical }[g.kind];
+      if (!wants) { this.g = null; return; }
+      g.started = true;
+      this.moved = true;
+      clearTimeout(this.hold);
+      try { e.currentTarget.setPointerCapture(g.id); } catch (err) { /* synthetic pointers have none */ }
+      if (g.kind === 'lab') this.setState({ labSide: g.side });
+    }
+    /* The app switcher scrolls under the finger or mouse; cards still open with a tap. */
+    if (g.kind === 'recents') { g.el.scrollLeft = g.scroll - dx; return; }
+    const now = performance.now();
+    g.v = (p.y - g.lastY) / Math.max(1, now - g.lastT);
+    g.lastY = p.y; g.lastT = now;
+    const clamp = (v) => Math.min(1, Math.max(0, v));
+    let drag;
+    switch (g.kind) {
+      case 'lock': drag = { kind: 'lock', p: clamp(-dy / 520) }; break;
+      case 'app': drag = { kind: 'app', p: clamp(-dy / 520), x: dx }; break;
+      case 'nav': case 'drawer': drag = { kind: 'drawer', p: clamp(-dy / 560) }; break;
+      case 'drawer-close': drag = { kind: 'drawer', p: clamp(1 - dy / 560) }; break;
+      case 'cc': drag = { kind: 'cc', p: clamp(dy / 380) }; break;
+      case 'cc-close': drag = { kind: 'cc', p: clamp(1 + dy / 380) }; break;
+      case 'lab': drag = { kind: 'lab', p: clamp(Math.abs(dx) / 300) }; break;
+      default: drag = { kind: 'lab', p: clamp(1 - Math.abs(dx) / 300) }; break;
+    }
+    this.setState({ drag });
+  }
+  up() {
+    clearTimeout(this.hold);
+    const g = this.g, d = this.state.drag;
+    this.g = null;
+    if (!g || !g.started || !d) { setTimeout(() => { this.moved = false; }, 0); return; }
+    setTimeout(() => { this.moved = false; }, 0);
+    if (d.kind === 'lock') {
+      if (d.p > 0.28 || g.v < -0.4) { this.moved = false; this.unlock(); } else this.setState({ drag: null });
+    } else if (d.kind === 'app') {
+      if (d.p > 0.16 || g.v < -0.5) this.close();
+      else this.setState({ drag: null, win: { ...this.state.win, phase: 'open' } });
+    } else if (d.kind === 'drawer') {
+      const on = g.v < -0.4 ? true : g.v > 0.4 ? false : d.p > 0.4;
+      this.setState({ drawer: on, drag: null });
+      this.log('drawer: ' + (on ? 'open' : 'close'));
+    } else if (d.kind === 'cc') {
+      this.setState({ cc: d.p > 0.4, drag: null });
+    } else {
+      this.setState({ lab: d.p > 0.4, drag: null });
+    }
+  }
+
+  calcPress(key) {
+    const s = this.state;
+    const apply = (a, b, op) => (op === '+' ? a + b : op === '−' ? a - b : op === '×' ? a * b : b === 0 ? NaN : a / b);
+    const show = (n) => (Number.isFinite(n) ? String(Math.round(n * 1e8) / 1e8) : 'Error');
+    if (key === 'AC') { this.setState({ calc: '0', calcAcc: null, calcOp: null, calcFresh: true }); return; }
+    if (/^[0-9.]$/.test(key)) {
+      if (key === '.' && s.calc.includes('.') && !s.calcFresh) return;
+      const next = s.calcFresh ? (key === '.' ? '0.' : key) : s.calc + key;
+      this.setState({ calc: next.slice(0, 11), calcFresh: false });
+      return;
+    }
+    if (key === '±') { this.setState({ calc: show(-parseFloat(s.calc)) }); return; }
+    if (key === '%') { this.setState({ calc: show(parseFloat(s.calc) / 100) }); return; }
+    const value = parseFloat(s.calc);
+    const total = s.calcOp && s.calcAcc !== null && !s.calcFresh ? apply(s.calcAcc, value, s.calcOp) : value;
+    if (key === '=') this.setState({ calc: show(total), calcAcc: null, calcOp: null, calcFresh: true });
+    else this.setState({ calc: show(total), calcAcc: total, calcOp: key, calcFresh: true });
+  }
+
+  renderVals() {
+    const s = this.state;
+    const design = this.design();
+    const wall = WALLS[s.wall];
+    const drag = s.drag;
+    const openMs = this.openMs(), closeMs = this.closeMs();
+    const hh = s.now.getHours(), mm = String(s.now.getMinutes()).padStart(2, '0');
+    const timeText = s.h24 ? String(hh).padStart(2, '0') + ':' + mm : (hh % 12 || 12) + ':' + mm;
+    const dateText = s.now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+
+    /* The home screen steps back while something is over it. */
+    let away = 0;
+    if (s.win) {
+      /* A swipe moves the background exactly as far as the window has come back, so it never snaps home. */
+      if (drag && drag.kind === 'app') away = 1 - drag.p;
+      else away = s.win.phase === 'closing' ? 0 : 1;
+    }
+    const pull = drag && drag.kind === 'drawer' ? drag.p : s.drawer ? 1 : 0;
+    const recentsAway = s.recents ? 1 : 0;
+    const ccPull = drag && drag.kind === 'cc' ? drag.p : s.cc ? 1 : 0;
+    const labPull = drag && drag.kind === 'lab' ? drag.p : s.lab ? 1 : 0;
+    const depth = Math.max(pull * 0.8, recentsAway, ccPull * 0.7, labPull * 0.7);
+    const zoom = s.homeZoom ? 1 : 0;
+    const homeScale = 1 - 0.2 * depth * zoom;
+    const wallScale = 1.08 + 0.3 * Math.max(depth, away) * zoom;
+    /* Everything behind leans away from what is moving: the tapped icon, the rising drawer, the panel coming in. The wallpaper follows at a third of the distance, which is what gives it depth. */
+    const originX = s.ripple ? s.ripple.x - 195 : 0, originY = s.ripple ? s.ripple.y - 422 : 0;
+    const homeX = (-originX * 0.18 * away + (s.labSide === 'left' ? 46 : -46) * labPull) * zoom;
+    const homeY = (-originY * 0.18 * away - 70 * pull + 40 * ccPull) * zoom;
+    /* The drawer and folders are in the background too once something opens over them. */
+    const backDepth = Math.max(away, recentsAway, ccPull * 0.7, labPull * 0.7) * zoom;
+    const backScale = (1 - 0.1 * backDepth).toFixed(3);
+    const backX = ((-originX * 0.1 * away + (s.labSide === 'left' ? 26 : -26) * labPull) * zoom).toFixed(1);
+    const backY = ((-originY * 0.1 * away + 24 * ccPull) * zoom).toFixed(1);
+    /* Each icon grows where it sits, in step with the app: unchanged while it starts, at its largest once it is open. */
+    const iconScale = (1 + (s.rippleOn ? 0.3 * away : 0)).toFixed(3);
+    const homeOpacity = 1 - 0.85 * Math.max(pull, recentsAway);
+    const live = !!drag;
+
+    const item = (id) => ({ id, name: NAMES[id], d: I[id] });
+    const homeItems = this.homeList().map((id, index) => {
+      const col = index % 4, row = Math.floor(index / 4);
+      const x = 24 + (col + 0.5) * CELL, y = GRID_TOP + row * ROW + 31;
+      const isFolder = id.startsWith('folder:');
+      const name = isFolder ? id.slice(7) : NAMES[id];
+      const cls = 'ico ' + (s.entering ? 'enter' : '');
+      return {
+        name, isFolder, isApp: !isFolder, d: isFolder ? '' : I[id], cls,
+        delay: s.entering ? 120 + index * 34 : 0,
+        tap: () => { if (this.moved) return; if (isFolder) { this.setState({ folder: name }); this.log('folder: open ' + name); } else this.open(id, x, y, 62); }
+      };
+    });
+    const dockItems = DOCK.map((id, index) => ({ ...item(id), tap: () => this.open(id, 22 + (index + 0.5) * SHEET_CELL, s.drawer ? 94 : DOCK_Y, 62) }));
+    const drawerItems = [...ALL, ...s.installed, 'folder:Tools'].map((id, index) => {
+      const x = 22 + (index % 4 + 0.5) * SHEET_CELL, y = 174 + Math.floor(index / 4) * 95;
+      const delay = Math.min(index, 12) * 18;
+      if (id.startsWith('folder:')) {
+        const name = id.slice(7);
+        return { name, d: '', isFolder: true, isApp: false, delay, tap: () => { if (!this.moved) this.setState({ folder: name, ripple: { x, y }, rippleN: s.rippleN + 1 }); } };
+      }
+      return { ...item(id), isFolder: false, isApp: true, delay, tap: () => this.open(id, x, y, 56) };
+    });
+    const folderItems = (FOLDERS[s.folder] || []).map((id, index) => {
+      const x = 44 + (index % 3 + 0.5) * 100.7, y = 306 + Math.floor(index / 3) * 99;
+      return { ...item(id), delay: index * 40, tap: () => this.open(id, x, y, 62) };
+    });
+
+    /* The window. */
+    const win = s.win;
+    let winTransform = 'none', winClip = 'inset(0px 0px round 0px)', winOpacity = 1, winTransition = 'none', iconOpacity = 0, iconDur = '0s';
+    if (win) {
+      const from = this.fromTransform(win);
+      const fade = s.preset === 'Fade';
+      const icons = s.preset === 'Zoom' || s.preset === 'Sweet' || s.preset === 'One UI';
+      if (drag && drag.kind === 'app') {
+        const k = 1 - drag.p * 0.62;
+        winTransform = 'translate(' + (drag.x * 0.5).toFixed(1) + 'px,' + (-drag.p * 130).toFixed(1) + 'px) scale(' + k.toFixed(3) + ')';
+        winClip = 'inset(0px 0px round ' + (44 + drag.p * 30).toFixed(1) + 'px)';
+      } else if (win.phase === 'open') {
+        winTransition = 'transform var(--open) var(--spring), clip-path calc(var(--open) * 0.6) cubic-bezier(0.3, 0, 0.2, 1), opacity 0.2s ease';
+        iconDur = 'calc(var(--open) * 0.34)';
+      } else {
+        winTransform = from;
+        winClip = icons ? this.iconClip(win) : 'inset(0px 0px round 44px)';
+        iconOpacity = icons ? 1 : 0;
+        if (win.phase === 'closing') {
+          /* It keeps moving to the very end, lands on the real icon, then hands over in one short step. */
+          winOpacity = 0;
+          const leave = icons ? 'opacity 70ms linear calc(var(--close) - 70ms)' : 'opacity var(--close) ease';
+          winTransition = 'transform var(--close) var(--settle), clip-path var(--close) var(--settle), ' + leave;
+          iconDur = 'calc(var(--close) * 0.55)';
+        } else if (fade) winOpacity = 0;
+      }
+    }
+
+    /* Sheets follow the finger, then finish on the spring. */
+    const sheet = 'transform var(--open) var(--spring)';
+    const ccP = drag && drag.kind === 'cc' ? drag.p : s.cc ? 1 : 0;
+    const labP = drag && drag.kind === 'lab' ? drag.p : s.lab ? 1 : 0;
+    const labOff = s.labSide === 'left' ? -392 : 392;
+
+    const tiles = [
+      { name: 'Flashlight', d: I.torch, on: s.torch, tap: () => this.setState({ torch: !s.torch }) },
+      { name: 'Dark mode', d: I.moon, on: s.dark, tap: () => this.setState({ dark: !s.dark }) },
+      { name: 'Vibration', d: I.wave, on: s.vibrate, tap: () => this.setState({ vibrate: !s.vibrate }) },
+      { name: 'Lab', d: I.lab, on: false, tap: () => this.setState({ cc: false, lab: true }) }
+    ].map((t, index) => ({ ...t, cls: t.on ? 'qst on' : 'qst', delay: index * 30 }));
+
+    const choice = (list, value, set) => list.map((label) => ({ label, cls: label === value ? 'on' : '', tap: () => set(label) }));
+    const calcRows = ['AC', '±', '%', '÷', '7', '8', '9', '×', '4', '5', '6', '−', '1', '2', '3', '+', '0', '.', '⌫', '='];
+    const app = win ? win.app : '';
+    const previewStart = s.preview === 'start';
+    const previewFrom = (() => {
+      if (s.preset === 'Slide') return 'translateY(232px)';
+      if (s.preset === 'Fade') return 'scale(0.92)';
+      return 'translate(-26px,40px) scale(0.16)';
+    })();
+
+    return {
+      rootCls: 'os ' + (design === 'glass' ? 'glass' : 'expressive') + ' ' + (s.dark ? 'dark' : 'light'),
+      hue: wall.hue, spring: springCurve(1 - s.bounce / 100 * 0.6), openMs, closeMs, round: s.round,
+      down: (e) => this.down(e), move: (e) => this.move(e), up: () => this.up(),
+      walls: WALLS.map((w, index) => ({
+        ...w, cls: index === s.wall ? 'wall on' : 'wall', swatchCls: index === s.wall ? 'swatch on' : 'swatch',
+        pick: () => { this.setState({ wall: index }); this.log('palette: ' + w.name.toLowerCase() + ', hue ' + w.hue); }
+      })),
+      wallScale: wallScale.toFixed(3), homeScale: homeScale.toFixed(3), homeOpacity: homeOpacity.toFixed(3),
+      backScale, backX, backY,
+      iconScale,
+      homeX: homeX.toFixed(1), homeY: homeY.toFixed(1), wallX: (homeX / 3).toFixed(1), wallY: (homeY / 3).toFixed(1),
+      homeDur: live ? '0s' : win && win.phase === 'closing' ? 'var(--close)' : 'var(--open)',
+      barCls: win && !(drag && drag.kind === 'app') && win.phase === 'open' ? 'bar onapp' : 'bar',
+      timeText, dateText, showBattery: s.battery,
+      homeItems, dockItems, drawerItems, folderItems,
+      drawerOpen: s.drawer || (drag && drag.kind === 'drawer'),
+      drawerY: (844 - 18 - 96 - pull * (844 - 18 - 96 - 46)).toFixed(1),
+      drawerTransition: drag && drag.kind === 'drawer' ? 'none' : sheet + ', background 0.4s ease, box-shadow 0.4s ease',
+      folderOpen: !!s.folder, folderName: s.folder || '', closeFolder: () => this.setState({ folder: null }),
+      recentsOpen: s.recents, hasRecents: s.recent.length > 0, noRecents: s.recent.length === 0,
+      recentCards: s.recent.map((id, index) => ({
+        ...item(id), delay: index * 50,
+        open: () => { const at = this.iconPos(id); this.open(id, at.x, at.y, at.size); },
+        remove: () => { this.setState({ recent: s.recent.filter((a) => a !== id) }); this.log('recents: forget ' + id); }
+      })),
+      closeAll: () => this.setState({ recent: [], recents: false }),
+      wheelRecents: (e) => { const el = e.currentTarget; el.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY; },
+      closeRecents: () => this.setState({ recents: false }),
+      showRecents: () => (s.recents ? this.setState({ recents: false }) : this.showRecents()),
+      winOn: !!win, winApp: win ? item(win.app) : { name: '', d: '' },
+      winTransform, winClip, winOpacity, winTransition, iconOpacity, iconDur,
+      isClock: app === 'clock', isCalc: app === 'calculator', isNotes: app === 'notes', isSettings: app === 'settings',
+      isStore: app === 'store',
+      isOther: !!win && !['clock', 'calculator', 'notes', 'settings', 'store'].includes(app),
+      otherText: STORE.some(([id]) => id === app) ? 'Android app, running on the translation layer.' : 'Keeps its current screens in this prototype.',
+      storeApps: STORE.map(([id, kind, size]) => {
+        const loading = s.dl[id] !== undefined, done = s.installed.includes(id);
+        return {
+          ...item(id), meta: kind + ' · ' + size, canInstall: !loading && !done, isLoading: loading, isInstalled: done, pct: Math.round(s.dl[id] || 0),
+          install: () => this.install(id),
+          open: () => { const at = this.iconPos(id); this.close(); setTimeout(() => this.open(id, at.x, at.y, at.size), this.closeMs()); }
+        };
+      }),
+      settingsGroups: [
+        { title: 'Android', rows: [
+          { label: 'JIT', value: 'Enabled', isInfo: true },
+          ...[['translation', 'Android translation'], ['broker', 'Play services'], ['windows', 'Apps in windows'], ['twoApps', 'Two apps at once (experimental)']].map(([key, label]) => ({
+            label, isToggle: true, on: s.android[key], cls: s.android[key] ? 'sw on' : 'sw',
+            toggle: () => this.setState({ android: { ...s.android, [key]: !s.android[key] } })
+          }))
+        ] },
+        { title: 'Style', rows: [
+          { label: 'Look', value: design === 'glass' ? 'Liquid Glass' : 'Material 3 Expressive', isInfo: true },
+          { label: 'Open animation', value: s.preset, isInfo: true },
+          { label: 'Theme', value: s.dark ? 'Dark' : 'Light', isInfo: true }
+        ] },
+        { title: 'About', rows: [
+          { label: 'System', value: 'ModemOS', isInfo: true },
+          { label: 'Built on', value: 'HuskPatch', isInfo: true }
+        ] }
+      ],
+      calcDisplay: s.calc,
+      calcKeys: calcRows.map((label) => ({
+        label, cls: '÷×−+='.includes(label) ? 'op' : '',
+        tap: () => (label === '⌫' ? this.setState({ calc: s.calc.length > 1 ? s.calc.slice(0, -1) : '0' }) : this.calcPress(label))
+      })),
+      openLabLook: () => this.setState({ lab: true, labTab: 'look' }),
+      lockNow: () => this.setState({ lab: false, win: null, drawer: false, folder: null, locked: true }),
+      lockOn: s.locked, unlock: () => this.unlock(),
+      lockY: s.unlocking ? -844 : drag && drag.kind === 'lock' ? (-drag.p * 844).toFixed(1) : 0,
+      lockT: drag && drag.kind === 'lock' ? 'none' : 'transform var(--close) var(--settle)',
+      toastOn: !!s.toast, toastTitle: s.toast ? s.toast.title : '', toastIcon: s.toast ? I[s.toast.app] : '',
+      toastTap: () => { const t = s.toast; if (!t) return; const at = this.iconPos(t.app); this.setState({ toast: null }); this.open(t.app, at.x, at.y, at.size); },
+      ccShown: s.cc || (drag && drag.kind === 'cc'), ccP: ccP.toFixed(3), ccY: ((ccP - 1) * 420).toFixed(1),
+      ccTransition: drag && drag.kind === 'cc' ? 'none' : sheet, ccFade: drag && drag.kind === 'cc' ? 'none' : 'opacity 0.25s ease',
+      closeCC: () => this.setState({ cc: false }),
+      tiles, brightness: s.brightness, volume: s.volume,
+      setBrightness: (e) => this.setState({ brightness: Number(e.target.value) }),
+      setVolume: (e) => this.setState({ volume: Number(e.target.value) }),
+      dim: ((100 - s.brightness) / 100 * 0.8).toFixed(3),
+      labShown: s.lab || (drag && drag.kind === 'lab'), labP: labP.toFixed(3), labX: ((1 - labP) * labOff).toFixed(1),
+      labTransition: drag && drag.kind === 'lab' ? 'none' : sheet, labFade: drag && drag.kind === 'lab' ? 'none' : 'opacity 0.25s ease',
+      closeLab: () => this.setState({ lab: false }),
+      labTabs: [['motion', 'Motion'], ['look', 'Look'], ['system', 'System'], ['logs', 'Logs']].map(([id, label]) => ({
+        label, cls: id === s.labTab ? 'on' : '', tap: () => this.setState({ labTab: id })
+      })),
+      tabMotion: s.labTab === 'motion', tabLook: s.labTab === 'look', tabSystem: s.labTab === 'system', tabLogs: s.labTab === 'logs',
+      presets: choice(PRESETS, s.preset, (preset) => this.setState({ preset })),
+      bouncePct: s.bounce, bounceText: s.bounce === 0 ? 'Off' : s.bounce + '%',
+      setBounce: (e) => this.setState({ bounce: Number(e.target.value) }),
+      speedPct: s.speed, speedText: (s.speed / 100).toFixed(2) + '×',
+      setSpeed: (e) => this.setState({ speed: Number(e.target.value) }),
+      runPreview: () => {
+        this.setState({ preview: 'start' });
+        requestAnimationFrame(() => requestAnimationFrame(() => this.setState({ preview: 'open' })));
+      },
+      previewTransform: previewStart ? previewFrom : 'none',
+      previewOpacity: previewStart && s.preset === 'Fade' ? 0 : 1,
+      previewRadius: previewStart ? 60 : 0,
+      previewTransition: previewStart ? 'none' : 'transform var(--open) var(--spring), border-radius var(--open) ease, opacity 0.2s ease',
+      ripple: s.rippleOn, rippleCls: s.rippleOn ? 'sw on' : 'sw', toggleRipple: () => this.setState({ rippleOn: !s.rippleOn }),
+      homeZoom: s.homeZoom, zoomCls: s.homeZoom ? 'sw on' : 'sw', toggleZoom: () => this.setState({ homeZoom: !s.homeZoom }),
+      designs: [['expressive', 'Expressive'], ['glass', 'Liquid Glass']].map(([id, label]) => ({
+        label, cls: id === design ? 'on' : '', tap: () => { this.setState({ design: id }); this.log('design: ' + id); }
+      })),
+      themes: [[true, 'Dark'], [false, 'Light']].map(([dark, label]) => ({ label, cls: dark === s.dark ? 'on' : '', tap: () => this.setState({ dark }) })),
+      setRound: (e) => this.setState({ round: Number(e.target.value) }),
+      navModes: [['gestures', 'Gestures'], ['buttons', 'Three buttons']].map(([id, label]) => ({ label, cls: id === s.nav ? 'on' : '', tap: () => this.setState({ nav: id }) })),
+      h24: s.h24, h24Cls: s.h24 ? 'sw on' : 'sw', toggleH24: () => this.setState({ h24: !s.h24 }),
+      batteryCls: s.battery ? 'sw on' : 'sw', toggleBattery: () => this.setState({ battery: !s.battery }),
+      replayBoot: () => { this.setState({ lab: false, win: null, enterKey: 0 }); this.runBoot(); },
+      logs: s.logs,
+      gestureNav: s.nav === 'gestures', buttonNav: s.nav === 'buttons',
+      navLineCls: win ? 'navline onapp' : 'navline', navBtnCls: win ? 'navbtns onapp' : 'navbtns',
+      navTap: () => {
+        if (this.moved) return;
+        if (s.lab) this.setState({ lab: false });
+        else if (s.cc) this.setState({ cc: false });
+        else if (win) this.close();
+        else if (s.recents) this.setState({ recents: false });
+        else if (s.folder) this.setState({ folder: null });
+        else if (s.drawer) this.setState({ drawer: false });
+      },
+      bootOn: s.boot >= 0, bootCls: s.bootOut ? 'boot out' : 'boot',
+      bootLines: BOOT.slice(0, Math.max(0, s.boot)),
+      skipBoot: () => this.endBoot()
+    };
+  }
+}
+</script>
+</body>
+</html>

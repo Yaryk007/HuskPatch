@@ -115,7 +115,7 @@ enum AnimStyle: String, CaseIterable, Identifiable {
         case .elegance: return "How about feeling as elegant as possible?"
         case .dynamic: return "If you want a faster and more dynamic feel"
         case .sweet: return "Soft bounce and an icon ripple"
-        case .zoom: return "Zooms in from the centre"
+        case .zoom: return "The window grows out of its icon"
         case .slide: return "Slides up from the bottom"
         case .fade: return "A quick crossfade"
         case .custom: return "Your own animation, built in the Lab"
@@ -205,6 +205,8 @@ final class OSSettings: ObservableObject {
     @Published var rippleEnabled: Bool { didSet { save(rippleEnabled, "rippleEnabled") } }
     /// The wallpaper and icons lean and shift at different depths while things move over them.
     @Published var parallax: Bool { didSet { save(parallax, "parallax") } }
+    /// The short boot at each start: log lines, then the screen closes into a circle.
+    @Published var bootAnimation: Bool { didSet { save(bootAnimation, "bootAnimation") } }
     /// The lock screen at each start.
     @Published var lockScreen: Bool { didSet { save(lockScreen, "lockScreen") } }
 
@@ -272,7 +274,7 @@ final class OSSettings: ObservableObject {
         theme = ThemeMode(rawValue: d.string(forKey: "theme") ?? "") ?? .dark
         wallpaper = value("wallpaper", 31)
         navMode = NavMode(rawValue: d.string(forKey: "navMode") ?? "") ?? .gestures
-        animStyle = AnimStyle(rawValue: d.string(forKey: "animStyle") ?? "") ?? .oneUI
+        animStyle = AnimStyle(rawValue: d.string(forKey: "animStyle") ?? "") ?? .zoom
         animSpeed = value("animSpeed", 1.0)
         bounce = value("bounce", 0.25)
         homeZoom = value("homeZoom", 0.06)
@@ -281,6 +283,7 @@ final class OSSettings: ObservableObject {
         rippleEnabled = value("rippleEnabled", false)
         parallax = value("parallax", true)
         lockScreen = value("lockScreen", true)
+        bootAnimation = value("bootAnimation", true)
         customOrigin = AnimOrigin(rawValue: d.string(forKey: "customOrigin") ?? "") ?? .icon
         customOpen = value("customOpen", 0.5)
         customClose = value("customClose", 0.45)
@@ -327,7 +330,7 @@ final class OSSettings: ObservableObject {
 
     /// Puts the motion settings back to how they were on first launch.
     func resetMotion() {
-        animStyle = .oneUI
+        animStyle = .zoom
         animSpeed = 1
         bounce = 0.25
         homeZoom = 0.06
@@ -401,7 +404,7 @@ final class OSSettings: ObservableObject {
 enum WindowMotion {
     static func morphs(_ style: AnimStyle, _ os: OSSettings) -> Bool {
         switch style {
-        case .oneUI, .elegance, .dynamic, .sweet: return true
+        case .oneUI, .elegance, .dynamic, .sweet, .zoom: return true
         case .custom: return os.customOrigin == .icon
         default: return false
         }
@@ -427,7 +430,8 @@ enum WindowMotion {
         case .elegance: return Look(translucency: 0.45, tint: 0.7, trail: 3, squash: 0, glow: 0.3)
         case .dynamic: return Look(translucency: 0.35, tint: 0.6, trail: 2, squash: 0.05, glow: 0.18)
         case .sweet: return Look(translucency: 0.28, tint: 0.75, trail: 1, squash: 0.14, glow: 0.22)
-        case .zoom, .slide, .fade: return Look()
+        case .zoom: return Look(tint: 0.9)
+        case .slide, .fade: return Look()
         case .custom:
             return Look(
                 translucency: CGFloat(os.customTranslucency),
@@ -470,10 +474,8 @@ enum WindowMotion {
 
     static func rect(_ style: AnimStyle, _ os: OSSettings, origin: CGRect, full: CGRect, p: CGFloat) -> CGRect {
         switch style {
-        case .oneUI, .elegance, .dynamic, .sweet:
+        case .oneUI, .elegance, .dynamic, .sweet, .zoom:
             return grow(origin, full, p)
-        case .zoom:
-            return full.scaledAroundCenter(max(0.05, lerp(0.4, 1, p)))
         case .slide:
             return full.offsetBy(dx: 0, dy: (1 - p) * full.height)
         case .fade:

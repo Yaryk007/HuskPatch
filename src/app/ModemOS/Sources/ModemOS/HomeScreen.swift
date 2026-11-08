@@ -21,6 +21,8 @@ struct HomeScreen: View {
     @EnvironmentObject private var os: OSSettings
 
     @StateObject private var intro = Animator(0)
+    /// 0 -> 1 as the icons come in after unlocking.
+    @StateObject private var cascadeAnim = Animator(1)
     /// 0 = closed, 1 = open.
     @StateObject private var drawer = Animator(0)
     @StateObject private var shade = Animator(0)
@@ -145,6 +147,10 @@ struct HomeScreen: View {
             if revealed { intro.animate(to: 1, response: 0.8, damping: 1, ease: true) }
         }
         .onChange(of: os.showFPS) { on in fps.run(on) }
+        .onReceive(NotificationCenter.default.publisher(for: .modemOSUnlocked)) { _ in
+            cascadeAnim.set(0)
+            cascadeAnim.animate(to: 1, response: 0.9, damping: os.uiDamping)
+        }
         .onChange(of: revealed) { isRevealed in
             if isRevealed {
                 intro.animate(to: 1, response: 0.8, damping: 1, ease: true)
@@ -221,8 +227,13 @@ struct HomeScreen: View {
 
                 ScrollView(showsIndicators: false) {
                     LazyVGrid(columns: columns, spacing: 18 * L.u) {
-                        ForEach(drawerItems()) { item in
-                            drawerCell(item, L)
+                        ForEach(Array(drawerItems().enumerated()), id: \.element.id) { pair in
+                            // Each row arrives a moment after the one above as the drawer opens.
+                            let arrive = clamp01((d - 0.55) * 3.2 - CGFloat(min(pair.offset, 12)) * 0.06)
+                            drawerCell(pair.element, L)
+                                .scaleEffect(lerp(0.86, 1, arrive))
+                                .offset(y: 26 * L.u * (1 - arrive))
+                                .opacity(Double(arrive))
                         }
                     }
                     .padding(.horizontal, 12 * L.u)
@@ -348,9 +359,12 @@ struct HomeScreen: View {
         let labelY = rect.maxY + L.labelSize * 1.15
         let radius = L.iconRadius(os.iconRoundness) * rect.width / L.iconSize
 
+        let arrive = cascade(rect, L)
         return ZStack {
             iconShape(item, size: rect.width, radius: radius)
-                .scaleEffect(iconGrowth)
+                .scaleEffect(iconGrowth * lerp(0.86, 1, arrive))
+                .offset(y: 26 * L.u * (1 - arrive))
+                .opacity(Double(arrive))
                 .opacity(visible ? 1 : 0)
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -374,7 +388,8 @@ struct HomeScreen: View {
                     .lineLimit(1)
                     .frame(width: rect.width * 1.3)
                     .position(x: rect.midX, y: labelY)
-                    .opacity(visible ? 1 : 0)
+                    .offset(y: 26 * L.u * (1 - arrive))
+                    .opacity(visible ? Double(arrive) : 0)
                     .allowsHitTesting(false)
             }
         }
@@ -392,7 +407,19 @@ struct HomeScreen: View {
     private var iconGrowth: CGFloat {
         guard os.rippleEnabled, let window = movingWindow else { return 1 }
         let p = clamp01(window.t.value)
-        return 1 + 0.3 * p * p * (3 - 2 * p)
+        return 1 + 0.3 * follow(p)
+    }
+
+    /// While a finger holds the window the background tracks it one to one; on its own it eases in and out.
+    /// (A smoothstep is flat near open, so a swipe barely moved the background until the window let go.)
+    private func follow(_ p: CGFloat) -> CGFloat {
+        dragSession != nil ? p : p * p * (3 - 2 * p)
+    }
+
+    /// Icons come in one after another after the lock screen, from the top left down, as in the prototype.
+    private func cascade(_ rect: CGRect, _ L: HomeLayout) -> CGFloat {
+        let lag = rect.minY / L.h * 0.45 + rect.minX / L.w * 0.12
+        return clamp01((cascadeAnim.value * 1.6 - lag) / 0.55)
     }
 
     /// How the layers behind sit at this moment. Each moves by its own amount, which is what gives the parallax:
@@ -410,7 +437,7 @@ struct HomeScreen: View {
         let s = clamp01(shade.value), pv = clamp01(panel.value), rv = clamp01(recentsAnim.value), d = clamp01(drawer.value)
         let window = movingWindow
         let p = window.map { clamp01($0.t.value) } ?? 0
-        let eased = p * p * (3 - 2 * p)
+        let eased = follow(p)
         let ox = window.map { $0.origin.midX - L.w / 2 } ?? 0
         let oy = window.map { $0.origin.midY - L.h / 2 } ?? 0
         let side: CGFloat = panelSide == .left ? 1 : -1
@@ -842,7 +869,7 @@ struct HomeScreen: View {
         let from = index < 4
             ? L.miniRect(index, in: session.origin)
             : CGRect(x: session.origin.midX - 4, y: session.origin.midY - 4, width: 8, height: 8)
-        let extraFade = index < 4 ? 1 : Double(clamp01((p - 0.2) * 2))
+        let extraFade = (index < 4 ? 1 : Double(clamp01((p - 0.2) * 2))) * Double(clamp01((p - 0.3) * 2.6 - CGFloat(index) * 0.08 + 0.3))
         let rect = lerp(from, L.folderChild(index), p).offsetBy(dx: delta.width, dy: delta.height)
         let radius = lerp(from.width * 0.28, L.iconRadius(os.iconRoundness), p)
         let child = windows.session(item.id)
@@ -1641,8 +1668,8 @@ private struct RecentCard: View {
         .frame(width: width)
         .offset(x: swipeUp ? 0 : offset, y: swipeUp ? offset : 0)
         .opacity(Double(1 - min(1, abs(offset) / 400)))
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 16)
+        .gesture(
+            DragGesture(minimumDistance: 20)
                 .onChanged { value in
                     if swipeUp {
                         guard abs(value.translation.height) > abs(value.translation.width) else { return }

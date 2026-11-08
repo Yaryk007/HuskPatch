@@ -7,6 +7,7 @@ struct RootView: View {
     /// The boot sequence is off unless it is turned on in the Lab.
     @State private var booting = OSSettings.shared.forcedBoot
     @State private var locked = OSSettings.shared.lockScreen && OSSettings.shared.setupDone
+    @State private var shortBoot = OSSettings.shared.bootAnimation && !OSSettings.shared.forcedBoot && OSSettings.shared.setupDone
 
     var body: some View {
         ZStack {
@@ -23,6 +24,13 @@ struct RootView: View {
 
             if locked && !booting && os.setupDone {
                 LockScreen(unlocked: { locked = false })
+            }
+
+            if shortBoot && !booting {
+                ModemBootView(finished: {
+                    shortBoot = false
+                    if !locked { NotificationCenter.default.post(name: .modemOSUnlocked, object: nil) }
+                })
             }
 
             if booting {

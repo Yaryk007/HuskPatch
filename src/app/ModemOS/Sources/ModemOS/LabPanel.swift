@@ -590,6 +590,7 @@ private struct SystemTab: View {
 
                 LabSection(title: "Maintenance") {
                     LabToggle(title: "Lock screen", symbol: "lock.fill", isOn: $os.lockScreen)
+                    LabToggle(title: "Boot animation", symbol: "power", isOn: $os.bootAnimation)
                     HostExitButton()
                         .font(.system(size: 15, weight: .semibold))
                     Button {
